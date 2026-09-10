@@ -56,10 +56,23 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
   assert.deepEqual(pendingMigrations(["auth", "README.md"], []), []);
 });
 
-test("the auth schema ships outside the globbed directory", () => {
+test("the auth schema's home is outside the globbed directory", () => {
+  // The shipped template has an empty globbed directory. This app has its own
+  // migrations and has turned sign-in on, so asserting the plan is empty only
+  // ever described the untouched template. What still has to hold: auth's
+  // source of truth stays in migrations/auth/, outside the non-recursive glob,
+  // and anything in the globbed directory is a real, ordered migration.
   const migrationsDir = join(projectRoot(), "migrations");
-  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), []);
-  assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+  assert.ok(readdirSync(join(migrationsDir, "auth")).includes(AUTH_MIGRATION));
+
+  const plan = pendingMigrations(readdirSync(migrationsDir), []);
+  for (const { name } of plan) assert.match(name, /^\d{4}_[a-z0-9_]+\.sql$/);
+  // With sign-in on the schema is copied up (see the byte-identity test below).
+  // It has to run first: an app migration must not reference a user table that
+  // does not exist yet, which a 0000_-prefixed newcomer would cause.
+  if (plan.some((m) => m.name === AUTH_MIGRATION)) {
+    assert.equal(plan[0].name, AUTH_MIGRATION);
+  }
 });
 
 test("this workspace's auth schema copy is byte-identical to its source", () => {

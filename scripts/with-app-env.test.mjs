@@ -61,8 +61,17 @@ test("an explicit process-env override wins over the file", () => {
   assert.equal(merged.PATH, "/usr/bin");
 });
 
-test("the template ships auth off", () => {
-  assert.deepEqual(readAppEnv(projectRoot()), { VITE_AUTH_ENABLED: "false" });
+test("the workspace app-env is a VITE_-only document", () => {
+  // Was "the template ships auth off". app-env.json is not committed, and this
+  // app turned sign-in on for its two allow-listed accounts, so the shipped
+  // default describes neither the checkout nor the deployment. What still has
+  // to hold: everything the wrapper will merge into process.env is a
+  // VITE_-prefixed string, so nothing here can leak a server-only secret into
+  // the client bundle.
+  for (const [key, value] of Object.entries(readAppEnv(projectRoot()))) {
+    assert.match(key, /^VITE_/);
+    assert.equal(typeof value, "string", key);
+  }
 });
 
 test("vite loadEnv resolves the wrapped value", () => {
@@ -76,13 +85,18 @@ test("vite loadEnv resolves the wrapped value", () => {
 });
 
 test("the wrapped command runs with the app env applied", async () => {
+  // The wrapper resolves the project root from its own path, so this exercises
+  // the real workspace rather than a fixture: whatever app-env.json holds is
+  // what the child sees. An absent file means an unset variable, which is the
+  // no-op the test above pins.
+  const expected = readAppEnv(projectRoot()).VITE_AUTH_ENABLED ?? "undefined";
   const { stdout } = await execFileAsync(process.execPath, [
     WRAPPER,
     process.execPath,
     "-e",
     PRINT_FLAG,
   ]);
-  assert.equal(stdout, "false");
+  assert.equal(stdout, expected);
 });
 
 test("the wrapped command sees an explicit override, not the file value", async () => {
@@ -173,16 +187,32 @@ test("shell quoting protects spaces and metacharacters, and doubles quotes", () 
   assert.equal(quoteForShell('say "hi"'), '"say ""hi"""');
 });
 
-test("the CLI still runs when invoked through a symlinked path", async () => {
+/**
+ * Windows creates symlinks only under Developer Mode or elevation, so an EPERM
+ * here is the platform talking, not the code under test.
+ */
+function trySymlink(target, path) {
+  try {
+    symlinkSync(target, path);
+    return true;
+  } catch (err) {
+    if (err?.code === "EPERM" || err?.code === "EACCES") return false;
+    throw err;
+  }
+}
+
+test("the CLI still runs when invoked through a symlinked path", async (t) => {
   // node realpaths import.meta.url but not process.argv[1], so a raw comparison
   // turns the wrapper into a no-op that exits 0 without starting anything.
   const link = join(mkdtempSync(join(tmpdir(), "app-env-link-")), "scripts");
-  symlinkSync(join(projectRoot(), "scripts"), link);
+  if (!trySymlink(join(projectRoot(), "scripts"), link)) {
+    return t.skip("this platform does not permit creating symlinks");
+  }
   const { stdout } = await execFileAsync(process.execPath, [
     join(link, "with-app-env.mjs"),
     process.execPath,
     "-e",
     PRINT_FLAG,
   ]);
-  assert.equal(stdout, "false");
+  assert.equal(stdout, readAppEnv(projectRoot()).VITE_AUTH_ENABLED ?? "undefined");
 });

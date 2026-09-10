@@ -90,16 +90,34 @@ test("only a divergence warns the smoke verdict", () => {
   }
 });
 
-test("the build side resolves the template's shipped app-env", () => {
-  assert.equal(buildAuthEnabled(projectRoot(), {}), false);
+test("the build side resolves the app-env, an explicit override winning", () => {
+  // Was pinned to the template's shipped `false`, which lived in an
+  // app-env.json that is not committed — absent, the default is auth on, and
+  // this app deploys with sign-in on for its two allow-listed accounts. The
+  // rule that does hold is the resolution order, so pin that in both
+  // directions rather than one deployment's answer.
   assert.equal(buildAuthEnabled(projectRoot(), { VITE_AUTH_ENABLED: "true" }), true);
+  assert.equal(buildAuthEnabled(projectRoot(), { VITE_AUTH_ENABLED: "false" }), false);
 });
 
-test("the CLI reports rather than silently passing when run via a symlink", async () => {
+/** Windows needs Developer Mode or elevation to create a symlink. */
+function trySymlink(target, path) {
+  try {
+    symlinkSync(target, path);
+    return true;
+  } catch (err) {
+    if (err?.code === "EPERM" || err?.code === "EACCES") return false;
+    throw err;
+  }
+}
+
+test("the CLI reports rather than silently passing when run via a symlink", async (t) => {
   // A check whose exit code is the whole signal must never no-op to 0 because
   // process.argv[1] came in through a symlinked path.
   const link = join(mkdtempSync(join(tmpdir(), "auth-invariant-link-")), "scripts");
-  symlinkSync(join(projectRoot(), "scripts"), link);
+  if (!trySymlink(join(projectRoot(), "scripts"), link)) {
+    return t.skip("this platform does not permit creating symlinks");
+  }
   const error = await promisify(execFile)(process.execPath, [
     join(link, "check-auth-invariant.mjs"),
     "--dev-url",

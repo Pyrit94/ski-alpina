@@ -164,9 +164,14 @@ test("cli: relative paths follow the script's root, not the caller's cwd", () =>
   assert.equal(existsSync(join(root, "public/og.jpg")), false);
 });
 
-test("every hand-over the og skill prints is one this script accepts", () => {
+test("every hand-over the og skill prints is one this script accepts", (t) => {
   // The card and banner recipes live in the skill's references/, not SKILL.md.
   const skillDir = join(TEMPLATE_ROOT, ".grok/skills/og");
+  // `.grok/` is the gitignored authoring harness — absent from every clone, so
+  // this pins the skill's prose to the code only where that prose exists.
+  if (!existsSync(join(skillDir, "references"))) {
+    return t.skip(".grok/skills/og is not in this checkout");
+  }
   const docs = [
     join(skillDir, "SKILL.md"),
     ...readdirSync(join(skillDir, "references")).map((f) => join(skillDir, "references", f)),
