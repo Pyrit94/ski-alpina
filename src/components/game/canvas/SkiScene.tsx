@@ -574,6 +574,53 @@ function PeerFocus() {
   );
 }
 
+/**
+ * A gradient sky instead of a flat clear colour.
+ *
+ * The range had nothing to stand against: sky, haze and distant snow were all
+ * the same tone, so the peaks dissolved rather than reading as peaks. A
+ * horizon behind them is what gives the mountain its silhouette.
+ */
+function SkyDome() {
+  const geo = useMemo(() => new THREE.SphereGeometry(400, 32, 20), []);
+  const mat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        // Never fogged: the sky is the thing the fog fades everything else into.
+        fog: false,
+        uniforms: {
+          zenith: { value: new THREE.Color("#3f74b4") },
+          horizon: { value: new THREE.Color("#d5e4f0") },
+        },
+        vertexShader: `
+          varying float vHeight;
+          void main() {
+            vHeight = normalize(position).y;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }`,
+        fragmentShader: `
+          uniform vec3 zenith;
+          uniform vec3 horizon;
+          varying float vHeight;
+          void main() {
+            float t = clamp(vHeight * 1.25 + 0.1, 0.0, 1.0);
+            gl_FragColor = vec4(mix(horizon, zenith, pow(t, 0.8)), 1.0);
+          }`,
+      }),
+    [],
+  );
+  useEffect(
+    () => () => {
+      geo.dispose();
+      mat.dispose();
+    },
+    [geo, mat],
+  );
+  return <mesh geometry={geo} material={mat} renderOrder={-1} frustumCulled={false} />;
+}
+
 function LightsAndSky() {
   const tod = useGame((s) => s.timeOfDay);
   const quality = useGame((s) => s.quality);
@@ -583,19 +630,21 @@ function LightsAndSky() {
   const low = quality === "low";
   return (
     <>
-      <color attach="background" args={["#9eb8d0"]} />
+      <SkyDome />
       {/*
         Fill light used to total more than the sun (hemisphere 1.05 + ambient
         0.42 against a 1.35 directional), which flattened the mountain into a
         sheet. The sun now dominates and the fill only keeps shadowed faces
         from going black — sky blue from above, bounced snow-light from below.
       */}
-      <hemisphereLight args={["#cfe2f7", "#9aa7ae", low ? 0.62 : 0.45]} />
-      <ambientLight intensity={low ? 0.2 : 0.12} />
+      <hemisphereLight args={["#bcd8f5", "#7f8f9c", low ? 0.5 : 0.36]} />
+      <ambientLight intensity={low ? 0.16 : 0.1} />
       <directionalLight
         position={[48, 36 + elev * 28, 18]}
-        intensity={2.35 * (0.55 + elev * 0.5) * (low ? 1.1 : 1)}
-        color="#fff4e0"
+        // Strong enough to sculpt, not so strong that the mid-tones blow out
+        // to white — which is what a 2.35 sun through ACES was doing to snow.
+        intensity={1.55 * (0.55 + elev * 0.5) * (low ? 1.12 : 1)}
+        color="#fff2d8"
         castShadow={!low}
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
@@ -605,7 +654,13 @@ function LightsAndSky() {
         shadow-camera-top={80}
         shadow-camera-bottom={-80}
       />
-      <fog attach="fog" args={["#9eb8d0", low ? 90 : 120, low ? 240 : 280]} />
+      {/*
+        Haze used to start at 120 units, and the Matterhorn stands some 100 to
+        150 away — so the fog ate the range the map is named after. It now
+        starts past the far peaks and fades into the horizon colour, which
+        gives distance without deleting the skyline.
+      */}
+      <fog attach="fog" args={["#d5e4f0", low ? 170 : 210, low ? 360 : 410]} />
     </>
   );
 }
@@ -673,7 +728,8 @@ function Controls() {
       enableDamping
       dampingFactor={raster ? 0.2 : 0.12}
       minDistance={raster ? 14 : 16}
-      maxDistance={raster ? 64 : 150}
+      // Far enough back to take in the whole range; the map is 196 across.
+      maxDistance={raster ? 64 : 250}
       maxPolarAngle={raster ? 0.58 : Math.PI / 2.12}
       minPolarAngle={raster ? 0.34 : stampMode ? 0.36 : 0.28}
       enableRotate={!raster && tool !== "pan"}
@@ -734,23 +790,27 @@ export function SkiScene() {
   return (
     <Canvas
       camera={{
-        position: mobile ? [4, 64, 58] : [16, 58, 92],
-        fov: mobile ? 44 : 40,
+        // Pulled back and pitched lower than before, so the establishing shot
+        // includes the skyline rather than only the valley floor the resort
+        // starts on.
+        position: mobile ? [10, 54, 84] : [22, 50, 108],
+        fov: mobile ? 46 : 42,
         near: 0.4,
-        far: 420,
+        far: 460,
       }}
       dpr={mobile ? [1, 1.25] : [1, 1.7]}
       shadows={!mobile}
       gl={{ antialias: !mobile, powerPreference: "high-performance", alpha: false }}
-      style={{ touchAction: "none", background: "#9eb8d0" }}
-      onCreated={({ gl, scene, camera }) => {
-        gl.setClearColor("#9eb8d0", 1);
+      style={{ touchAction: "none", background: "#bcd2e6" }}
+      onCreated={({ gl, camera }) => {
+        gl.setClearColor("#bcd2e6", 1);
         gl.toneMapping = THREE.ACESFilmicToneMapping;
-        gl.toneMappingExposure = mobile ? 1.28 : 1.12;
+        // The ground carries its own shading now, so less exposure is needed
+        // to keep the snow from blowing out to flat white.
+        gl.toneMappingExposure = mobile ? 1.1 : 0.98;
         gl.shadowMap.enabled = !mobile;
-        gl.shadowMap.type = THREE.PCFShadowMap;
+        gl.shadowMap.type = THREE.PCFSoftShadowMap;
         camera.lookAt(-4, 12, 38);
-        scene.background = new THREE.Color("#9eb8d0");
       }}
     >
       <LightsAndSky />
