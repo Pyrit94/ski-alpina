@@ -252,14 +252,21 @@ const mix = (a: Rgb, b: Rgb, t: number): Rgb => [
 const GROUND = {
   meadow: [0.58, 0.63, 0.42] as Rgb,
   forest: [0.24, 0.38, 0.28] as Rgb,
-  alpine: [0.68, 0.72, 0.66] as Rgb,
-  snow: [0.93, 0.95, 0.99] as Rgb,
-  glacier: [0.82, 0.9, 0.97] as Rgb,
+  alpine: [0.66, 0.69, 0.64] as Rgb,
+  // Deliberately short of white. Snow at 0.95 albedo has no headroom left to
+  // shade into, so every slope renders at the same clipped value and the
+  // mountain flattens into a paper cut-out. Held here, the sun lifts the lit
+  // faces and the shading below still has somewhere to go.
+  snow: [0.79, 0.83, 0.9] as Rgb,
+  glacier: [0.71, 0.81, 0.91] as Rgb,
   rock: [0.42, 0.39, 0.36] as Rgb,
   scree: [0.55, 0.51, 0.46] as Rgb,
   village: [0.72, 0.66, 0.53] as Rgb,
   ice: [0.45, 0.68, 0.79] as Rgb,
 };
+
+/** Metres of blending either side of the snow line. */
+const SNOW_FEATHER = 130;
 
 /**
  * Ground colour at a point, blended rather than switched.
@@ -269,19 +276,41 @@ const GROUND = {
  * mountain's structure on the surface, and darkening with steepness bakes
  * relief into the vertex colour — so the shape stays readable even where the
  * sun happens to fall flat on the slope.
+ *
+ * `snowLineM` is the simulation's own snow line — the same number the HUD
+ * prints and the one a run is refused for lying below. Without it the ground
+ * only turned white above 2400 m on a fixed altitude ramp, so a resort whose
+ * snow line sat at 1500 m rendered its entire skiable area as summer pasture:
+ * the map contradicted the game. Pass it and winter looks like winter,
+ * snowmaking visibly lowers the white, and a thaw visibly raises it.
  */
-export function terrainColor(hm: Heightmap, x: number, z: number): Rgb {
+export function terrainColor(
+  hm: Heightmap,
+  x: number,
+  z: number,
+  snowLineM?: number,
+): Rgb {
   if (hm.isWater(x, z)) return GROUND.ice;
   const m = hm.sample(x, z);
   const s = hm.slope(x, z);
 
-  // Up through pasture, forest, the treeline, snow and finally ice.
+  // Up through pasture, forest and the treeline.
   let c = mix(GROUND.meadow, GROUND.forest, smoothstep(1700, 1950, m));
   c = mix(c, GROUND.alpine, smoothstep(2050, 2400, m));
-  c = mix(c, GROUND.snow, smoothstep(2400, 2850, m));
+
+  // Then snow. With no snow line given, fall back to the old altitude ramp so
+  // a caller without simulation stats (the minimap, a test) still gets a
+  // plausible mountain.
+  const snowCover =
+    snowLineM === undefined
+      ? smoothstep(2400, 2850, m)
+      : smoothstep(snowLineM - SNOW_FEATHER, snowLineM + SNOW_FEATHER, m);
+  c = mix(c, GROUND.snow, snowCover);
   c = mix(c, GROUND.glacier, smoothstep(3500, 3900, m) * (1 - smoothstep(0.3, 0.55, s)));
 
-  // Steep ground sheds snow: scree first, then bare rock.
+  // Steep ground sheds snow: scree first, then bare rock. Wind-scoured faces
+  // stay bare however deep the snow is, which is what gives a white mountain
+  // its structure instead of a smooth meringue.
   c = mix(c, GROUND.scree, smoothstep(0.4, 0.7, s));
   c = mix(c, GROUND.rock, smoothstep(0.7, 1.15, s));
 
@@ -290,8 +319,15 @@ export function terrainColor(hm: Heightmap, x: number, z: number): Rgb {
   c = mix(c, GROUND.village, (1 - smoothstep(6, 16, vd)) * (1 - smoothstep(0.1, 0.3, s)) * 0.75);
 
   // Relief baked into the colour, so form survives flat lighting.
-  const shade = 1 - smoothstep(0.15, 1.3, s) * 0.34;
-  return [c[0] * shade, c[1] * shade, c[2] * shade];
+  //
+  // A plain multiply only greys snow down, and grey snow still reads flat.
+  // Snow in shade is lit by the sky rather than the sun, so it goes darker AND
+  // distinctly bluer — and on a surface with no albedo variation of its own,
+  // that hue shift carries most of the shape.
+  const shade = smoothstep(0.15, 1.3, s);
+  const lit: Rgb = [c[0], c[1], c[2]];
+  const shaded: Rgb = [c[0] * 0.6, c[1] * 0.68, c[2] * 0.82];
+  return mix(lit, shaded, shade);
 }
 
 export function biomeColor(b: Biome): [number, number, number] {

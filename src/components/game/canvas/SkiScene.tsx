@@ -24,7 +24,12 @@ import { BuildingModel } from "./models";
 import { ribbonGeometry } from "./geometry";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
 
-function buildTerrain(hm: Heightmap, layer: MapLayer, heat: Map<string, number>) {
+function buildTerrain(
+  hm: Heightmap,
+  layer: MapLayer,
+  heat: Map<string, number>,
+  snowLineM: number,
+) {
   const geo = new THREE.PlaneGeometry(hm.world, hm.world, hm.n - 1, hm.n - 1);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position!;
@@ -36,7 +41,7 @@ function buildTerrain(hm: Heightmap, layer: MapLayer, heat: Map<string, number>)
     const y = hm.worldY(x, z) + visualRelief(x, z);
     pos.setY(i, y);
     const m = hm.sample(x, z);
-    let c = terrainColor(hm, x, z);
+    let c = terrainColor(hm, x, z, snowLineM);
     if (layer === "height") {
       const t = Math.min(1, Math.max(0, (m - 1580) / 2800));
       dummy.setHSL(0.58 - t * 0.45, 0.45, 0.35 + t * 0.45);
@@ -69,7 +74,14 @@ function Terrain() {
     }
     return m;
   }, [pistes]);
-  const geo = useMemo(() => buildTerrain(hm, layer, heat), [hm, layer, heat]);
+  // Quantised: the raw snow line moves a metre at a time as weather and
+  // snowmaking shift, and every change here rebuilds the whole ground mesh.
+  // 25 m steps are below what the eye catches on a 130 m blend.
+  const snowLineM = useGame((s) => Math.round(s.stats.snowLineM / 25) * 25);
+  const geo = useMemo(
+    () => buildTerrain(hm, layer, heat, snowLineM),
+    [hm, layer, heat, snowLineM],
+  );
   const click = useGame((s) => s.clickHex);
   const hover = useGame((s) => s.hoverHex);
   const stampMode = useGame((s) => s.stampMode);
@@ -197,10 +209,106 @@ function PeakLabels() {
   );
 }
 
+/**
+ * The radial falloff a contact patch is painted with.
+ *
+ * Built once into a canvas rather than shipped as a file: it is a gradient,
+ * and a gradient described in six lines of code does not need a network
+ * request or a place in the asset pipeline.
+ */
+function contactTexture(): THREE.Texture | null {
+  if (typeof document === "undefined") return null;
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, 0, half, half, half);
+  grad.addColorStop(0, "rgba(0,0,0,0.9)");
+  grad.addColorStop(0.4, "rgba(0,0,0,0.44)");
+  grad.addColorStop(0.72, "rgba(0,0,0,0.13)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * The dark patch where a building meets the ground.
+ *
+ * Not a shadow — the sun already casts those, and it cannot draw this one:
+ * occlusion under an object is there at every hour and from every angle. It is
+ * the cue that reads as "placed" rather than "pasted on", and screen-space AO
+ * is the one thing a phone cannot pay for, so it is faked the way mobile games
+ * fake it: one instanced quad per building carrying an alpha falloff. Whole
+ * village, one draw call, no shader.
+ */
+function GroundContact() {
+  const buildings = useGame((s) => s.buildings);
+  const hm = getHeightmap();
+  const mesh = useRef<THREE.InstancedMesh>(null);
+  const texture = useMemo(contactTexture, []);
+  const flat = useMemo(
+    () => new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)),
+    [],
+  );
+  const scratch = useMemo(
+    () => ({ m: new THREE.Matrix4(), at: new THREE.Vector3(), size: new THREE.Vector3() }),
+    [],
+  );
+  // Rebuilding the mesh on every single build would throw the GPU buffer away
+  // each time, so capacity grows in blocks and `count` does the rest.
+  const capacity = Math.max(8, Math.ceil(buildings.length / 8) * 8);
+
+  useEffect(() => {
+    const inst = mesh.current;
+    if (!inst) return;
+    const { m, at, size } = scratch;
+    buildings.forEach((b, i) => {
+      const { x, z } = hexToWorld(b.q, b.r);
+      // A hotel occludes more ground than a ticket hut.
+      const spread = b.itemId.startsWith("hotel") ? 1.25 : 1;
+      at.set(x, hm.worldY(x, z) + 0.05, z);
+      size.set(spread, spread, 1);
+      inst.setMatrixAt(i, m.compose(at, flat, size));
+    });
+    inst.count = buildings.length;
+    inst.instanceMatrix.needsUpdate = true;
+  }, [buildings, hm, flat, scratch, capacity]);
+
+  if (buildings.length === 0 || !texture) return null;
+  return (
+    <instancedMesh
+      ref={mesh}
+      args={[undefined, undefined, capacity]}
+      frustumCulled={false}
+      renderOrder={1}
+    >
+      <planeGeometry args={[3.2, 3.2]} />
+      <meshBasicMaterial
+        map={texture}
+        // A cool grey, not black: occluded snow is lit by the sky, so pure
+        // black reads as a hole punched in the mountain.
+        color="#41566b"
+        transparent
+        opacity={0.5}
+        depthWrite={false}
+        polygonOffset
+        polygonOffsetFactor={-4}
+      />
+    </instancedMesh>
+  );
+}
+
 function Structures() {
   const buildings = useGame((s) => s.buildings);
   return (
     <group>
+      <GroundContact />
       {buildings.map((b) => (
         <PlacedStructure key={b.id} building={b} />
       ))}
@@ -1031,6 +1139,84 @@ function SkyDome() {
   return <mesh geometry={geo} material={mat} renderOrder={-1} frustumCulled={false} />;
 }
 
+/** How far up the sun sits from whatever it is aimed at. */
+const SUN_DISTANCE = 150;
+/** Shadow map edge, desktop. The box below is sized against this. */
+const SHADOW_MAP = 2048;
+
+/**
+ * The sun, with a shadow box that follows the view.
+ *
+ * One static box used to cover the whole 196-unit map on a 1024 map: 0.16
+ * world units per texel, so a chalet some 1.5 units wide got about ten texels
+ * of shadow and read as a grey smudge. The box now tracks the orbit target and
+ * scales with zoom — tight enough for a crisp contact edge up close, wide
+ * enough to hold the range when pulled back — which buys roughly five times
+ * the resolution where the player is actually looking.
+ */
+function SunLight({ low, elev }: { low: boolean; elev: number }) {
+  const light = useRef<THREE.DirectionalLight>(null);
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls) as { target?: THREE.Vector3 } | null;
+  const at = useMemo(() => new THREE.Vector3(), []);
+  const dir = useMemo(() => new THREE.Vector3(), []);
+  const fallback = useMemo(() => new THREE.Vector3(-4, 12, 38), []);
+
+  useFrame(() => {
+    const l = light.current;
+    if (!l) return;
+    at.copy(controls?.target ?? fallback);
+
+    // Radius from zoom: MapControls runs 16 to 250 units out.
+    const span = camera.position.distanceTo(at);
+    const radius = THREE.MathUtils.clamp(span * 0.44, 22, 104);
+
+    // Snap the centre to the shadow map's own texel grid. Without this the
+    // whole map crawls with shimmer whenever the camera drifts, because every
+    // depth sample lands on a slightly different texel than the frame before.
+    const texel = (radius * 2) / SHADOW_MAP;
+    at.x = Math.round(at.x / texel) * texel;
+    at.z = Math.round(at.z / texel) * texel;
+
+    dir.set(48, 36 + elev * 28, 18).normalize();
+    l.position.copy(at).addScaledVector(dir, SUN_DISTANCE);
+    // `target` is not in the scene graph, so three only reads its world
+    // matrix — updating it by hand is enough and saves adding a node.
+    l.target.position.copy(at);
+    l.target.updateMatrixWorld();
+
+    const cam = l.shadow.camera;
+    if (Math.abs(cam.right - radius) > 0.25) {
+      cam.left = -radius;
+      cam.right = radius;
+      cam.top = radius;
+      cam.bottom = -radius;
+      cam.updateProjectionMatrix();
+    }
+  });
+
+  return (
+    <directionalLight
+      ref={light}
+      position={[48, 36 + elev * 28, 18]}
+      // Strong enough to sculpt, not so strong that the mid-tones blow out
+      // to white — which is what a 2.35 sun through ACES was doing to snow.
+      intensity={1.55 * (0.55 + elev * 0.5) * (low ? 1.12 : 1)}
+      color="#fff2d8"
+      castShadow={!low}
+      shadow-mapSize-width={SHADOW_MAP}
+      shadow-mapSize-height={SHADOW_MAP}
+      shadow-camera-near={SUN_DISTANCE * 0.25}
+      shadow-camera-far={SUN_DISTANCE * 2.2}
+      // normalBias offsets along the surface normal, which is what cures the
+      // shadow acne a tight box brings on; a plain depth bias at this
+      // resolution detaches shadows from their feet instead.
+      shadow-normalBias={0.035}
+      shadow-bias={-0.0002}
+    />
+  );
+}
+
 function LightsAndSky() {
   const tod = useGame((s) => s.timeOfDay);
   const quality = useGame((s) => s.quality);
@@ -1049,21 +1235,7 @@ function LightsAndSky() {
       */}
       <hemisphereLight args={["#bcd8f5", "#7f8f9c", low ? 0.5 : 0.36]} />
       <ambientLight intensity={low ? 0.16 : 0.1} />
-      <directionalLight
-        position={[48, 36 + elev * 28, 18]}
-        // Strong enough to sculpt, not so strong that the mid-tones blow out
-        // to white — which is what a 2.35 sun through ACES was doing to snow.
-        intensity={1.55 * (0.55 + elev * 0.5) * (low ? 1.12 : 1)}
-        color="#fff2d8"
-        castShadow={!low}
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-        shadow-camera-far={220}
-        shadow-camera-left={-80}
-        shadow-camera-right={80}
-        shadow-camera-top={80}
-        shadow-camera-bottom={-80}
-      />
+      <SunLight low={low} elev={elev} />
       {/*
         Haze used to start at 120 units, and the Matterhorn stands some 100 to
         150 away — so the fog ate the range the map is named after.
@@ -1173,6 +1345,29 @@ function Loop() {
   return null;
 }
 
+/**
+ * Puts the renderer on `window.__ski` in dev.
+ *
+ * Render work cannot be judged from the source: draw calls, the shadow box, a
+ * light's resolved intensity and the tone-mapping exposure are all runtime
+ * values, and the alternative to reading them is guessing at a screenshot.
+ * Dev-only, so nothing reaches the deployed bundle.
+ */
+function RenderProbe() {
+  const state = useThree();
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const w = window as unknown as { __ski?: unknown };
+    // The store comes along so a render pass can be judged at a fixed hour and
+    // camera instead of at whatever dusk the save happened to be paused at.
+    w.__ski = { ...state, store: useGame };
+    return () => {
+      delete w.__ski;
+    };
+  }, [state]);
+  return null;
+}
+
 function VillageSeed() {
   const hm = getHeightmap();
   const lit = useLampsOn();
@@ -1227,6 +1422,7 @@ export function SkiScene() {
         camera.lookAt(-4, 12, 38);
       }}
     >
+      <RenderProbe />
       <LightsAndSky />
       <Controls />
       <Loop />
