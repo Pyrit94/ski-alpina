@@ -998,6 +998,55 @@ function PisteSurvey() {
   );
 }
 
+/**
+ * The one thing that is wrong, on a phone.
+ *
+ * The operational warnings live in a side panel that only desktop shows, so on
+ * a phone the two facts that actually decide a resort — an installation
+ * connected to nothing, and upkeep outrunning takings — were invisible. A
+ * player could lose money for an hour with no hint. This surfaces the most
+ * pressing one above the toolbar and opens the full panel when tapped.
+ */
+function MobileAlert() {
+  const stats = useGame((s) => s.stats);
+  const setSheet = useGame((s) => s.setSheet);
+  const idle = stats.idleLifts + stats.idlePistes;
+  const turnedAway = stats.demandPerHour - stats.peoplePerHour;
+
+  const alert =
+    stats.incomePerHour < 0
+      ? { tone: "bad" as const, text: "Unterhalt frisst mehr als die Einnahmen" }
+      : idle > 0
+        ? { tone: "bad" as const, text: `${idle} Anlage${idle > 1 ? "n" : ""} nicht angeschlossen` }
+        : stats.closedPistes > 0
+          ? { tone: "warn" as const, text: `${stats.closedPistes} Piste${stats.closedPistes > 1 ? "n" : ""} unter der Schneegrenze` }
+          : turnedAway > 0
+            ? {
+                tone: "warn" as const,
+                text: stats.bottleneckLabel
+                  ? `Engpass: ${stats.bottleneckLabel}`
+                  : `${fmtCompact(turnedAway)} Gaeste finden keinen Platz`,
+              }
+            : null;
+
+  if (!alert) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => setSheet("info")}
+      className={`mb-1.5 flex min-h-9 w-full items-center gap-2 rounded-full px-3 text-left text-[11px] font-semibold shadow-[var(--shadow-chip)] ${
+        alert.tone === "bad" ? "bg-danger text-panel" : "bg-warn text-panel"
+      }`}
+    >
+      <span className="grid size-4 shrink-0 place-items-center rounded-full bg-panel/25 text-[10px] font-bold">
+        !
+      </span>
+      <span className="min-w-0 flex-1 truncate">{alert.text}</span>
+      <ChevronRight className="size-3.5 shrink-0" />
+    </button>
+  );
+}
+
 /** Difficulty colours, matching the run edges drawn on the mountain. */
 const PISTE_TINT: Record<string, string> = {
   blue: "#2b7de9",
@@ -1194,11 +1243,12 @@ function MobileDock() {
       className="pointer-events-auto px-3 pt-1 lg:hidden"
       style={{ paddingBottom: "max(0.45rem, env(safe-area-inset-bottom))" }}
     >
+      <MobileAlert />
       <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
         <div className="rounded-full bg-panel/92 px-2.5 py-1 text-[10px] font-medium text-muted shadow-[var(--shadow-chip)]">
           {weather.label} · {weather.tempC}°
         </div>
-        <div className="rounded-full bg-panel/92 px-2.5 py-1 text-[10px] font-semibold tabular-nums text-navy shadow-[var(--shadow-chip)]">
+        <div className="value rounded-full bg-panel/92 px-2.5 py-1 text-[11px] font-bold text-navy shadow-[var(--shadow-chip)]">
           {fmtCompact(stats.peoplePerHour)}/h · {stats.satisfaction}%
         </div>
       </div>
