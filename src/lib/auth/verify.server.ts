@@ -1,4 +1,5 @@
 import { getRequest } from "@tanstack/react-start/server";
+import { rosterAdmits, rosterGate } from "./allowlist";
 import { gateIdentityEnabled } from "./gate-identity.server";
 import { auth, authConfigured } from "./server";
 
@@ -67,6 +68,16 @@ export async function getSessionUser(
   }
   const session = await auth.api.getSession({ headers });
   if (!session?.user) return null;
+  // Second gate. Sign-up is already refused for an unlisted address, but a
+  // session minted before the roster changed must stop working too — removing
+  // someone has to actually remove them, not wait for their cookie to expire.
+  const gate = rosterGate(process.env);
+  if (!rosterAdmits(gate, session.user.email)) {
+    console.warn(
+      `[auth] rejected session for ${session.user.email ?? "an account with no email"}: not on ALLOWED_EMAILS`,
+    );
+    return null;
+  }
   return { id: session.user.id, email: session.user.email ?? null };
 }
 

@@ -34,6 +34,9 @@ services:
       API_PORT: "8787"
       PORT: "8787"
       DOCKER_PREVIEW: "1"
+      # This process does not authenticate websockets. It is only reachable
+      # through nginx inside the compose network, never published directly.
+      SKI_API_ALLOW_ANONYMOUS: "1"
     expose:
       - "8787"
     depends_on:

@@ -1,6 +1,7 @@
 import { ClientMessageSchema, type ServerMessage } from "@ski/shared";
 import { GameRoom, PERSIST_MS, TICK_MS } from "../../../../packages/shared/src/runtime/room.ts";
 import { getSql } from "@/lib/db";
+import type { SocketIdentity } from "./identity.server";
 
 type Socket = {
   send: (data: string) => void;
@@ -47,6 +48,8 @@ function ensureTimers() {
   setInterval(() => {
     for (const room of rooms.values()) {
       room.tick();
+      // Drop players who stopped answering, or the online count only climbs.
+      room.prunePlayers();
       broadcast(room.state.roomId, {
         type: "snapshot",
         seq: room.seq,
@@ -88,7 +91,7 @@ function broadcast(roomId: string, msg: ServerMessage) {
   }
 }
 
-export function handleSocket(socket: Socket): void {
+export function handleSocket(socket: Socket, identity?: SocketIdentity | null): void {
   ensureTimers();
   let bound: Bound | null = null;
 
@@ -106,12 +109,16 @@ export function handleSocket(socket: Socket): void {
       return;
     }
     if (msg.data.type === "ping") {
+      // A ping is how a quiet player says they are still here.
+      if (bound) getRoom(bound.roomId).touch(bound.playerId);
       send(socket, { type: "pong", at: msg.data.at });
       return;
     }
     if (msg.data.type === "join") {
       const room = getRoom(msg.data.roomId);
-      const player = room.join(msg.data.name, msg.data.token);
+      // When the socket was authenticated the account decides who this is —
+      // the name and token in the message are only a fallback for local dev.
+      const player = room.join(msg.data.name, msg.data.token, identity ?? undefined);
       if (bound) bindings.delete(bound);
       bound = { socket, playerId: player.id, roomId: room.state.roomId };
       bindings.add(bound);
@@ -162,9 +169,13 @@ export function handleSocket(socket: Socket): void {
   });
 }
 
-export function ingestSocketMessage(socket: Socket, raw: string) {
+export function ingestSocketMessage(
+  socket: Socket,
+  raw: string,
+  identity?: SocketIdentity | null,
+) {
   const rec = socket as Socket & { ingest?: (raw: string) => void };
-  if (!rec.ingest) handleSocket(socket);
+  if (!rec.ingest) handleSocket(socket, identity);
   (socket as Socket & { ingest: (raw: string) => void }).ingest(raw);
 }
 

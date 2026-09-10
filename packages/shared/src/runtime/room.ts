@@ -15,6 +15,8 @@ export interface RoomPlayer {
   name: string;
   role: PlayerRole;
   lastSeen: number;
+  /** The signed-in account, when the socket was authenticated. */
+  userId?: string;
 }
 
 export interface RoomEvent {
@@ -37,7 +39,33 @@ export class GameRoom {
     this.state = snapshot ? migrateResort(snapshot, roomId) : emptyResort(roomId);
   }
 
-  join(name: string, token?: string): RoomPlayer {
+  /**
+   * Attach a socket to a player.
+   *
+   * An `identity` means the socket was authenticated, and then the account —
+   * not a token the client invented — decides who this is. Reconnecting on the
+   * same account resumes the same player instead of adding another body to the
+   * presence list, which is what made the online count drift upwards.
+   */
+  join(name: string, token?: string, identity?: { userId: string; name: string }): RoomPlayer {
+    if (identity) {
+      const known = [...this.players.values()].find((p) => p.userId === identity.userId);
+      if (known) {
+        known.lastSeen = Date.now();
+        known.name = identity.name;
+        return known;
+      }
+      const player: RoomPlayer = {
+        id: createId("pl"),
+        token: createId("tok"),
+        name: identity.name,
+        role: "builder",
+        lastSeen: Date.now(),
+        userId: identity.userId,
+      };
+      this.players.set(player.id, player);
+      return player;
+    }
     const existing = token ? [...this.players.values()].find((p) => p.token === token) : undefined;
     if (existing) {
       existing.lastSeen = Date.now();
@@ -53,6 +81,24 @@ export class GameRoom {
     };
     this.players.set(player.id, player);
     return player;
+  }
+
+  /** Mark a player as still here. Called on every message they send. */
+  touch(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (player) player.lastSeen = Date.now();
+  }
+
+  /**
+   * Forget players who stopped answering.
+   *
+   * Nothing ever removed a player, so "1 online" only ever climbed — a closed
+   * tab left a ghost in the list for the lifetime of the process.
+   */
+  prunePlayers(now = Date.now()): void {
+    for (const [id, player] of this.players) {
+      if (now - player.lastSeen > PRESENCE_TIMEOUT_MS) this.players.delete(id);
+    }
   }
 
   presence(): PlayerPresence[] {
@@ -92,3 +138,10 @@ export class GameRoom {
 
 export const TICK_MS = ECONOMY.simTickMs;
 export const PERSIST_MS = ECONOMY.persistMs;
+/**
+ * How long a silent player stays in the presence list.
+ *
+ * Long enough to survive a reload or a tunnel dropping, short enough that a
+ * closed tab does not haunt the online count.
+ */
+export const PRESENCE_TIMEOUT_MS = 45_000;

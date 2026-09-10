@@ -16,17 +16,29 @@ import path from "node:path";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * The authoritative game server on `/ws`, in development.
+ *
+ * Dev can load the engine through Vite's SSR runner, so it gets the real
+ * module with its aliases resolved. Preview and the deployed container cannot:
+ * this config is bundled by esbuild WITHOUT `resolve.alias`, and the graph
+ * behind the socket boots PGLite and Better Auth at import time — loading it
+ * from here would do that on every `vite build`.
+ *
+ * So production runs the socket as its own process (`scripts/ws-server.mjs`)
+ * and `preview.proxy` forwards `/ws` to it. The old stub here claimed
+ * docker-serve attached the socket; it did not, and the built container served
+ * no game at all.
+ */
 function gameServerPlugin(): Plugin {
   return {
     name: "ski-builder-ws",
+    apply: "serve",
     async configureServer(server) {
       const mod = (await server.ssrLoadModule("/src/lib/game/server/attach.ts")) as {
-        attachGameServer: (s: typeof server) => Promise<void>;
+        attachGameServer: (http: unknown) => Promise<void>;
       };
-      await mod.attachGameServer(server);
-    },
-    async configurePreviewServer() {
-      /* docker-serve attaches /ws when needed; avoid importing attach.ts from config */
+      await mod.attachGameServer(server.httpServer);
     },
   };
 }
@@ -175,6 +187,16 @@ export default defineConfig(({ command, isPreview }) => ({
     host: process.env.DOCKER_PREVIEW === "1" ? "0.0.0.0" : "127.0.0.1",
     port: process.env.DOCKER_PREVIEW === "1" ? Number(process.env.PORT || 8080) : 8081,
     strictPort: true,
+    // The game socket runs as its own process in production (see
+    // `scripts/ws-server.mjs`); this is what puts it on the same origin, so the
+    // browser sends the session cookie with the upgrade.
+    proxy: {
+      "/ws": {
+        target: `http://127.0.0.1:${process.env.WS_PORT || 8788}`,
+        ws: true,
+        changeOrigin: false,
+      },
+    },
   },
   resolve: {
     tsconfigPaths: true,

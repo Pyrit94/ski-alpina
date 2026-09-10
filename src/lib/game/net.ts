@@ -43,6 +43,15 @@ export interface NetHandlers {
   onStatus: (connected: boolean) => void;
 }
 
+/**
+ * How often to tell the server we are still here.
+ *
+ * The room drops a player who has been silent for `PRESENCE_TIMEOUT_MS`, and a
+ * player who is only watching the mountain sends nothing at all — so without a
+ * heartbeat they would vanish from the online list while still looking at it.
+ */
+const HEARTBEAT_MS = 15_000;
+
 export function connectGame(roomId: string, name: string, handlers: NetHandlers) {
   const token = loadToken();
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -50,6 +59,7 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
   let ws: WebSocket | null = null;
   let closed = false;
   let retry = 0;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
 
   const send = (msg: ClientMessage) => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -62,9 +72,15 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
       retry = 0;
       handlers.onStatus(true);
       send({ type: "join", roomId, name, token });
+      if (heartbeat) clearInterval(heartbeat);
+      heartbeat = setInterval(() => send({ type: "ping", at: Date.now() }), HEARTBEAT_MS);
     };
     ws.onclose = () => {
       handlers.onStatus(false);
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
       if (!closed) {
         const wait = Math.min(8000, 600 * 2 ** retry);
         retry += 1;
@@ -106,6 +122,10 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
     },
     close: () => {
       closed = true;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
       ws?.close();
     },
   };

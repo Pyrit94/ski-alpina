@@ -29,13 +29,14 @@
  * components read the user via `@/lib/auth/use-current-user`; server functions get
  * a verified id via `@/lib/auth/middleware`.
  */
-import { betterAuth } from "better-auth";
+import { APIError, betterAuth } from "better-auth";
 import { bearer, genericOAuth } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
+import { NOT_ALLOWED_MESSAGE, rosterAdmits, rosterGate } from "./allowlist";
 import { emailAndPasswordEnabled } from "./email-password";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
@@ -81,9 +82,32 @@ const grokIssuer = env("GROK_AUTH_ISSUER") ?? GROK_ISSUER_DEFAULT;
 const grokClientId = env("GROK_AUTH_CLIENT_ID") ?? PREVIEW_CLIENT_ID;
 const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET;
 
+/**
+ * Self-hosting: federate straight to Google instead of through the broker.
+ *
+ * The broker holds the shared Google secret and exists only inside the Grok
+ * platform, so a deployment of our own (Coolify) has nothing in front of it and
+ * must talk to Google with its own OAuth client. Only the upstream changes —
+ * provider id, callback path and account linking stay exactly as they are, so
+ * nothing downstream needs to know which mode is live.
+ *
+ * Callback to register in the Google console:
+ *   <BETTER_AUTH_URL>/api/auth/oauth2/callback/grok-google
+ */
+const googleClientId = env("GOOGLE_CLIENT_ID");
+const googleClientSecret = env("GOOGLE_CLIENT_SECRET");
+export const selfHostedGoogle = Boolean(googleClientId && googleClientSecret);
+
+const GOOGLE_ENDPOINTS = {
+  authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenUrl: "https://oauth2.googleapis.com/token",
+  userInfoUrl: "https://openidconnect.googleapis.com/v1/userinfo",
+} as const;
+
 /** True when federated sign-in is active (real auth is enforced). */
 export const authConfigured =
-  !authDisabled && Boolean(grokClientId && grokClientSecret);
+  !authDisabled &&
+  (Boolean(googleClientId && googleClientSecret) || Boolean(grokClientId && grokClientSecret));
 
 // This app's own Better Auth origin. When deployed the deployer injects the
 // public URL. In the sandbox live preview there's no fixed URL (each preview gets
@@ -150,27 +174,42 @@ export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";
 
 // Built separately so the `betterAuth({...})` call stays easy to edit without
 // breaking brackets (models often trip on the conditional plugin spread).
-const grokOAuthPlugin = authConfigured
-  ? genericOAuth({
-      config: GROK_PROVIDERS.map(({ providerId, idp }) => ({
-        providerId,
-        clientId: grokClientId as string,
-        clientSecret: grokClientSecret as string,
-        // Prefer static endpoints over `discoveryUrl` so initiating (and
-        // completing) OAuth does not wait on a broker discovery fetch.
-        authorizationUrl: grokAuthorizationUrl,
-        tokenUrl: grokTokenUrl,
-        userInfoUrl: grokUserInfoUrl,
-        scopes: ["openid", "profile", "email"],
-        // `prompt: "login"` forces the broker to re-authenticate against the
-        // upstream on every sign-in instead of silently reusing an existing
-        // broker session. Combined with the broker sending Google
-        // `prompt=select_account`, the user always gets the account chooser
-        // and can pick (or switch) which account to sign in with.
-        authorizationUrlParams: { idp, prompt: "login" },
-      })),
-    })
-  : null;
+const grokOAuthPlugin = !authConfigured
+  ? null
+  : selfHostedGoogle
+    ? genericOAuth({
+        // Self-hosted: one provider, straight to Google. `select_account` so a
+        // shared browser can switch between the two people who may play.
+        config: [
+          {
+            providerId: "grok-google",
+            clientId: googleClientId as string,
+            clientSecret: googleClientSecret as string,
+            ...GOOGLE_ENDPOINTS,
+            scopes: ["openid", "profile", "email"],
+            authorizationUrlParams: { prompt: "select_account" },
+          },
+        ],
+      })
+    : genericOAuth({
+        config: GROK_PROVIDERS.map(({ providerId, idp }) => ({
+          providerId,
+          clientId: grokClientId as string,
+          clientSecret: grokClientSecret as string,
+          // Prefer static endpoints over `discoveryUrl` so initiating (and
+          // completing) OAuth does not wait on a broker discovery fetch.
+          authorizationUrl: grokAuthorizationUrl,
+          tokenUrl: grokTokenUrl,
+          userInfoUrl: grokUserInfoUrl,
+          scopes: ["openid", "profile", "email"],
+          // `prompt: "login"` forces the broker to re-authenticate against the
+          // upstream on every sign-in instead of silently reusing an existing
+          // broker session. Combined with the broker sending Google
+          // `prompt=select_account`, the user always gets the account chooser
+          // and can pick (or switch) which account to sign in with.
+          authorizationUrlParams: { idp, prompt: "login" },
+        })),
+      });
 
 export const auth = betterAuth({
   baseURL,
@@ -201,6 +240,26 @@ export const auth = betterAuth({
       // X's synthetic email is never "verified", so don't gate linking on the
       // local user's email-verified state.
       requireLocalEmailVerified: false,
+    },
+  },
+
+  // First gate: a stranger never gets an account at all. Signing in with
+  // Google means "anyone with a Google account" unless the roster says
+  // otherwise, and this deployment is meant for two people. Enforced again on
+  // session resolution and on the websocket upgrade, so removing someone from
+  // the roster cuts off a session that already exists.
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          const gate = rosterGate(process.env);
+          if (rosterAdmits(gate, user.email)) return;
+          console.warn(
+            `[auth] refused sign-up for ${user.email ?? "an account with no email"}: not on ALLOWED_EMAILS`,
+          );
+          throw new APIError("FORBIDDEN", { message: NOT_ALLOWED_MESSAGE });
+        },
+      },
     },
   },
 

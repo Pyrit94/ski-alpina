@@ -13,6 +13,27 @@ function room(id: string): GameRoom {
   return r;
 }
 
+/**
+ * This process accepts websockets with no authentication whatsoever: `join`
+ * takes a display name and a token the client invented. That is fine behind a
+ * closed network and unacceptable on a public URL, so it refuses to start
+ * unless someone says out loud that anonymous play is intended.
+ *
+ * The Coolify deployment does not use this process — the container runs
+ * `vite preview`, which attaches the authenticated socket from
+ * `src/lib/game/server/attach.ts`. This is the infra/docker-compose stack,
+ * where nginx sits in front and the API is not published directly.
+ */
+if (process.env.SKI_API_ALLOW_ANONYMOUS !== "1") {
+  console.error(
+    "[api] refusing to start: this server does not authenticate websockets.\n" +
+      "      Set SKI_API_ALLOW_ANONYMOUS=1 only when it is not reachable from\n" +
+      "      the internet. For a public deployment use the container's\n" +
+      "      `vite preview` server, which verifies the session on upgrade.",
+  );
+  process.exit(1);
+}
+
 const app = Fastify({ logger: true });
 await app.register(websocket);
 
