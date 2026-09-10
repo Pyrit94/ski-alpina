@@ -1,0 +1,9 @@
+services:
+  ski-alpina:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DOCKER_PREVIEW: "1"
+    restart: unless-stopped
