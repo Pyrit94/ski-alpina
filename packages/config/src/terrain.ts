@@ -1,13 +1,34 @@
+const WINDOW = { west: 7.62, south: 45.9, east: 7.86, north: 46.06 } as const;
+const WORLD_SIZE = 196;
+const METRES_PER_DEG_LAT = 110_574;
+const METRES_PER_DEG_LON_EQUATOR = 111_320;
+
+/** Ground metres one world unit covers, averaged over the window's two axes. */
+const metresPerWorldUnit =
+  ((WINDOW.east - WINDOW.west) *
+    METRES_PER_DEG_LON_EQUATOR *
+    Math.cos((((WINDOW.south + WINDOW.north) / 2) * Math.PI) / 180) +
+    (WINDOW.north - WINDOW.south) * METRES_PER_DEG_LAT) /
+  2 /
+  WORLD_SIZE;
+
 /** Zermatt / Matterhorn window. DEM is gameplay truth. */
 export const TERRAIN = {
-  west: 7.62,
-  south: 45.9,
-  east: 7.86,
-  north: 46.06,
-  worldSize: 196,
+  ...WINDOW,
+  worldSize: WORLD_SIZE,
   resolution: 160,
   minPlayElev: 1560,
   metersToWorldY: 0.0215,
+  /**
+   * Ground metres per world unit — about 92 for this window.
+   *
+   * Slope is rise over run in metres, so this is what turns an elevation
+   * difference into a real gradient. Treating a world unit as ~12 m made every
+   * hillside read roughly eight times too steep, which left almost the entire
+   * map unbuildable: `maxSlope` values are real tangents (0.42 on a blue run is
+   * about 23 degrees), so the scale has to be real too.
+   */
+  metresPerWorldUnit,
   seed: "copernicus-glo30-zermatt-v1",
   attribution:
     "Enthält modifizierte Copernicus-Daten (DEM GLO-30), © European Union / ESA",

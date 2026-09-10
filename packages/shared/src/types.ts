@@ -79,7 +79,22 @@ export interface SimStats {
   pisteKm: number;
   beds: number;
   liftCapacity: number;
+  /** Demand the network could not route, in people per hour. */
   queued: number;
+  /** People per hour offered to the resort, before any capacity limit. */
+  demandPerHour: number;
+  /** Ready lifts carrying nobody — built, but joined to nothing that works. */
+  idleLifts: number;
+  /** Ready pistes carrying nobody. */
+  idlePistes: number;
+  /** Metres of vertical transported per hour: the resort's true size. */
+  verticalPerHour: number;
+  /** Busiest saturated edge, or "" when nothing is near its limit. */
+  bottleneckLabel: string;
+  /** Entity id behind `bottleneckLabel`, for highlighting it on the map. */
+  bottleneckId: string;
+  /** Utilisation of that edge, 0..1. */
+  bottleneckUse: number;
 }
 
 export interface FlowEdgeViz {

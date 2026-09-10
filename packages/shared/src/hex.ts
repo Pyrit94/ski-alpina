@@ -26,7 +26,7 @@ function cubeRound(fracQ: number, fracR: number): Axial {
   const fracS = -fracQ - fracR;
   let q = Math.round(fracQ);
   let r = Math.round(fracR);
-  let s = Math.round(fracS);
+  const s = Math.round(fracS);
   const dq = Math.abs(q - fracQ);
   const dr = Math.abs(r - fracR);
   const ds = Math.abs(s - fracS);

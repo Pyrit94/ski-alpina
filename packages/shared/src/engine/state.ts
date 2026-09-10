@@ -14,6 +14,13 @@ export const DEFAULT_STATS: SimStats = {
   beds: 0,
   liftCapacity: 0,
   queued: 0,
+  demandPerHour: 0,
+  idleLifts: 0,
+  idlePistes: 0,
+  verticalPerHour: 0,
+  bottleneckLabel: "",
+  bottleneckId: "",
+  bottleneckUse: 0,
 };
 
 export const DEFAULT_WEATHER: WeatherState = {

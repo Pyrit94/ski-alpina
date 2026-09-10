@@ -1,10 +1,9 @@
+import { ECONOMY, FLOW } from "../../../config/src/economy.ts";
 import { BY_ID } from "../../../config/src/items.ts";
-import { ECONOMY } from "../../../config/src/economy.ts";
-import { isHotel } from "../../../config/src/ids.ts";
-import { hexDistance, hexToWorld } from "../hex.ts";
+import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { FlowEdgeViz, ResortState, SimStats } from "../types.ts";
-import { liftThroughput } from "./level.ts";
+import { buildResortGraph, VILLAGE_HEX, type DemandSource } from "./graph.ts";
 
 export interface FlowTick {
   stats: SimStats;
@@ -19,17 +18,25 @@ function hourFactor(t: number): number {
   return 0.62;
 }
 
+/**
+ * One hour of resort operation.
+ *
+ * Demand is offered at the places guests actually arrive — the village, each
+ * car park, each bus station, each hotel — and then routed over the transport
+ * graph by max-flow. What the resort earns is therefore what its layout can
+ * physically carry: a lift joined to nothing carries nobody and earns nothing,
+ * however much capacity it has on paper.
+ */
 export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: number): FlowTick {
   const readyLifts = state.lifts.filter((l) => l.readyAt <= now);
-  const readyPistes = state.pistes.filter((p) => p.readyAt <= now && p.difficulty !== "road");
+  const readyPistes = state.pistes.filter((p) => p.readyAt <= now);
   const buildings = state.buildings.filter((b) => b.readyAt <= now);
 
   const count = (id: string) => buildings.filter((b) => b.itemId === id).length;
   const beds = buildings.reduce((n, b) => n + (BY_ID[b.itemId].beds ?? 0), 0);
-  const parking = count("parking");
-  const bus = count("bus");
   const hasSchool = count("skischool") > 0;
   const hasSpa = count("spa") > 0;
+  const hasClinic = count("clinic") > 0;
   const hasLights = count("lights") > 0;
   const snowmakers = count("snowmaker");
   const groomers = count("groomer");
@@ -37,98 +44,152 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const restaurants = count("restaurant") + count("hut") + count("apres");
   const shops = count("shop");
 
-  const liftCap = readyLifts.reduce((n, l) => n + liftThroughput(BY_ID[l.itemId], l.upgrades), 0);
-  let demand =
-    ECONOMY.walkInPerHour +
-    parking * ECONOMY.parkingDemandPerHour +
-    bus * ECONOMY.busDemandPerHour +
-    beds * ECONOMY.bedOvernightShare * 1.1;
-  demand *= hourFactor(state.timeOfDay) * (hasLights && (state.timeOfDay < 0.3 || state.timeOfDay > 0.7) ? 1 + ECONOMY.lightsDayExtension : 1);
-  demand *= 0.72 + state.weather.snowQuality * 0.4;
-  if (state.ticketPrice > 90) demand *= 1 - (state.ticketPrice - 90) / 280;
+  // Everything that scales demand up or down applies to every arrival point.
+  const nightLights = hasLights && (state.timeOfDay < 0.3 || state.timeOfDay > 0.7);
+  let appetite = hourFactor(state.timeOfDay) * (nightLights ? 1 + ECONOMY.lightsDayExtension : 1);
+  appetite *= 0.72 + state.weather.snowQuality * 0.4;
+  if (state.ticketPrice > 90) appetite *= 1 - (state.ticketPrice - 90) / 280;
+  appetite = Math.max(0, appetite);
 
-  const liftEdges: FlowEdgeViz[] = readyLifts.map((l) => {
-    const cap = liftThroughput(BY_ID[l.itemId], l.upgrades);
-    return { id: l.id, kind: "lift" as const, from: l.a, to: l.b, flow: 0, capacity: cap };
+  const demands: DemandSource[] = [
+    { hex: VILLAGE_HEX, perHour: ECONOMY.walkInPerHour * appetite },
+  ];
+  const exits: Axial[] = [];
+  for (const b of buildings) {
+    const item = BY_ID[b.itemId];
+    const hex = { q: b.q, r: b.r };
+    if (b.itemId === "parking") {
+      demands.push({ hex, perHour: ECONOMY.parkingDemandPerHour * appetite });
+      exits.push(hex);
+    } else if (b.itemId === "bus") {
+      demands.push({ hex, perHour: ECONOMY.busDemandPerHour * appetite });
+      exits.push(hex);
+    } else if (item.beds) {
+      demands.push({ hex, perHour: item.beds * ECONOMY.bedOvernightShare * appetite });
+      exits.push(hex);
+    }
+  }
+
+  const graph = buildResortGraph({
+    lifts: readyLifts,
+    pistes: readyPistes,
+    demands,
+    exits,
+    dem,
+    pisteCapacityScale: (piste) => {
+      if (piste.difficulty === "blue" && hasSchool) return 1 + ECONOMY.schoolBonus;
+      if (piste.difficulty === "black" && hasClinic) return 1 + ECONOMY.clinicBlackBonus;
+      return 1;
+    },
   });
 
-  const pisteEdges: FlowEdgeViz[] = readyPistes.map((p) => {
-    const start = p.hexes[0]!;
-    const end = p.hexes[p.hexes.length - 1]!;
-    const km = Math.max(0.2, (p.hexes.length - 1) * 0.12);
-    const cap = p.difficulty === "black" ? 700 : p.difficulty === "red" ? 1100 : 1500;
-    return {
-      id: p.id,
+  const served = graph.net.maxFlow(graph.source, graph.sink);
+  const unserved = Math.max(0, graph.offered - served);
+
+  const liftFlow = graph.lifts.map((l) => ({ edge: l, used: graph.net.flowOn(l.uphill) }));
+  const pisteFlow = graph.pistes.map((p) => ({ edge: p, used: graph.net.flowOn(p.edge) }));
+
+  const flow: FlowEdgeViz[] = [
+    ...liftFlow.map(({ edge, used }) => ({
+      id: edge.lift.id,
+      kind: "lift" as const,
+      from: edge.base,
+      to: edge.top,
+      flow: used,
+      capacity: edge.capacity,
+    })),
+    ...pisteFlow.map(({ edge, used }) => ({
+      id: edge.piste.id,
       kind: "piste" as const,
-      from: start,
-      to: end,
-      flow: 0,
-      capacity: cap,
-      path: p.hexes,
-      km,
-    } as FlowEdgeViz & { km: number };
-  });
+      from: edge.top,
+      to: edge.bottom,
+      flow: used,
+      capacity: edge.capacity,
+      path: edge.piste.hexes,
+    })),
+  ];
 
-  let remaining = demand;
-  let queued = 0;
-  let throughput = 0;
-  if (liftEdges.length === 0) {
-    queued = demand * 0.2;
-  } else {
-    const share = remaining / liftEdges.length;
-    for (const e of liftEdges) {
-      const served = Math.min(e.capacity, share);
-      e.flow = served;
-      throughput += served;
-      queued += Math.max(0, share - e.capacity);
-    }
+  // The busiest edge is what the player should widen next, so name it.
+  let bottleneckUse = 0;
+  let bottleneckLabel = "";
+  let bottleneckId = "";
+  for (const { edge, used } of liftFlow) {
+    const use = edge.capacity > 0 ? used / edge.capacity : 0;
+    if (use <= bottleneckUse) continue;
+    bottleneckUse = use;
+    bottleneckLabel = BY_ID[edge.lift.itemId].name;
+    bottleneckId = edge.lift.id;
   }
-
-  if (pisteEdges.length && throughput > 0) {
-    const share = throughput / pisteEdges.length;
-    for (const e of pisteEdges) {
-      e.flow = Math.min(e.capacity, share * (hasSchool && e.id.startsWith("p") ? 1.05 : 1));
-    }
-  } else if (liftEdges.length && pisteEdges.length === 0) {
-    queued += throughput * 0.35;
-    throughput *= 0.65;
+  for (const { edge, used } of pisteFlow) {
+    const use = edge.capacity > 0 ? used / edge.capacity : 0;
+    if (use <= bottleneckUse) continue;
+    bottleneckUse = use;
+    bottleneckLabel = BY_ID[edge.piste.itemId].name;
+    bottleneckId = edge.piste.id;
   }
+  const saturated = bottleneckUse >= FLOW.bottleneckThreshold;
 
-  const wait = Math.min(28, 2.2 + queued / Math.max(80, liftCap) * 18 * (groomers ? 1 - ECONOMY.groomerWaitCut : 1));
-  const pisteKm = readyPistes.reduce((n, p) => n + Math.max(0, p.hexes.length - 1) * 0.12, 0);
-  const variety = new Set(readyPistes.map((p) => p.difficulty)).size;
+  const liftCapacity = graph.lifts.reduce((n, l) => n + l.capacity, 0);
+  const verticalPerHour = liftFlow.reduce((n, { edge, used }) => n + used * Math.max(0, edge.rise), 0);
+  const idleLifts = liftFlow.filter(({ used }) => used <= 0).length;
+  const idlePistes = pisteFlow.filter(({ used }) => used <= 0).length;
+
+  // Queueing comes from either a saturated edge or demand with nowhere to go.
+  // With no lift running there is nothing to queue at: an empty valley is not
+  // a half-hour wait, it is simply not a resort yet.
+  const overflow = graph.offered > 0 ? unserved / graph.offered : 0;
+  const congestion =
+    graph.lifts.length === 0 ? 0 : Math.min(1, Math.max(bottleneckUse, overflow));
+  const wait = Math.min(
+    FLOW.maxWaitMinutes,
+    (FLOW.baseWaitMinutes + congestion * FLOW.saturationWaitMinutes) *
+      (groomers > 0 ? 1 - ECONOMY.groomerWaitCut : 1),
+  );
+
+  const pisteKm = graph.pistes.reduce((n, p) => n + p.km, 0);
+  const variety = new Set(graph.pistes.map((p) => p.piste.difficulty)).size;
   let sat: number = ECONOMY.targetSatisfaction;
   sat += variety * ECONOMY.varietyBonus;
-  sat -= wait * ECONOMY.waitPenaltyPerMinute * 0.35;
-  sat += (state.weather.snowQuality + snowmakers * ECONOMY.snowmakerQuality) * 12;
-  sat += restaurants * 1.4 + shops * 1.1 + (hasSpa ? ECONOMY.spaBonus * 100 : 0);
-  sat += tickets * 0.8;
-  sat = Math.max(28, Math.min(99, sat));
+  sat -= wait * ECONOMY.waitPenaltyPerMinute;
+  sat +=
+    Math.min(1, state.weather.snowQuality + snowmakers * ECONOMY.snowmakerQuality) *
+    ECONOMY.snowSatisfactionWeight;
+  sat += restaurants * ECONOMY.restaurantSatisfaction + shops * ECONOMY.shopSatisfaction;
+  sat += hasSpa ? ECONOMY.spaSatisfaction : 0;
+  sat += tickets * ECONOMY.ticketOfficeSatisfaction;
+  sat = Math.max(ECONOMY.minSatisfaction, Math.min(ECONOMY.maxSatisfaction, sat));
 
-  const visitorsHour = throughput;
-  const occupancy = beds <= 0 ? 0 : Math.min(1, (visitorsHour * 0.15) / beds);
-  const ticketIncome = visitorsHour * state.ticketPrice * (1 + tickets * 0.08);
+  // Food and retail are capacity businesses: an unbuilt restaurant sells nothing
+  // and one hut cannot feed a whole mountain.
+  const occupancy = beds <= 0 ? 0 : Math.min(1, (served * ECONOMY.occupancyPerVisitor) / beds);
+  const ticketIncome = served * state.ticketPrice * (1 + tickets * ECONOMY.ticketOfficeIncomeBonus);
   const hotelIncome = beds * occupancy * ECONOMY.hotelRatePerBedPerHour;
-  const fb = visitorsHour * ECONOMY.fbPerVisitor * Math.max(1, restaurants);
-  const shopInc = visitorsHour * ECONOMY.shopPerVisitor * Math.max(0.4, shops);
-  const incomePerHour = ticketIncome + hotelIncome + fb + shopInc;
-  const coinsDelta = incomePerHour * dtHours;
+  const fb = Math.min(served, restaurants * ECONOMY.restaurantSeatsPerHour) * ECONOMY.fbPerVisitor;
+  const retail = Math.min(served, shops * ECONOMY.shopVisitorsPerHour) * ECONOMY.shopPerVisitor;
+  const incomePerHour = ticketIncome + hotelIncome + fb + retail;
 
   const stats: SimStats = {
-    peoplePerHour: Math.round(visitorsHour),
+    peoplePerHour: Math.round(served),
     satisfaction: Math.round(sat),
     incomePerHour: Math.round(incomePerHour),
-    visitorsToday: state.stats.visitorsToday + visitorsHour * dtHours,
-    visitorsTotal: state.stats.visitorsTotal + visitorsHour * dtHours,
+    visitorsToday: state.stats.visitorsToday + served * dtHours,
+    visitorsTotal: state.stats.visitorsTotal + served * dtHours,
     occupancy,
     waitMinutes: Math.round(wait * 10) / 10,
     pisteKm: Math.round(pisteKm * 10) / 10,
     beds,
-    liftCapacity: liftCap,
-    queued: Math.round(queued),
+    liftCapacity,
+    queued: Math.round(unserved),
+    demandPerHour: Math.round(graph.offered),
+    idleLifts,
+    idlePistes,
+    verticalPerHour: Math.round(verticalPerHour),
+    bottleneckLabel: saturated ? bottleneckLabel : "",
+    bottleneckId: saturated ? bottleneckId : "",
+    bottleneckUse: Math.round(bottleneckUse * 100) / 100,
   };
 
-  return { stats, coinsDelta, flow: [...liftEdges, ...pisteEdges] };
+  return { stats, coinsDelta: incomePerHour * dtHours, flow };
 }
 
 export function nearestStation(state: ResortState, q: number, r: number, max = 2): string | null {

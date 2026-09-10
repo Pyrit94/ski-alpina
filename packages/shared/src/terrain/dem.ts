@@ -107,11 +107,12 @@ export function generateDem(): Dem {
     return a * (1 - tz) + b * tz;
   };
 
+  /** Gradient magnitude: metres of rise over metres of run. */
   const slope = (x: number, z: number) => {
     const e = 1.6;
     const dx = sample(x + e, z) - sample(x - e, z);
     const dz = sample(x, z + e) - sample(x, z - e);
-    return Math.hypot(dx, dz) / (2 * e * 12);
+    return Math.hypot(dx, dz) / (2 * e * TERRAIN.metresPerWorldUnit);
   };
 
   const aspect = (x: number, z: number) => {

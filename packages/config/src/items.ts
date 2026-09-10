@@ -14,8 +14,18 @@ export interface CatalogItem {
   maxSlope: number;
   minElev: number;
   maxElev: number;
+  /** People per hour this edge carries: lift throughput, or piste/road width. */
   capacity?: number;
   beds?: number;
+  /**
+   * Share of `capacity` usable for the descent. Cabins come back down anyway,
+   * so a gondola is also a way off the mountain; a T-bar is not.
+   *
+   * Keep this small. It stands for the guests who ride down rather than ski —
+   * sightseers, beginners, the end of the day. Set it high and a single
+   * gondola carries the whole resort, which makes every piste pointless.
+   */
+  downhillShare?: number;
   speed?: number;
   minSpan?: number;
   maxSpan?: number;
@@ -23,11 +33,11 @@ export interface CatalogItem {
 }
 
 export const CATALOG: CatalogItem[] = [
-  { id: "tbar", category: "lifts", name: "Schlepplift", blurb: "Guenstig, fuer Anfaengerhaenge. Bis 800 Pers./h.", cost: 4500, xp: 18, unlockLevel: 1, buildSeconds: 6, footprint: 1, maxSlope: 0.55, minElev: 1600, maxElev: 2800, capacity: 800, speed: 3.2, minSpan: 4, maxSpan: 14, color: "#3d6ea8" },
-  { id: "chair", category: "lifts", name: "Sessellift", blurb: "Komfortabler 4er-Sessel. Bis 1.800 Pers./h.", cost: 18500, xp: 36, unlockLevel: 2, buildSeconds: 10, footprint: 1, maxSlope: 0.7, minElev: 1600, maxElev: 3400, capacity: 1800, speed: 4.2, minSpan: 6, maxSpan: 20, color: "#2F6FED" },
-  { id: "gondola", category: "lifts", name: "Gondelbahn", blurb: "Befoerdert bis zu 2.400 Personen pro Stunde.", cost: 45000, xp: 70, unlockLevel: 3, buildSeconds: 14, footprint: 1, maxSlope: 1.1, minElev: 1600, maxElev: 3900, capacity: 2400, speed: 6, minSpan: 8, maxSpan: 28, color: "#1557b0" },
-  { id: "tram", category: "lifts", name: "Pendelbahn", blurb: "Steile Waende, grosse Kabinen. 900 Pers./h.", cost: 82000, gemCost: 40, xp: 110, unlockLevel: 6, buildSeconds: 18, footprint: 1, maxSlope: 1.6, minElev: 1700, maxElev: 4500, capacity: 900, speed: 8, minSpan: 10, maxSpan: 32, color: "#16305C" },
-  { id: "restaurant", category: "buildings", name: "Restaurant", blurb: "Sonnenterrasse. Skifahrer geben hier Geld aus.", cost: 12000, xp: 24, unlockLevel: 1, buildSeconds: 8, footprint: 1, maxSlope: 0.32, minElev: 1600, maxElev: 3200, color: "#8b4a2b" },
+  { id: "tbar", category: "lifts", name: "Schlepplift", blurb: "Guenstig, fuer Anfaengerhaenge. Bis 800 Pers./h.", cost: 4500, xp: 18, unlockLevel: 1, buildSeconds: 6, footprint: 1, maxSlope: 0.55, minElev: 1560, maxElev: 2800, capacity: 800, speed: 3.2, minSpan: 4, maxSpan: 14, color: "#3d6ea8" },
+  { id: "chair", category: "lifts", name: "Sessellift", blurb: "Komfortabler 4er-Sessel. Bis 1.800 Pers./h.", cost: 18500, xp: 36, unlockLevel: 2, buildSeconds: 10, footprint: 1, maxSlope: 0.7, minElev: 1560, maxElev: 3400, capacity: 1800, speed: 4.2, minSpan: 6, maxSpan: 20, color: "#2F6FED" },
+  { id: "gondola", category: "lifts", name: "Gondelbahn", blurb: "2.400 Pers./h. Faehrt auch talwaerts - Anschluss ins Dorf.", cost: 45000, xp: 70, unlockLevel: 3, buildSeconds: 14, footprint: 1, maxSlope: 1.1, minElev: 1560, maxElev: 3900, capacity: 2400, downhillShare: 0.12, speed: 6, minSpan: 8, maxSpan: 28, color: "#1557b0" },
+  { id: "tram", category: "lifts", name: "Pendelbahn", blurb: "Steile Waende, grosse Kabinen. 900 Pers./h, auch talwaerts.", cost: 82000, gemCost: 40, xp: 110, unlockLevel: 6, buildSeconds: 18, footprint: 1, maxSlope: 1.6, minElev: 1560, maxElev: 4500, capacity: 900, downhillShare: 0.15, speed: 8, minSpan: 10, maxSpan: 32, color: "#16305C" },
+  { id: "restaurant", category: "buildings", name: "Restaurant", blurb: "Sonnenterrasse. Skifahrer geben hier Geld aus.", cost: 12000, xp: 24, unlockLevel: 1, buildSeconds: 8, footprint: 1, maxSlope: 0.32, minElev: 1560, maxElev: 3200, color: "#8b4a2b" },
   { id: "hut", category: "buildings", name: "Berghuette", blurb: "Klassische Walliser Huette mit Gluehwein.", cost: 8000, xp: 16, unlockLevel: 2, buildSeconds: 7, footprint: 1, maxSlope: 0.4, minElev: 1800, maxElev: 3400, color: "#6b3f24" },
   { id: "hotel1", category: "buildings", name: "Hotel ★", blurb: "60 Betten. Gaeste bleiben ueber Nacht.", cost: 28000, xp: 40, unlockLevel: 3, buildSeconds: 14, footprint: 1, maxSlope: 0.22, minElev: 1580, maxElev: 2100, beds: 60, color: "#9a6a45" },
   { id: "hotel3", category: "buildings", name: "Hotel ★★★", blurb: "140 Betten, Halbpension, hoehere Raten.", cost: 64000, xp: 80, unlockLevel: 5, buildSeconds: 18, footprint: 1, maxSlope: 0.2, minElev: 1580, maxElev: 2050, beds: 140, color: "#7a4a32" },
@@ -37,11 +47,11 @@ export const CATALOG: CatalogItem[] = [
   { id: "ticket", category: "buildings", name: "Kasse", blurb: "Talstation-Tickets. +8 % Einnahmen im Umkreis.", cost: 6000, xp: 12, unlockLevel: 1, buildSeconds: 5, footprint: 1, maxSlope: 0.25, minElev: 1580, maxElev: 2000, color: "#2F6FED" },
   { id: "apres", category: "buildings", name: "Apres-Ski", blurb: "Huette mit Musik. Abends extra Umsatz.", cost: 18000, xp: 30, unlockLevel: 4, buildSeconds: 9, footprint: 1, maxSlope: 0.28, minElev: 1580, maxElev: 2400, color: "#b03a3a" },
   { id: "spa", category: "buildings", name: "Berg-Spa", blurb: "Wellness nach der Abfahrt. Luxusbonus.", cost: 42000, xp: 55, unlockLevel: 7, buildSeconds: 14, footprint: 1, maxSlope: 0.2, minElev: 1580, maxElev: 2600, color: "#3d8a8a" },
-  { id: "piste-blue", category: "pistes", name: "Blaue Piste", blurb: "Leicht. Breite Abfahrt fuer Familien.", cost: 700, xp: 6, unlockLevel: 1, buildSeconds: 3, footprint: 1, maxSlope: 0.42, minElev: 1600, maxElev: 3200, color: "#2b7de9" },
-  { id: "piste-red", category: "pistes", name: "Rote Piste", blurb: "Mittel. Mehr Tempo, mehr Nervenkitzel.", cost: 1100, xp: 9, unlockLevel: 2, buildSeconds: 3, footprint: 1, maxSlope: 0.7, minElev: 1700, maxElev: 3600, color: "#d64545" },
-  { id: "piste-black", category: "pistes", name: "Schwarze Piste", blurb: "Schwer. Steil, Prestige, Experten.", cost: 1700, xp: 14, unlockLevel: 4, buildSeconds: 4, footprint: 1, maxSlope: 1.15, minElev: 1900, maxElev: 4000, color: "#1c1c1c" },
-  { id: "snowpark", category: "pistes", name: "Snowpark", blurb: "Kicker & Rails. Zieht junge Gaeste an.", cost: 22000, xp: 34, unlockLevel: 5, buildSeconds: 10, footprint: 1, maxSlope: 0.38, minElev: 1800, maxElev: 3000, color: "#F4B942" },
-  { id: "road", category: "pistes", name: "Zufahrt", blurb: "Strasse zum Tal. Noetig fuer Hotels & Parken.", cost: 400, xp: 3, unlockLevel: 1, buildSeconds: 2, footprint: 1, maxSlope: 0.28, minElev: 1560, maxElev: 2000, color: "#5a6570" },
+  { id: "piste-blue", category: "pistes", name: "Blaue Piste", blurb: "Leicht. Breite Abfahrt fuer Familien.", cost: 700, xp: 6, unlockLevel: 1, buildSeconds: 3, footprint: 1, maxSlope: 0.42, minElev: 1560, maxElev: 3200, capacity: 1500, color: "#2b7de9" },
+  { id: "piste-red", category: "pistes", name: "Rote Piste", blurb: "Mittel. Mehr Tempo, mehr Nervenkitzel.", cost: 1100, xp: 9, unlockLevel: 2, buildSeconds: 3, footprint: 1, maxSlope: 0.7, minElev: 1700, maxElev: 3600, capacity: 1100, color: "#d64545" },
+  { id: "piste-black", category: "pistes", name: "Schwarze Piste", blurb: "Schwer. Steil, Prestige, Experten.", cost: 1700, xp: 14, unlockLevel: 4, buildSeconds: 4, footprint: 1, maxSlope: 1.15, minElev: 1900, maxElev: 4000, capacity: 700, color: "#1c1c1c" },
+  { id: "snowpark", category: "pistes", name: "Snowpark", blurb: "Kicker & Rails. Zieht junge Gaeste an.", cost: 22000, xp: 34, unlockLevel: 5, buildSeconds: 10, footprint: 1, maxSlope: 0.38, minElev: 1800, maxElev: 3000, capacity: 900, color: "#F4B942" },
+  { id: "road", category: "pistes", name: "Zufahrt", blurb: "Verbindet Dorf, Parken und Talstationen. Kein Skiweg.", cost: 400, xp: 3, unlockLevel: 1, buildSeconds: 2, footprint: 1, maxSlope: 0.28, minElev: 1560, maxElev: 2000, capacity: 2600, color: "#5a6570" },
   { id: "tree", category: "deco", name: "Arve", blurb: "Schoener Wald. Kleiner Zufriedenheitsbonus.", cost: 180, xp: 1, unlockLevel: 1, buildSeconds: 1, footprint: 1, maxSlope: 0.5, minElev: 1600, maxElev: 2500, color: "#1f3d2a" },
   { id: "rock", category: "deco", name: "Fels", blurb: "Natuerliche Kulisse.", cost: 120, xp: 1, unlockLevel: 1, buildSeconds: 1, footprint: 1, maxSlope: 1.4, minElev: 1700, maxElev: 4300, color: "#6a6764" },
   { id: "viewpoint", category: "deco", name: "Aussichtspunkt", blurb: "Fotospot. Gaeste lieben Gipfelblicke.", cost: 3500, xp: 10, unlockLevel: 3, buildSeconds: 5, footprint: 1, maxSlope: 0.35, minElev: 2200, maxElev: 3900, color: "#4aa3c7" },

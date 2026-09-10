@@ -30,7 +30,10 @@ export { DEFAULT_STATS, DEFAULT_WEATHER, emptyResort, occupiedSet } from "./engi
 export { validateHex, validateIntent } from "./engine/validate.ts";
 export { applyIntent } from "./engine/apply.ts";
 export type { Applied } from "./engine/apply.ts";
-export { tickFlow } from "./engine/flow.ts";
+export { tickFlow, nearestStation, worldElev } from "./engine/flow.ts";
+export { buildResortGraph, clusterPorts, VILLAGE_HEX } from "./engine/graph.ts";
+export type { DemandSource, GraphInput, LiftEdge, PisteEdge, ResortGraph } from "./engine/graph.ts";
+export { FlowNetwork, UNCAPPED } from "./engine/maxflow.ts";
 export { tickResort } from "./engine/tick.ts";
 export { syncQuestProgress } from "./engine/quests.ts";
 export { GameRoom, TICK_MS, PERSIST_MS } from "./runtime/room.ts";
