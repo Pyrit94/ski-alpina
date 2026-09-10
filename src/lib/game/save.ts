@@ -8,6 +8,8 @@ export const DEFAULT_STATS: SimStats = {
   peoplePerHour: 0,
   satisfaction: 72,
   incomePerHour: 0,
+  revenuePerHour: 0,
+  upkeepPerHour: 0,
   visitorsToday: 0,
   visitorsTotal: 0,
   occupancy: 0,

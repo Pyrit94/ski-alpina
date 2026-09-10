@@ -6,6 +6,8 @@ export const DEFAULT_STATS: SimStats = {
   peoplePerHour: 0,
   satisfaction: ECONOMY.targetSatisfaction,
   incomePerHour: 0,
+  revenuePerHour: 0,
+  upkeepPerHour: 0,
   visitorsToday: 0,
   visitorsTotal: 0,
   occupancy: 0,
@@ -64,6 +66,48 @@ export function emptyResort(roomId = "zermatt"): ResortState {
     stats: { ...DEFAULT_STATS },
     flow: [],
     unlocked: [],
+  };
+}
+
+/**
+ * Bring a persisted snapshot up to the current shape.
+ *
+ * Saves outlive the code that wrote them. A room stored before a stat existed
+ * hands the client `undefined`, which renders as NaN rather than failing
+ * loudly, so every field is backfilled from a fresh resort. Quests merge by id
+ * so a newly added goal appears in an old save while progress already made
+ * survives, and a retired one simply drops out.
+ */
+export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): ResortState {
+  const base = emptyResort(roomId ?? snapshot.roomId ?? "zermatt");
+  return {
+    ...base,
+    ...snapshot,
+    version: base.version,
+    roomId: base.roomId,
+    stats: { ...base.stats, ...snapshot.stats },
+    weather: { ...base.weather, ...snapshot.weather },
+    quests: QUEST_DEFS.map((def) => {
+      const saved = snapshot.quests?.find((q) => q.id === def.id);
+      const fresh = {
+        id: def.id,
+        title: def.title,
+        hint: def.hint,
+        xp: def.xp,
+        coins: def.coins,
+        gems: def.gems,
+        progress: 0,
+        target: def.target,
+        claimed: false,
+      };
+      // Rewards and wording follow the config; only the player's state carries over.
+      return saved ? { ...fresh, progress: saved.progress, claimed: saved.claimed } : fresh;
+    }),
+    buildings: snapshot.buildings ?? [],
+    lifts: snapshot.lifts ?? [],
+    pistes: snapshot.pistes ?? [],
+    flow: snapshot.flow ?? [],
+    unlocked: snapshot.unlocked ?? [],
   };
 }
 

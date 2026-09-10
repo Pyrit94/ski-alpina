@@ -372,6 +372,7 @@ function RightColumn() {
     <aside className="hidden w-[300px] shrink-0 flex-col gap-2 overflow-y-auto p-3 pl-1 lg:flex">
       <LayerTabs />
       <InfoPanel />
+      <OperationsPanel />
       <Notifications />
       <Quests />
     </aside>
@@ -411,6 +412,7 @@ function InfoPanel() {
   const buildings = useGame((s) => s.buildings);
   const lifts = useGame((s) => s.lifts);
   const stats = useGame((s) => s.stats);
+  const flow = useGame((s) => s.flow);
   const upgrade = useGame((s) => s.upgrade);
   const coins = useGame((s) => s.coins);
   const lift = lifts.find((l) => l.id === selectedId);
@@ -436,6 +438,9 @@ function InfoPanel() {
   }
   const cap = isLift(item.id) ? liftThroughput(item, entity.upgrades) : item.capacity;
   const constructing = entity.readyAt > Date.now();
+  // What the sim actually routed through this installation this tick.
+  const edge = flow.find((e) => e.id === entity.id);
+  const load = edge && edge.capacity > 0 ? Math.min(1, edge.flow / edge.capacity) : 0;
   return (
     <Panel className="p-3">
       <div className="flex items-start gap-2">
@@ -449,10 +454,16 @@ function InfoPanel() {
       </div>
       {constructing && <div className="mt-2 text-[11px] text-warn">Im Bau…</div>}
       <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
-        <Stat label="Personen" value={cap ? `${fmt(cap)}/h` : "—"} />
-        <Stat label="Zufriedenheit" value={`${stats.satisfaction}%`} />
-        <Stat label="Einnahmen" value={`+${fmt(Math.round(stats.incomePerHour / Math.max(1, lifts.length)))}/h`} />
+        <Stat label="Kapazität" value={cap ? `${fmt(cap)}/h` : "—"} />
+        <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
+        <Stat label="Traegt" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
       </div>
+      {edge && edge.flow <= 0 && (
+        <p className="mt-2 rounded-[12px] bg-danger/10 px-2 py-1.5 text-[11px] leading-snug text-danger">
+          Diese Anlage befoerdert niemanden. Sie haengt an keiner Abfahrt, die zurueck ins Dorf
+          fuehrt.
+        </p>
+      )}
       {isLift(item.id) && (
         <div className="mt-3">
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Upgrades</div>
@@ -486,6 +497,80 @@ function InfoPanel() {
         </div>
       )}
     </Panel>
+  );
+}
+
+/**
+ * What the flow graph knows, in the player's language.
+ *
+ * Without this the two things that decide a resort — whether an installation is
+ * connected at all, and what the queue is stuck behind — are invisible, and a
+ * lift that carries nobody looks exactly like one that carries thousands.
+ */
+function OperationsPanel() {
+  const stats = useGame((s) => s.stats);
+  const idle = stats.idleLifts + stats.idlePistes;
+  const turnedAway = stats.demandPerHour - stats.peoplePerHour;
+  return (
+    <Panel className="p-3">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Betrieb</div>
+      <div className="grid grid-cols-3 gap-1.5 text-center">
+        <Stat label="Nachfrage" value={`${fmt(stats.demandPerHour)}/h`} />
+        <Stat label="Bedient" value={`${fmt(stats.peoplePerHour)}/h`} />
+        <Stat label="Wartezeit" value={`${stats.waitMinutes} min`} />
+      </div>
+      <div className="mt-1.5 grid grid-cols-3 gap-1.5 text-center">
+        <Stat label="Umsatz" value={`${fmt(stats.revenuePerHour)}`} />
+        <Stat label="Unterhalt" value={`−${fmt(stats.upkeepPerHour)}`} />
+        <Stat
+          label="Netto"
+          value={`${stats.incomePerHour < 0 ? "−" : "+"}${fmt(Math.abs(stats.incomePerHour))}`}
+        />
+      </div>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {stats.incomePerHour < 0 && (
+          <Warning tone="bad">
+            Der Unterhalt frisst mehr, als das Gebiet einnimmt. Schliess ungenutzte Anlagen ans Netz
+            an oder hol mehr Gaeste ins Tal.
+          </Warning>
+        )}
+        {idle > 0 && (
+          <Warning tone="bad">
+            {idle === 1 ? "Eine Anlage ist" : `${idle} Anlagen sind`} nicht angeschlossen und
+            befoerdert niemanden. Eine Bahn braucht eine Abfahrt zurueck ins Dorf.
+          </Warning>
+        )}
+        {turnedAway > 0 && idle === 0 && (
+          <Warning tone="warn">
+            {fmt(turnedAway)} Gaeste pro Stunde finden keinen Platz.
+            {stats.bottleneckLabel
+              ? ` Engpass: ${stats.bottleneckLabel} bei ${Math.round(stats.bottleneckUse * 100)} %.`
+              : " Es fehlt eine Verbindung ins Gebiet."}
+          </Warning>
+        )}
+        {turnedAway <= 0 && stats.bottleneckLabel && (
+          <Warning tone="warn">
+            {stats.bottleneckLabel} laeuft bei {Math.round(stats.bottleneckUse * 100)} % — der
+            naechste Ausbau gehoert dorthin.
+          </Warning>
+        )}
+      </div>
+      <div className="mt-2 text-[10px] text-muted">
+        Hoehenmeter {fmt(stats.verticalPerHour)}/h · Kapazitaet {fmt(stats.liftCapacity)}/h
+      </div>
+    </Panel>
+  );
+}
+
+function Warning({ tone, children }: { tone: "warn" | "bad"; children: React.ReactNode }) {
+  return (
+    <p
+      className={`rounded-[12px] px-2 py-1.5 text-[11px] leading-snug ${
+        tone === "bad" ? "bg-danger/10 text-danger" : "bg-warn/12 text-warn"
+      }`}
+    >
+      {children}
+    </p>
   );
 }
 
@@ -1018,7 +1103,12 @@ function MobileSheets() {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
           {sheet === "build" && <MobileBuildGrid />}
           {sheet === "quests" && <Quests />}
-          {sheet === "info" && <InfoPanel />}
+          {sheet === "info" && (
+            <div className="flex flex-col gap-2">
+              <InfoPanel />
+              <OperationsPanel />
+            </div>
+          )}
           {sheet === "menu" && <MobileMenuBody />}
         </div>
       </div>

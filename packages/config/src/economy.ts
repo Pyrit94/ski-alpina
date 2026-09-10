@@ -6,6 +6,28 @@ export const ECONOMY = {
   ticketMin: 39,
   ticketMax: 149,
   ticketDefault: 74,
+  /** Price at which guests are exactly as willing to come as not. */
+  ticketReference: 74,
+  /**
+   * How sharply demand falls as the price rises past the reference.
+   *
+   * Demand is `2 / (1 + (price / reference) ^ elasticity)`, so revenue peaks at
+   * an interior price rather than at the cap. Above 1 the curve has a maximum;
+   * at 2.4 it sits near 64 CHF, and the satisfaction penalty pulls it lower
+   * still. The old rule only bit above 90 CHF, which made 90 strictly optimal
+   * and the whole slider free money.
+   */
+  priceElasticity: 2.4,
+  /** Satisfaction points lost per franc charged above the reference price. */
+  pricePenaltyPerFranc: 0.12,
+  /**
+   * Share of demand that shows up regardless of reputation.
+   *
+   * The rest scales with last tick's satisfaction, which is what closes the
+   * loop: long queues cost guests tomorrow, not just points today. Lagging by
+   * a tick keeps it stable and self-correcting instead of a death spiral.
+   */
+  reputationFloor: 0.45,
   hotelRatePerBedPerHour: 18,
   fbPerVisitor: 4.2,
   shopPerVisitor: 2.1,

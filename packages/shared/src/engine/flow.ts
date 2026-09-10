@@ -1,4 +1,5 @@
 import { ECONOMY, FLOW } from "../../../config/src/economy.ts";
+import { isLift } from "../../../config/src/ids.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
@@ -48,7 +49,13 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const nightLights = hasLights && (state.timeOfDay < 0.3 || state.timeOfDay > 0.7);
   let appetite = hourFactor(state.timeOfDay) * (nightLights ? 1 + ECONOMY.lightsDayExtension : 1);
   appetite *= 0.72 + state.weather.snowQuality * 0.4;
-  if (state.ticketPrice > 90) appetite *= 1 - (state.ticketPrice - 90) / 280;
+  // Willingness to pay: 1 at the reference price, falling away either side of
+  // it steeply enough that revenue peaks at an interior price.
+  appetite *=
+    2 / (1 + Math.pow(state.ticketPrice / ECONOMY.ticketReference, ECONOMY.priceElasticity));
+  // Reputation from last tick. Queues today cost guests tomorrow.
+  const reputation = Math.max(0, Math.min(1, state.stats.satisfaction / 100));
+  appetite *= ECONOMY.reputationFloor + (1 - ECONOMY.reputationFloor) * reputation;
   appetite = Math.max(0, appetite);
 
   const demands: DemandSource[] = [
@@ -157,6 +164,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   sat += restaurants * ECONOMY.restaurantSatisfaction + shops * ECONOMY.shopSatisfaction;
   sat += hasSpa ? ECONOMY.spaSatisfaction : 0;
   sat += tickets * ECONOMY.ticketOfficeSatisfaction;
+  sat -=
+    Math.max(0, state.ticketPrice - ECONOMY.ticketReference) * ECONOMY.pricePenaltyPerFranc;
   sat = Math.max(ECONOMY.minSatisfaction, Math.min(ECONOMY.maxSatisfaction, sat));
 
   // Food and retail are capacity businesses: an unbuilt restaurant sells nothing
@@ -166,12 +175,31 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const hotelIncome = beds * occupancy * ECONOMY.hotelRatePerBedPerHour;
   const fb = Math.min(served, restaurants * ECONOMY.restaurantSeatsPerHour) * ECONOMY.fbPerVisitor;
   const retail = Math.min(served, shops * ECONOMY.shopVisitorsPerHour) * ECONOMY.shopPerVisitor;
-  const incomePerHour = ticketIncome + hotelIncome + fb + retail;
+  const revenue = ticketIncome + hotelIncome + fb + retail;
+
+  // Upkeep runs whether or not anyone shows up, which is what makes an
+  // over-built resort a mistake rather than merely a slow start. A workshop
+  // maintains the cableways, so it only discounts the lifts.
+  const workshopCut = count("workshop") > 0 ? 1 - ECONOMY.workshopUpkeepCut : 1;
+  const liftUpkeep = readyLifts.reduce((n, l) => n + (BY_ID[l.itemId].upkeep ?? 0), 0) * workshopCut;
+  // Placing a lift also records its two stations in `buildings`, so charging
+  // every building would bill each cableway three times over.
+  const buildingUpkeep = buildings
+    .filter((b) => !isLift(b.itemId))
+    .reduce((n, b) => n + (BY_ID[b.itemId].upkeep ?? 0), 0);
+  const pisteUpkeep = readyPistes.reduce(
+    (n, p) => n + (BY_ID[p.itemId].upkeep ?? 0) * Math.max(1, p.hexes.length - 1),
+    0,
+  );
+  const upkeepPerHour = liftUpkeep + buildingUpkeep + pisteUpkeep;
+  const incomePerHour = revenue - upkeepPerHour;
 
   const stats: SimStats = {
     peoplePerHour: Math.round(served),
     satisfaction: Math.round(sat),
     incomePerHour: Math.round(incomePerHour),
+    revenuePerHour: Math.round(revenue),
+    upkeepPerHour: Math.round(upkeepPerHour),
     visitorsToday: state.stats.visitorsToday + served * dtHours,
     visitorsTotal: state.stats.visitorsTotal + served * dtHours,
     occupancy,

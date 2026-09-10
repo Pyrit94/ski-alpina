@@ -90,7 +90,9 @@ test("a circuit built away from every arrival point earns nothing", () => {
   const stranded = circuit({ q: 30, r: -20 }, -28, -20);
   const flowed = tickFlow(stranded, dem, 0.2, NOW);
   assert.equal(flowed.stats.peoplePerHour, 0);
-  assert.equal(flowed.coinsDelta, 0);
+  assert.equal(flowed.stats.revenuePerHour, 0);
+  // Worse than nothing, in fact: it still costs upkeep to stand there.
+  assert.ok(flowed.coinsDelta < 0);
   assert.equal(flowed.stats.idleLifts, 1);
   assert.equal(flowed.stats.idlePistes, 1);
 });
@@ -108,8 +110,10 @@ test("stranded lifts add no income however many you build", () => {
   }
   const alone = tickFlow(connected, dem, 0.2, NOW);
   const padded2 = tickFlow(padded, dem, 0.2, NOW);
+  // No extra throughput, no extra takings — and now a bill for the privilege.
   assert.equal(padded2.stats.peoplePerHour, alone.stats.peoplePerHour);
-  assert.equal(padded2.coinsDelta, alone.coinsDelta);
+  assert.equal(padded2.stats.revenuePerHour, alone.stats.revenuePerHour);
+  assert.ok(padded2.coinsDelta < alone.coinsDelta);
   assert.equal(padded2.stats.idleLifts, 8);
 });
 
@@ -145,14 +149,103 @@ test("an empty resort names no bottleneck", () => {
 });
 
 test("food and retail revenue needs the buildings that serve it", () => {
+  // The old formula was `max(1, restaurants)`, so food paid out in full with
+  // nothing built and the first restaurant added exactly nothing.
+  const withRestaurant = (state: ResortState) =>
+    applyIntent(state, { type: "place_building", itemId: "restaurant", q: -5, r: 8 }, BUILT).state;
   const bare = tickFlow(circuit(VILLAGE_HEX, 1, 9), dem, 0.2, NOW);
-  const fed = tickFlow(
-    applyIntent(circuit(VILLAGE_HEX, 1, 9), { type: "place_building", itemId: "restaurant", q: -5, r: 8 }, BUILT).state,
+  const fed = tickFlow(withRestaurant(circuit(VILLAGE_HEX, 1, 9)), dem, 0.2, NOW);
+  assert.equal(bare.stats.revenuePerHour > 0, true);
+  assert.ok(fed.stats.revenuePerHour > bare.stats.revenuePerHour);
+});
+
+test("a restaurant has to earn its keep before it pays", () => {
+  // At 4.20 a head it needs a real crowd to cover 260 a day, which is the
+  // decision: build it too early and it is a drain.
+  const withRestaurant = (state: ResortState) =>
+    applyIntent(state, { type: "place_building", itemId: "restaurant", q: -5, r: 8 }, BUILT).state;
+  const quiet = circuit(VILLAGE_HEX, 1, 9);
+  assert.ok(
+    tickFlow(withRestaurant(quiet), dem, 0.2, NOW).stats.incomePerHour <
+      tickFlow(quiet, dem, 0.2, NOW).stats.incomePerHour,
+    "a restaurant for 38 guests a day should not pay for itself",
+  );
+
+  let busy = quiet;
+  for (let i = 0; i < 10; i++) {
+    busy = applyIntent(busy, { type: "place_building", itemId: "parking", q: -6, r: 9 }, BUILT).state;
+  }
+  assert.ok(
+    tickFlow(withRestaurant(busy), dem, 0.2, NOW).stats.incomePerHour >
+      tickFlow(busy, dem, 0.2, NOW).stats.incomePerHour,
+    "with a full mountain it should",
+  );
+});
+
+test("upkeep is charged whether or not anyone comes", () => {
+  // A stranded circuit takes no money and still costs money to run: this is
+  // what makes overbuilding a mistake rather than just a slow start.
+  const stranded = tickFlow(circuit({ q: 30, r: -20 }, -28, -20), dem, 0.2, NOW);
+  assert.ok(stranded.stats.upkeepPerHour > 0);
+  assert.equal(stranded.stats.revenuePerHour, 0);
+  assert.ok(stranded.stats.incomePerHour < 0, "a dead lift should lose money");
+  assert.ok(stranded.coinsDelta < 0);
+});
+
+test("each cableway is billed once, not once per station", () => {
+  // place_lift also records both stations in `buildings`, so a naive sum over
+  // buildings would charge every lift three times.
+  const one = tickFlow(circuit(VILLAGE_HEX, 1, 9), dem, 0.2, NOW);
+  const lifts = one.stats.upkeepPerHour;
+  const chair = 460;
+  assert.ok(lifts < chair * 2, `upkeep ${lifts} looks like a lift billed twice`);
+});
+
+test("a workshop lowers what the cableways cost to run", () => {
+  const plain = tickFlow(circuit(VILLAGE_HEX, 1, 9), dem, 0.2, NOW);
+  const maintained = tickFlow(
+    applyIntent(circuit(VILLAGE_HEX, 1, 9), { type: "place_building", itemId: "workshop", q: -6, r: 9 }, BUILT).state,
     dem,
     0.2,
     NOW,
   );
-  assert.ok(fed.stats.incomePerHour > bare.stats.incomePerHour);
+  // The workshop pays its own upkeep, so compare the lift share it discounts.
+  assert.ok(maintained.stats.upkeepPerHour < plain.stats.upkeepPerHour + 240);
+});
+
+test("income is revenue net of upkeep", () => {
+  const flowed = tickFlow(circuit(VILLAGE_HEX, 1, 9), dem, 0.2, NOW);
+  assert.equal(
+    flowed.stats.incomePerHour,
+    Math.round(flowed.stats.revenuePerHour - flowed.stats.upkeepPerHour),
+  );
+});
+
+test("the most profitable ticket price is not the highest one", () => {
+  // The old rule only bit above 90 CHF, so 90 strictly dominated every lower
+  // price and the slider was free money.
+  const net = (chf: number) =>
+    tickFlow({ ...circuit(VILLAGE_HEX, 1, 9), ticketPrice: chf }, dem, 0.2, NOW).stats
+      .incomePerHour;
+  const prices = [39, 49, 59, 69, 79, 89, 99, 119, 149];
+  const best = prices.reduce((a, b) => (net(b) > net(a) ? b : a));
+  assert.ok(best > 39 && best < 149, `optimum sat at the edge: ${best} CHF`);
+  assert.ok(net(best) > net(149));
+  assert.ok(net(best) > net(39));
+});
+
+test("a high price costs both guests and goodwill", () => {
+  const cheap = tickFlow({ ...circuit(VILLAGE_HEX, 1, 9), ticketPrice: 39 }, dem, 0.2, NOW);
+  const dear = tickFlow({ ...circuit(VILLAGE_HEX, 1, 9), ticketPrice: 149 }, dem, 0.2, NOW);
+  assert.ok(dear.stats.demandPerHour < cheap.stats.demandPerHour);
+  assert.ok(dear.stats.satisfaction < cheap.stats.satisfaction);
+});
+
+test("reputation from the last tick moves today's demand", () => {
+  const base = circuit(VILLAGE_HEX, 1, 9);
+  const loved = tickFlow({ ...base, stats: { ...base.stats, satisfaction: 99 } }, dem, 0.2, NOW);
+  const loathed = tickFlow({ ...base, stats: { ...base.stats, satisfaction: 30 } }, dem, 0.2, NOW);
+  assert.ok(loved.stats.demandPerHour > loathed.stats.demandPerHour);
 });
 
 test("vertical transported grows with the height a lift climbs", () => {

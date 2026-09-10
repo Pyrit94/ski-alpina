@@ -26,7 +26,7 @@ export type { Intent, ClientMessage, ServerMessage } from "./protocol/intents.ts
 export { generateDem, getDem, encodeTerrainRgb, decodeTerrainRgbSample } from "./terrain/dem.ts";
 export type { Dem } from "./terrain/dem.ts";
 export { xpForLevel, levelFromXp, liftThroughput, pisteDifficulty } from "./engine/level.ts";
-export { DEFAULT_STATS, DEFAULT_WEATHER, emptyResort, occupiedSet } from "./engine/state.ts";
+export { DEFAULT_STATS, DEFAULT_WEATHER, emptyResort, migrateResort, occupiedSet } from "./engine/state.ts";
 export { validateHex, validateIntent } from "./engine/validate.ts";
 export { applyIntent } from "./engine/apply.ts";
 export type { Applied } from "./engine/apply.ts";

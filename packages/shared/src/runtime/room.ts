@@ -2,7 +2,7 @@ import { ECONOMY } from "../../../config/src/economy.ts";
 import { applyIntent } from "../engine/apply.ts";
 import { tickResort } from "../engine/tick.ts";
 import { validateIntent } from "../engine/validate.ts";
-import { emptyResort } from "../engine/state.ts";
+import { emptyResort, migrateResort } from "../engine/state.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
@@ -32,8 +32,9 @@ export class GameRoom {
 
   constructor(roomId: string, snapshot?: ResortState, dem?: Dem) {
     this.dem = dem ?? getDem();
-    this.state = snapshot ?? emptyResort(roomId);
-    this.state.roomId = roomId;
+    // Every snapshot enters the engine through here, so this is the one place
+    // an older save shape has to be reconciled.
+    this.state = snapshot ? migrateResort(snapshot, roomId) : emptyResort(roomId);
   }
 
   join(name: string, token?: string): RoomPlayer {

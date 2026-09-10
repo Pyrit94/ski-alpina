@@ -71,7 +71,12 @@ export interface WeatherState {
 export interface SimStats {
   peoplePerHour: number;
   satisfaction: number;
+  /** Net of upkeep: what actually lands in the account. */
   incomePerHour: number;
+  /** Gross takings from tickets, beds, food and retail. */
+  revenuePerHour: number;
+  /** Running cost of everything built, paid whether guests come or not. */
+  upkeepPerHour: number;
   visitorsToday: number;
   visitorsTotal: number;
   occupancy: number;

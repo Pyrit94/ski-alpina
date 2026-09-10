@@ -24,7 +24,10 @@ export function tickResort(state: ResortState, dem: Dem, dtSeconds: number, now:
     timeOfDay,
     day,
     season,
-    coins: state.coins + flowed.coinsDelta,
+    // Upkeep can outrun takings, but nothing can be demolished yet, so a
+    // player who overbuilds must be able to earn their way out rather than
+    // sink into a debt no action can clear.
+    coins: Math.max(0, state.coins + flowed.coinsDelta),
     stats: flowed.stats,
     flow: flowed.flow,
   };
