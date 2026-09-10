@@ -668,11 +668,14 @@ function LightsAndSky() {
       />
       {/*
         Haze used to start at 120 units, and the Matterhorn stands some 100 to
-        150 away — so the fog ate the range the map is named after. It now
-        starts past the far peaks and fades into the horizon colour, which
-        gives distance without deleting the skyline.
+        150 away — so the fog ate the range the map is named after.
+
+        It is also deliberately BLUER than the sky it sits against. Fading
+        distant snow to the horizon colour made peak and sky the same tone, so
+        the skyline vanished a second time. Real distance tints things blue,
+        not white, and that difference is what leaves a silhouette.
       */}
-      <fog attach="fog" args={["#d5e4f0", low ? 170 : 210, low ? 360 : 410]} />
+      <fog attach="fog" args={["#9dbcd8", low ? 200 : 250, low ? 380 : 450]} />
     </>
   );
 }

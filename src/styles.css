@@ -33,12 +33,23 @@
   --radius-xl: 24px;
   --radius-sheet: 28px;
 
+  /*
+   * Panels sit on the mountain, so they need to read as objects rather than as
+   * washes over it: a hairline edge, a soft cast shadow, and a light top edge
+   * inside the border, which is what makes a surface look lit from above.
+   */
   --shadow-panel:
-    0 0 0 1px rgba(11, 31, 58, 0.06),
-    0 10px 28px -12px rgba(11, 31, 58, 0.22);
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 0 0 1px rgba(11, 31, 58, 0.07),
+    0 2px 4px -2px rgba(11, 31, 58, 0.1),
+    0 14px 34px -14px rgba(11, 31, 58, 0.28);
   --shadow-chip:
-    0 0 0 1px rgba(11, 31, 58, 0.06),
-    0 2px 8px -2px rgba(11, 31, 58, 0.12);
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 0 0 1px rgba(11, 31, 58, 0.07),
+    0 3px 10px -3px rgba(11, 31, 58, 0.16);
+  /* The lip under a button. Pressing it takes the lip away, so the control
+     travels — the one detail that makes a flat rectangle feel like a button. */
+  --lip-height: 3px;
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -107,6 +118,56 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/*
+ * A button with a lip: raised, and it travels when pressed.
+ *
+ * `box-shadow` rather than a border, so the lip costs no layout and the
+ * element's size never changes — a border that appears on press would shift
+ * everything around it. The shadow colour is inherited from `--lip`, so each
+ * variant sets one custom property instead of repeating the whole stack.
+ */
+.btn-3d {
+  --lip: rgba(11, 31, 58, 0.22);
+  position: relative;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 var(--lip-height) 0 0 var(--lip),
+    0 6px 14px -6px rgba(11, 31, 58, 0.35);
+  transform: translateY(0);
+  transition:
+    transform 90ms var(--ease-out),
+    box-shadow 90ms var(--ease-out),
+    filter 120ms var(--ease-out);
+}
+
+.btn-3d:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.btn-3d:active:not(:disabled) {
+  transform: translateY(var(--lip-height));
+  box-shadow:
+    inset 0 1px 2px rgba(11, 31, 58, 0.22),
+    0 0 0 0 var(--lip);
+}
+
+.btn-3d:disabled {
+  box-shadow:
+    0 0 0 1px rgba(11, 31, 58, 0.08),
+    0 1px 0 0 rgba(11, 31, 58, 0.06);
+}
+
+/* Light-coloured buttons need a lighter lip or it reads as a drop shadow. */
+.btn-3d-light {
+  --lip: rgba(11, 31, 58, 0.13);
+}
+
+/* A number that should feel like a score: tight, dark, tabular. */
+.value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .sheet-up {

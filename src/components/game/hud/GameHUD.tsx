@@ -279,15 +279,25 @@ function LogoMark() {
   );
 }
 
+/**
+ * A currency pill.
+ *
+ * The most-looked-at number on the screen, so it gets the weight: the count is
+ * bold and tabular, and the icon sits in its own recessed well rather than
+ * floating next to the digits. Tabular figures matter here — a balance that
+ * jitters as it ticks is distracting in the corner of the eye.
+ */
 function Currency({ n, icon, onAdd }: { n: number; icon: ReactNode; onAdd?: boolean }) {
   return (
-    <div className="flex items-center gap-1 rounded-full bg-panel/92 py-1 pl-2 pr-2 shadow-[var(--shadow-chip)] lg:pr-1">
-      {icon}
-      <span className="min-w-[1.6rem] text-right text-[12px] font-semibold tabular-nums text-navy lg:min-w-[2.4rem] lg:text-[13px]">
+    <div className="flex items-center gap-1.5 rounded-full bg-panel/92 py-1 pl-1 pr-2 shadow-[var(--shadow-chip)] lg:pr-1">
+      <span className="grid size-6 place-items-center rounded-full bg-ice shadow-[inset_0_1px_2px_rgba(11,31,58,.12)]">
+        {icon}
+      </span>
+      <span className="value min-w-[1.7rem] text-right text-[13px] font-bold text-navy lg:min-w-[2.5rem] lg:text-[14px]">
         {fmtCompact(n)}
       </span>
       {onAdd && (
-        <span className="hidden size-5 place-items-center rounded-full bg-accent text-[11px] font-bold text-panel lg:grid">
+        <span className="btn-3d hidden size-5 place-items-center rounded-full bg-accent text-[11px] font-bold text-panel lg:grid">
           +
         </span>
       )}
@@ -410,7 +420,8 @@ function LeftColumn() {
                 key={id}
                 type="button"
                 onClick={() => setBuildItem(id)}
-                className={`flex flex-col items-center gap-1 rounded-[14px] px-1 py-2 text-[10px] font-medium ${active ? "bg-accent text-panel" : locked ? "bg-snow text-subtle" : "bg-ice text-navy hover:bg-accent-soft"}`}
+                className={`btn-3d ${active ? "" : "btn-3d-light"} flex flex-col items-center gap-1 rounded-[14px] px-1 py-2 text-[10px] font-semibold ${active ? "bg-accent text-panel" : locked ? "bg-snow text-subtle" : "bg-ice text-navy"}`}
+                style={active ? { ["--lip" as string]: "var(--color-accent-dark)" } : undefined}
               >
                 <Icon className="size-4" />
                 {it.name.split(" ")[0]}
@@ -583,7 +594,8 @@ function InfoPanel() {
           </div>
           <button
             type="button"
-            className="mt-2 flex h-11 w-full items-center justify-center gap-1 rounded-full bg-accent text-[12px] font-semibold text-panel"
+            className="btn-3d mt-2 flex h-11 w-full items-center justify-center gap-1 rounded-full bg-accent text-[13px] font-bold text-panel"
+            style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
             onClick={() => upgrade(entity.id, "capacity")}
           >
             Upgrade <Coin className="size-3.5" /> {fmt(UPGRADES[2]!.cost[entity.upgrades.capacity] ?? 0)}
@@ -671,7 +683,7 @@ function DemolishButton({ id, refund, label }: { id: string; refund: number; lab
       <button
         type="button"
         onClick={() => setArmed(true)}
-        className="mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-full bg-ice text-[12px] font-semibold text-danger"
+        className="btn-3d btn-3d-light mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-full bg-ice text-[12px] font-bold text-danger"
       >
         <Trash2 className="size-3.5" /> Abreissen
       </button>
@@ -687,7 +699,7 @@ function DemolishButton({ id, refund, label }: { id: string; refund: number; lab
         <button
           type="button"
           onClick={() => setArmed(false)}
-          className="h-11 flex-1 rounded-full bg-ice text-[12px] font-semibold text-navy"
+          className="btn-3d btn-3d-light h-11 flex-1 rounded-full bg-ice text-[12px] font-bold text-navy"
         >
           Behalten
         </button>
@@ -697,7 +709,8 @@ function DemolishButton({ id, refund, label }: { id: string; refund: number; lab
             demolish(id);
             setArmed(false);
           }}
-          className="h-11 flex-1 rounded-full bg-danger text-[12px] font-semibold text-panel"
+          className="btn-3d h-11 flex-1 rounded-full bg-danger text-[12px] font-bold text-panel"
+          style={{ ["--lip" as string]: "#9c2626" }}
         >
           Abreissen
         </button>
@@ -724,15 +737,24 @@ function OperationsPanel() {
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Betrieb</div>
       <div className="grid grid-cols-3 gap-1.5 text-center">
         <Stat label="Nachfrage" value={`${fmt(stats.demandPerHour)}/h`} />
-        <Stat label="Bedient" value={`${fmt(stats.peoplePerHour)}/h`} />
-        <Stat label="Wartezeit" value={`${stats.waitMinutes} min`} />
+        <Stat
+          label="Bedient"
+          value={`${fmt(stats.peoplePerHour)}/h`}
+          tone={turnedAway > 0 ? "warn" : "good"}
+        />
+        <Stat
+          label="Wartezeit"
+          value={`${stats.waitMinutes} min`}
+          tone={stats.waitMinutes > 12 ? "bad" : stats.waitMinutes > 6 ? "warn" : "neutral"}
+        />
       </div>
       <div className="mt-1.5 grid grid-cols-3 gap-1.5 text-center">
         <Stat label="Umsatz" value={`${fmt(stats.revenuePerHour)}`} />
-        <Stat label="Unterhalt" value={`−${fmt(stats.upkeepPerHour)}`} />
+        <Stat label="Unterhalt" value={`−${fmt(stats.upkeepPerHour)}`} tone="warn" />
         <Stat
           label="Netto"
           value={`${stats.incomePerHour < 0 ? "−" : "+"}${fmt(Math.abs(stats.incomePerHour))}`}
+          tone={stats.incomePerHour < 0 ? "bad" : "good"}
         />
       </div>
       <div className="mt-2 flex flex-col gap-1.5">
@@ -794,11 +816,36 @@ function Warning({ tone, children }: { tone: "warn" | "bad"; children: React.Rea
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+/**
+ * One number with its label.
+ *
+ * The value was the same weight as its caption, so a panel of these read as a
+ * paragraph rather than as a readout. The number now carries the tile: bigger,
+ * darker, tabular, with the label demoted to a small line above it. `tone`
+ * colours the number itself, because a negative figure should be legible as
+ * bad without reading the words.
+ */
+function Stat({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "good" | "warn" | "bad";
+}) {
+  const color =
+    tone === "good"
+      ? "text-success"
+      : tone === "warn"
+        ? "text-warn"
+        : tone === "bad"
+          ? "text-danger"
+          : "text-navy";
   return (
-    <div className="rounded-[12px] bg-snow px-1 py-2">
-      <div className="text-[9px] font-medium uppercase tracking-wide text-muted">{label}</div>
-      <div className="text-[12px] font-semibold tabular-nums text-navy">{value}</div>
+    <div className="rounded-[14px] bg-snow px-1.5 py-2 shadow-[inset_0_0_0_1px_rgba(11,31,58,.05)]">
+      <div className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted">{label}</div>
+      <div className={`value mt-0.5 text-[15px] font-bold leading-none ${color}`}>{value}</div>
     </div>
   );
 }
@@ -1184,7 +1231,8 @@ function StampTray() {
               key={c.id}
               type="button"
               onClick={() => setCategory(c.id)}
-              className={`flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold ${active ? "bg-accent text-panel" : "bg-ice text-navy"}`}
+              className={`btn-3d ${active ? "" : "btn-3d-light"} flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold ${active ? "bg-accent text-panel" : "bg-ice text-navy"}`}
+              style={active ? { ["--lip" as string]: "var(--color-accent-dark)" } : undefined}
             >
               <Icon className="size-3.5" />
               {c.label}
@@ -1203,11 +1251,12 @@ function StampTray() {
               key={it.id}
               type="button"
               onClick={() => setBuildItem(it.id)}
-              className={`flex h-14 w-[4.6rem] shrink-0 flex-col items-center justify-center rounded-[14px] px-1 ${active ? "bg-accent text-panel" : locked ? "bg-snow text-subtle" : "bg-ice text-navy"}`}
+              className={`btn-3d ${active ? "" : "btn-3d-light"} flex h-14 w-[4.6rem] shrink-0 flex-col items-center justify-center rounded-[14px] px-1 ${active ? "bg-accent text-panel" : locked ? "bg-snow text-subtle" : "bg-ice text-navy"}`}
+              style={active ? { ["--lip" as string]: "var(--color-accent-dark)" } : undefined}
             >
               <Icon className="size-4" />
-              <span className="mt-0.5 max-w-full truncate text-[9px] font-semibold">{it.name.split(" ")[0]}</span>
-              <span className={`text-[9px] tabular-nums ${active ? "text-panel/85" : tooExpensive ? "text-danger" : "text-muted"}`}>
+              <span className="mt-0.5 max-w-full truncate text-[9px] font-bold">{it.name.split(" ")[0]}</span>
+              <span className={`value text-[9px] font-semibold ${active ? "text-panel/85" : tooExpensive ? "text-danger" : "text-muted"}`}>
                 {locked ? `Lv ${it.unlockLevel}` : fmtCompact(it.cost)}
               </span>
             </button>
