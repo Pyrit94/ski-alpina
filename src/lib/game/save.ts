@@ -15,6 +15,7 @@ export const DEFAULT_STATS: SimStats = {
   pisteKm: 0,
   beds: 0,
   liftCapacity: 0,
+  queued: 0,
 };
 
 export const DEFAULT_WEATHER: WeatherState = {
@@ -28,7 +29,8 @@ export const DEFAULT_WEATHER: WeatherState = {
 export function newSave(): GameSave {
   return {
     version: SAVE_VERSION,
-    resortName: "Ski Alpina",
+    roomId: "zermatt",
+    resortName: "Ski Builder",
     coins: 62000,
     gems: 40,
     stars: 0,
@@ -36,6 +38,7 @@ export function newSave(): GameSave {
     season: 1,
     day: 1,
     timeOfDay: 0.34,
+    ticketPrice: 74,
     buildings: [
       {
         id: "seed-ticket",
@@ -64,6 +67,7 @@ export function newSave(): GameSave {
     tutorialStep: 0,
     tutorialOpen: true,
     weather: { ...DEFAULT_WEATHER },
+    flow: [],
     stats: { ...DEFAULT_STATS },
     unlocked: [],
   };

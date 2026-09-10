@@ -12,6 +12,7 @@ import {
   scatterRocks,
   scatterTrees,
   VILLAGE,
+  visualRelief,
   type Heightmap,
 } from "@/lib/game/alpine";
 import { HEX_SIZE, hexToWorld, worldToHex } from "@/lib/game/hex";
@@ -29,7 +30,7 @@ function buildTerrain(hm: Heightmap, layer: MapLayer, heat: Map<string, number>)
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
-    const y = hm.worldY(x, z);
+    const y = hm.worldY(x, z) + visualRelief(x, z);
     pos.setY(i, y);
     const m = hm.sample(x, z);
     let c = biomeColor(biomeAt(hm, x, z));
@@ -384,7 +385,7 @@ function Pistes() {
     );
   }, [draft, hm]);
   if (hide) return null;
-  const col = { blue: "#2b7de9", red: "#d64545", black: "#222", park: "#e8c04a" };
+  const col: Record<string, string> = { blue: "#2b7de9", red: "#d64545", black: "#222", park: "#e8c04a", road: "#5a6570" };
   return (
     <group>
       {geos.map(({ p, geo }) => (
@@ -405,7 +406,7 @@ function Skiers() {
   const pistes = useGame((s) => s.pistes);
   const hm = getHeightmap();
   const paths = useMemo(() => pistes.filter((p) => p.hexes.length >= 2).map((p) => pistePoints(p, hm)), [pistes, hm]);
-  const count = Math.min(80, Math.max(8, paths.length * 6));
+  const count = Math.min(56, Math.max(8, paths.length * 6));
   const ref = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const seeds = useMemo(() => Array.from({ length: 80 }, (_, i) => i * 0.137), []);

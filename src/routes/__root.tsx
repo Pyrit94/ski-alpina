@@ -3,7 +3,7 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "Ski Alpina";
+const APP_NAME = "Ski Builder";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -16,15 +16,20 @@ export const Route = createRootRoute({
       { title: APP_NAME },
       {
         name: "description",
-        content: "Baue dein Traum-Skigebiet in den Walliser Alpen. SimCity-Style Tycoon mit echten Gipfeldaten.",
+        content: "Mehrspieler-Skigebiet-Simulator. Copernicus DEM, Echtzeit-Koop, flussbasierte Wirtschaft.",
       },
-      { name: "theme-color", content: "#0B1F3A" },
+      { name: "theme-color", content: "#16305C" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/__grok/manifest.webmanifest" },
       { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap",
+      },
     ],
   }),
   component: () => (

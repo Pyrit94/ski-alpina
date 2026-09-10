@@ -2,23 +2,23 @@
 @import "tw-animate-css";
 
 @theme {
-  --font-sans: "Segoe UI", "Avenir Next", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Poppins", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
 
-  --color-navy: #0b1f3a;
+  --color-navy: #16305C;
   --color-ink: #14233d;
-  --color-muted: #5b6b82;
+  --color-muted: #7C8DA6;
   --color-subtle: #8a97a8;
   --color-ice: #e8f3fb;
   --color-snow: #f5fafe;
   --color-panel: #ffffff;
   --color-line: #d7e4f0;
-  --color-accent: #1a73e8;
-  --color-accent-dark: #1557b0;
-  --color-accent-soft: #d6e8fb;
-  --color-success: #1f9d58;
+  --color-accent: #2F6FED;
+  --color-accent-dark: #1d4fc7;
+  --color-accent-soft: #A8CBF5;
+  --color-success: #34A853;
   --color-warn: #d9890f;
   --color-danger: #d23b3b;
-  --color-coin: #d4a017;
+  --color-coin: #F4B942;
   --color-gem: #2f7de1;
   --color-star: #2f9e5d;
   --color-hex: #7ec8ff;
@@ -28,8 +28,8 @@
 
   --radius-xs: 6px;
   --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
   --radius-xl: 24px;
   --radius-sheet: 28px;
 

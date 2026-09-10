@@ -25,12 +25,20 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@ski/config": [
+        "./packages/config/src/index.ts"
+      ],
+      "@ski/shared": [
+        "./packages/shared/src/index.ts"
       ]
     },
     "allowImportingTsExtensions": true
   },
   "include": [
     "src",
-    "server"
+    "server",
+    "packages",
+    "apps"
   ]
 }

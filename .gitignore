@@ -19,3 +19,6 @@ AGENTS.md
 .idea
 .vscode
 coverage
+
+tools/terrain/cache/*
+!tools/terrain/cache/.gitkeep

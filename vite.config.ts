@@ -11,6 +11,26 @@ import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { appEnvPlugin } from "./scripts/app-env-plugin.mjs";
 import { isMigrationFile } from "./scripts/migration-plan.mjs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
+
+function gameServerPlugin(): Plugin {
+  return {
+    name: "ski-builder-ws",
+    async configureServer(server) {
+      const mod = (await server.ssrLoadModule("/src/lib/game/server/attach.ts")) as {
+        attachGameServer: (s: typeof server) => Promise<void>;
+      };
+      await mod.attachGameServer(server);
+    },
+    async configurePreviewServer() {
+      /* docker-serve attaches /ws when needed; avoid importing attach.ts from config */
+    },
+  };
+}
+
 
 /** The files `src/lib/db.ts` globs — same directory, same non-recursive scope. */
 function hasGlobbedMigrations(root: string): boolean {
@@ -156,9 +176,16 @@ export default defineConfig(({ command, isPreview }) => ({
     port: process.env.DOCKER_PREVIEW === "1" ? Number(process.env.PORT || 8080) : 8081,
     strictPort: true,
   },
-  resolve: { tsconfigPaths: true },
+  resolve: {
+    tsconfigPaths: true,
+    alias: {
+      "@ski/config": path.resolve(rootDir, "packages/config/src/index.ts"),
+      "@ski/shared": path.resolve(rootDir, "packages/shared/src/index.ts"),
+    },
+  },
   plugins: [
     pgliteBootstrapPlugin(),
+    gameServerPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),
     // Dev-only /__app-env, read by scripts/check-auth-invariant.mjs.

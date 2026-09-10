@@ -36,11 +36,23 @@ import { exportSave } from "@/lib/game/save";
 import { useGame } from "@/lib/game/store";
 import type { Category, HudSheet, ItemId, MapLayer } from "@/lib/game/types";
 
+function PlayersLine() {
+  const players = useGame((s) => s.players);
+  const connected = useGame((s) => s.connected);
+  return (
+    <div className="mt-3 flex items-center gap-2 text-[11px] text-muted">
+      <span className={`size-2 rounded-full ${connected ? "bg-success" : "bg-warn"}`} />
+      {connected ? `${Math.max(1, players.length)} online` : "Verbinde…"}
+      <span className="truncate">{players.map((p) => p.name).join(", ")}</span>
+    </div>
+  );
+}
+
 function Coin({ className = "size-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden>
-      <circle cx="12" cy="12" r="10" fill="#e0a800" />
-      <circle cx="12" cy="12" r="7.2" fill="#f5d76e" />
+      <circle cx="12" cy="12" r="10" fill="#F4B942" />
+      <circle cx="12" cy="12" r="7.2" fill="#ffe08a" />
       <path d="M12 7.2v9.6M9.2 9.4c.6-1 2.6-1.2 3.6-.2.8.8.7 2.1-.3 2.7-1 .6-2.6.5-3.3 1.4-.5.6 0 1.8 1.6 2.1 1.4.3 2.7-.3 3.2-1.1" stroke="#b8860b" strokeWidth="1.5" fill="none" strokeLinecap="round" />
     </svg>
   );
@@ -118,7 +130,7 @@ function TopBar() {
       <div className="flex shrink-0 items-center gap-2 rounded-full bg-panel/92 py-1 pl-1 pr-2.5 shadow-[var(--shadow-chip)] lg:pr-3">
         <LogoMark />
         <div className="hidden leading-tight sm:block">
-          <div className="text-[13px] font-bold tracking-wide text-navy lg:text-[15px]">SKI ALPINA</div>
+          <div className="text-[13px] font-bold tracking-wide text-navy lg:text-[15px]">SKI BUILDER</div>
           <div className="hidden text-[9px] font-medium uppercase tracking-[0.14em] text-muted lg:block">
             Baue dein Traum-Skigebiet
           </div>
@@ -408,12 +420,16 @@ function InfoPanel() {
     return (
       <Panel className="p-3">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Info</div>
-        <p className="mt-2 text-[12px] text-muted">Tippe ein Gebäude oder eine Bahn, um Details zu sehen.</p>
+        <p className="mt-2 text-[12px] text-muted">Tippe ein Gebaeude oder eine Bahn, um Details zu sehen.</p>
         <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
           <Stat label="Personen" value={`${fmt(stats.peoplePerHour)}/h`} />
           <Stat label="Zufrieden" value={`${stats.satisfaction}%`} />
           <Stat label="Einnahmen" value={`+${fmt(stats.incomePerHour)}/h`} />
         </div>
+        <PlayersLine />
+        <p className="mt-3 text-[10px] leading-snug text-subtle">
+          Enthaelt modifizierte Copernicus-Daten (DEM GLO-30), © European Union / ESA
+        </p>
       </Panel>
     );
   }

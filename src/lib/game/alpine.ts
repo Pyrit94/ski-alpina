@@ -1,4 +1,5 @@
 import { createNoise2D } from "simplex-noise";
+import { getDem } from "@ski/shared";
 import { mulberry32, seedFromString } from "./rng";
 
 export const WORLD_SIZE = 196;
@@ -187,9 +188,27 @@ export function createHeightmap(seed = ALPINE_SEED): Heightmap {
 
 let cached: Heightmap | null = null;
 export function getHeightmap(): Heightmap {
-  if (!cached) cached = createHeightmap();
+  if (!cached) {
+    const dem = getDem();
+    cached = {
+      n: dem.n,
+      world: dem.world,
+      elev: dem.elev,
+      water: dem.water,
+      sample: dem.sample,
+      worldY: dem.worldY,
+      slope: dem.slope,
+      isWater: dem.isWater,
+    };
+  }
   return cached;
 }
+
+/** Render-only micro-relief. Never used by validate/sim. */
+export function visualRelief(x: number, z: number): number {
+  return Math.sin(x * 0.21) * Math.cos(z * 0.17) * 0.28 + Math.sin(x * 0.73 + z * 0.41) * 0.12;
+}
+
 
 export type Biome = "ice" | "snow" | "rock" | "forest" | "meadow" | "village" | "glacier";
 

@@ -1,55 +1,50 @@
-# Ski Alpina
+# Ski Builder
 
-3D-Skigebiet-Simulator im SimCity-Stil. Lifte, Pisten, Hotellerie, Verkehr und Quests auf einem Gelände nach Walliser Gipfeln (Matterhorn, Klein Matterhorn, Gornergrat). Mobile-first, Deutsch, mit Docker- und Coolify-Support.
+Mehrspieler-Skigebiet-Simulator im SimCity-Stil. Lifte, Pisten, Hotellerie und Quests auf einem Gelände nach Copernicus DEM GLO-30 (Zermatt / Matterhorn). Server ist autoritativ, die Wirtschaft ist flussbasiert.
 
-## Lokal starten
+## Lokal
 
 ```bash
 npm ci --legacy-peer-deps
 npm run dev
 ```
 
-Dann im Browser öffnen. Spielstand liegt in `localStorage`.
+Spieler treten dem Raum `zermatt` bei und bauen gemeinsam. Spielstand liegt serverseitig (PGlite lokal, Postgres in Coolify).
 
 ```bash
-npm run build
+npm test
 npm run typecheck
+npm run terrain:build
 ```
 
-## Docker
+## Docker / Coolify
+
+Ein Container (Dockerfile, Port **8080**):
 
 ```bash
 docker compose up --build
 ```
 
-Der Container lauscht auf Port **8080**. Healthcheck: `GET /`.
-
-Nur Image bauen:
+Oder der volle Stack:
 
 ```bash
-docker build -t ski-alpina .
-docker run --rm -p 8080:8080 -e PORT=8080 ski-alpina
+docker compose -f infra/docker-compose.yml up --build
 ```
 
-## Coolify
+Coolify: Build Pack Dockerfile, Port 8080. Host-Ports nur am Proxy via `$PORT`.
 
-1. Neue Resource → Git-Repository (`Pyrit94/ski-alpina`).
-2. Build Pack: **Dockerfile**.
-3. Port: **8080** (oder `$PORT`).
-4. Optional: Healthcheck `GET /`.
-5. Deploy.
+## Architektur
 
-Keine Datenbank und kein Login nötig. Der Spielstand bleibt im Browser.
-
-## Steuerung
-
-| Gerät | Aktion |
+| Pfad | Rolle |
 | --- | --- |
-| Handy | Unten: Drehen/Schieben, Bauen, Ziele, Info. Karte mit einem Finger drehen, mit zwei Fingern zoomen. |
-| Laptop | Linke Spalte bauen, rechte Spalte Info/Quests. Karte mit Maus drehen und zoomen. |
+| `packages/config` | Balancing (Kosten, Quests, DEM-Fenster) |
+| `packages/shared` | Zod-Protokoll, Validierung, Fluss-Sim |
+| `apps/api` | Fastify HTTP + WS |
+| `apps/sim` | Worker (Redis/BullMQ, sonst In-Process) |
+| `src/` | Mobile-First Client (TanStack Start / Grok-Host) |
 
-Baue zuerst einen Schlepplift (zwei Stationen tippen), dann eine blaue Piste talwärts.
+Client sendet nur Intents. Sichtbare Skifahrer sind Visualisierung, gedeckelt.
 
-## Stack
+## Attribution
 
-TanStack Start, React, Three.js / React Three Fiber, Zustand, Tailwind. Wetter live von Open-Meteo (Zermatt).
+Enthält modifizierte Copernicus-Daten (DEM GLO-30), © European Union / ESA.

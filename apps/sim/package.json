@@ -1,0 +1,14 @@
+{
+  "name": "@ski/sim",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-strip-types src/index.ts",
+    "start": "node --experimental-strip-types src/index.ts"
+  },
+  "dependencies": {
+    "@ski/shared": "*",
+    "bullmq": "^5.58.5",
+    "ioredis": "^5.8.0"
+  }
+}

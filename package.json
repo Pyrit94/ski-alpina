@@ -1,6 +1,10 @@
 {
-  "name": "ski-alpina",
+  "name": "ski-builder",
   "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "sideEffects": false,
   "type": "module",
   "overrides": {
@@ -16,7 +20,8 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts packages/shared/src/engine/flow.test.ts packages/shared/src/terrain/dem.test.ts",
+    "terrain:build": "node --experimental-strip-types tools/terrain/build.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
@@ -52,6 +57,7 @@
     "@tanstack/react-start": "^1.168.0",
     "@tanstack/react-table": "^8.21.0",
     "@tanstack/router-plugin": "^1.168.0",
+    "@types/ws": "^8.18.1",
     "better-auth": "~1.6.30",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -74,6 +80,7 @@
     "three": "^0.186.0",
     "tw-animate-css": "^1.3.4",
     "vaul": "^1.1.2",
+    "ws": "^8.21.3",
     "zod": "^4.4.0",
     "zustand": "^5.0.0"
   },
