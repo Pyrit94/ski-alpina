@@ -6,6 +6,8 @@ export {
   LIFT_IDS,
   PISTE_IDS,
   UPGRADES,
+  ECONOMY,
+  FLOW,
   isLift,
   isPiste,
 } from "@ski/config";

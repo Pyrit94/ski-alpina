@@ -38,6 +38,14 @@ export const ECONOMY = {
   lightsDayExtension: 0.12,
   snowmakerQuality: 0.12,
   groomerWaitCut: 0.18,
+  /**
+   * Share of the build price paid back on demolition.
+   *
+   * Under half, so tearing down and rebuilding is a correction with a cost
+   * rather than a free way to shuffle a resort around. XP and stars already
+   * earned are kept: the work was done.
+   */
+  demolishRefund: 0.45,
   parkingDemandPerHour: 140,
   busDemandPerHour: 110,
   walkInPerHour: 36,
@@ -97,6 +105,13 @@ export const FLOW = {
   bottleneckThreshold: 0.92,
   /** Hex length of one piste segment, in kilometres. */
   kmPerSegment: 0.12,
+  /**
+   * Metres a run may climb from one hex to the next.
+   *
+   * Real pistes roll: a short counter-slope is normal, a sustained climb is
+   * not. Zero would make almost any hand-drawn line illegal.
+   */
+  pisteRiseTolerance: 18,
 } as const;
 
 /**

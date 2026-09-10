@@ -1,11 +1,11 @@
 import { BY_ID } from "../../../config/src/items.ts";
-import { ECONOMY, UPGRADES } from "../../../config/src/economy.ts";
+import { ECONOMY, FLOW, UPGRADES } from "../../../config/src/economy.ts";
 import { isLift, isPiste, type ItemId } from "../../../config/src/ids.ts";
-import { hexDistance, hexToWorld } from "../hex.ts";
+import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { IntentResult, PlayerRole, ResortState } from "../types.ts";
-import { occupiedSet } from "./state.ts";
+import { findEntity, occupiedSet } from "./state.ts";
 import { levelFromXp } from "./level.ts";
 
 export function validateHex(
@@ -31,6 +31,41 @@ export function validateHex(
   const occ = occupiedSet(state);
   if (occ.has(`${q},${r}`) && !isPiste(itemId)) {
     return { ok: false, code: "collision", reason: "Belegt" };
+  }
+  return { ok: true };
+}
+
+/**
+ * Whether a drawn run can exist on this terrain.
+ *
+ * The one rule both sides use. The server used to check only the first hex and
+ * the descent while the client's hover checked terrain per hex, so a run the
+ * preview painted as impossible was accepted anyway — and a run the preview
+ * allowed could still be refused. Neither side may own this alone: the server
+ * has to be authoritative and the client has to predict it exactly.
+ */
+export function validatePistePath(
+  state: ResortState,
+  dem: Dem,
+  itemId: ItemId,
+  hexes: readonly Axial[],
+): IntentResult {
+  if (hexes.length < 2) return { ok: false, code: "invalid", reason: "Zu kurz" };
+  for (const hex of hexes) {
+    // Collision is skipped for pistes inside validateHex: a run has to be able
+    // to reach a station, and stations occupy their hex.
+    const v = validateHex(state, dem, hex.q, hex.r, itemId);
+    if (!v.ok) return v;
+  }
+  if (itemId === "road") return { ok: true };
+  for (let i = 1; i < hexes.length; i++) {
+    const prev = hexes[i - 1]!;
+    const cur = hexes[i]!;
+    const a = hexToWorld(prev.q, prev.r);
+    const b = hexToWorld(cur.q, cur.r);
+    if (dem.sample(b.x, b.z) > dem.sample(a.x, a.z) + FLOW.pisteRiseTolerance) {
+      return { ok: false, code: "slope", reason: "Piste muss talwärts" };
+    }
   }
   return { ok: true };
 }
@@ -84,18 +119,7 @@ export function validateIntent(
     const segs = Math.max(1, intent.hexes.length - 1);
     const cost = item.cost * segs;
     if (state.coins < cost) return { ok: false, code: "budget", reason: "Zu teuer" };
-    if (intent.itemId !== "road") {
-      for (let i = 1; i < intent.hexes.length; i++) {
-        const prev = intent.hexes[i - 1]!;
-        const cur = intent.hexes[i]!;
-        const a = hexToWorld(prev.q, prev.r);
-        const b = hexToWorld(cur.q, cur.r);
-        if (dem.sample(b.x, b.z) > dem.sample(a.x, a.z) + 18) {
-          return { ok: false, code: "slope", reason: "Piste muss talwärts" };
-        }
-      }
-    }
-    return { ok: true };
+    return validatePistePath(state, dem, intent.itemId, intent.hexes);
   }
 
   if (intent.type === "upgrade") {
@@ -110,6 +134,12 @@ export function validateIntent(
     if (cur >= def.max) return { ok: false, code: "locked", reason: "Maximalstufe" };
     const cost = def.cost[cur] ?? 999999;
     if (state.coins < cost) return { ok: false, code: "budget", reason: "Zu teuer" };
+    return { ok: true };
+  }
+
+  if (intent.type === "demolish") {
+    const entity = findEntity(state, intent.entityId);
+    if (!entity) return { ok: false, code: "invalid", reason: "Objekt fehlt" };
     return { ok: true };
   }
 

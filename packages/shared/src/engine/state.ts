@@ -1,6 +1,14 @@
 import { ECONOMY } from "../../../config/src/economy.ts";
+import { BY_ID } from "../../../config/src/items.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
-import type { ResortState, SimStats, WeatherState } from "../types.ts";
+import type {
+  PlacedBuilding,
+  PlacedLift,
+  PlacedPiste,
+  ResortState,
+  SimStats,
+  WeatherState,
+} from "../types.ts";
 
 export const DEFAULT_STATS: SimStats = {
   peoplePerHour: 0,
@@ -115,6 +123,43 @@ export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): 
     flow: snapshot.flow ?? [],
     unlocked: snapshot.unlocked ?? [],
   };
+}
+
+export type ResortEntity =
+  | { kind: "lift"; lift: PlacedLift }
+  | { kind: "building"; building: PlacedBuilding }
+  | { kind: "piste"; piste: PlacedPiste };
+
+/**
+ * What an id refers to, for anything that acts on a placed thing.
+ *
+ * Placing a lift also records its two stations in `buildings`, and the map
+ * selects a station by its own id — so a station id has to resolve to the
+ * cableway it belongs to. Otherwise demolishing a station would leave a lift
+ * running between two removed buildings.
+ */
+export function findEntity(state: ResortState, id: string): ResortEntity | null {
+  const lift =
+    state.lifts.find((l) => l.id === id) ??
+    state.lifts.find((l) => l.stationA === id || l.stationB === id);
+  if (lift) return { kind: "lift", lift };
+  const building = state.buildings.find((b) => b.id === id);
+  if (building) return { kind: "building", building };
+  const piste = state.pistes.find((p) => p.id === id);
+  if (piste) return { kind: "piste", piste };
+  return null;
+}
+
+/** What the entity cost to build, which is what a refund is a share of. */
+export function entityCost(entity: ResortEntity): { coins: number; gems: number } {
+  const item =
+    entity.kind === "lift"
+      ? BY_ID[entity.lift.itemId]
+      : entity.kind === "building"
+        ? BY_ID[entity.building.itemId]
+        : BY_ID[entity.piste.itemId];
+  const segments = entity.kind === "piste" ? Math.max(1, entity.piste.hexes.length - 1) : 1;
+  return { coins: item.cost * segments, gems: (item.gemCost ?? 0) * segments };
 }
 
 export function occupiedSet(state: ResortState): Set<string> {

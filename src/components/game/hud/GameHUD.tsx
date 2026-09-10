@@ -24,17 +24,19 @@ import {
   Snowflake,
   Star,
   Store,
+  Trash2,
   Trees,
   Utensils,
   Volume2,
   X,
   ZoomIn,
 } from "lucide-react";
-import { BY_ID, CATALOG, CATEGORIES, QUICK, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
+import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, QUICK, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
+import type { CatalogItem } from "@/lib/game/catalog";
 import { fmt, fmtCompact } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
 import { useGame } from "@/lib/game/store";
-import type { Category, HudSheet, ItemId, MapLayer } from "@/lib/game/types";
+import type { Category, HudSheet, ItemId, MapLayer, PlacedPiste } from "@/lib/game/types";
 
 function PlayersLine() {
   const players = useGame((s) => s.players);
@@ -411,14 +413,17 @@ function InfoPanel() {
   const selectedId = useGame((s) => s.selectedId);
   const buildings = useGame((s) => s.buildings);
   const lifts = useGame((s) => s.lifts);
+  const pistes = useGame((s) => s.pistes);
   const stats = useGame((s) => s.stats);
   const flow = useGame((s) => s.flow);
   const upgrade = useGame((s) => s.upgrade);
   const coins = useGame((s) => s.coins);
   const lift = lifts.find((l) => l.id === selectedId);
   const b = buildings.find((x) => x.id === selectedId);
-  const item = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : null;
+  const piste = pistes.find((p) => p.id === selectedId);
+  const item = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : piste ? BY_ID[piste.itemId] : null;
   const entity = lift ?? b;
+  if (item && piste && !entity) return <PisteInfo piste={piste} item={item} />;
   if (!item || !entity) {
     return (
       <Panel className="p-3">
@@ -496,7 +501,96 @@ function InfoPanel() {
           </button>
         </div>
       )}
+      <DemolishButton id={entity.id} refund={refundFor(item.cost)} label={item.name} />
     </Panel>
+  );
+}
+
+/** What a demolition pays back, mirroring the server's share of the build price. */
+function refundFor(cost: number) {
+  return Math.floor(cost * ECONOMY.demolishRefund);
+}
+
+function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
+  const flow = useGame((s) => s.flow);
+  const stats = useGame((s) => s.stats);
+  const edge = flow.find((e) => e.id === piste.id);
+  const segments = Math.max(1, piste.hexes.length - 1);
+  const load = edge && edge.capacity > 0 ? Math.min(1, edge.flow / edge.capacity) : 0;
+  const closed = Boolean(edge && edge.capacity <= 0);
+  return (
+    <Panel className="p-3">
+      <div className="text-[13px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
+      <div className="mt-0.5 text-[11px] text-muted">
+        {segments} Segmente · {(segments * FLOW.kmPerSegment).toFixed(1)} km
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+        <Stat label="Kapazität" value={edge ? `${fmt(edge.capacity)}/h` : "—"} />
+        <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
+        <Stat label="Traegt" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
+      </div>
+      {closed && (
+        <p className="mt-2 rounded-[12px] bg-danger/10 px-2 py-1.5 text-[11px] leading-snug text-danger">
+          Zu: die Talseite dieser Abfahrt liegt unter der Schneegrenze von {fmt(stats.snowLineM)} m.
+        </p>
+      )}
+      {!closed && edge && edge.flow <= 0 && (
+        <p className="mt-2 rounded-[12px] bg-warn/12 px-2 py-1.5 text-[11px] leading-snug text-warn">
+          Diese Abfahrt traegt niemanden. Sie muss oben an eine Bahn und unten ans Dorf oder an
+          eine Talstation anschliessen.
+        </p>
+      )}
+      <DemolishButton id={piste.id} refund={refundFor(item.cost * segments)} label={item.name} />
+    </Panel>
+  );
+}
+
+/**
+ * Tearing something down, behind one confirmation.
+ *
+ * Upkeep made overbuilding a real mistake, and without this there was no way
+ * to correct one — the account simply bled.
+ */
+function DemolishButton({ id, refund, label }: { id: string; refund: number; label: string }) {
+  const demolish = useGame((s) => s.demolish);
+  const [armed, setArmed] = useState(false);
+  if (!armed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setArmed(true)}
+        className="mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-full bg-ice text-[12px] font-semibold text-danger"
+      >
+        <Trash2 className="size-3.5" /> Abreissen
+      </button>
+    );
+  }
+  return (
+    <div className="mt-3">
+      <p className="mb-1.5 text-[11px] leading-snug text-muted">
+        {label} entfernen? Du bekommst <span className="font-semibold text-navy">{fmt(refund)}</span>{" "}
+        CHF zurueck.
+      </p>
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => setArmed(false)}
+          className="h-11 flex-1 rounded-full bg-ice text-[12px] font-semibold text-navy"
+        >
+          Behalten
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            demolish(id);
+            setArmed(false);
+          }}
+          className="h-11 flex-1 rounded-full bg-danger text-[12px] font-semibold text-panel"
+        >
+          Abreissen
+        </button>
+      </div>
+    </div>
   );
 }
 

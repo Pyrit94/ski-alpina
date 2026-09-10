@@ -1,10 +1,11 @@
 import { BY_ID } from "../../../config/src/items.ts";
-import { UPGRADES } from "../../../config/src/economy.ts";
+import { ECONOMY, UPGRADES } from "../../../config/src/economy.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { QuestState, ResortState } from "../types.ts";
 import { pisteDifficulty } from "./level.ts";
+import { entityCost, findEntity } from "./state.ts";
 
 export interface Applied {
   state: ResortState;
@@ -134,6 +135,50 @@ export function applyIntent(state: ResortState, intent: Intent, now: number): Ap
       title: "Upgrade",
       body: `${def.label} auf Stufe ${next}.`,
       kind: "ok",
+    };
+  }
+
+  if (intent.type === "demolish") {
+    const entity = findEntity(state, intent.entityId)!;
+    const price = entityCost(entity);
+    const refund = {
+      coins: Math.floor(price.coins * ECONOMY.demolishRefund),
+      gems: Math.floor(price.gems * ECONOMY.demolishRefund),
+    };
+    const base = {
+      ...state,
+      coins: state.coins + refund.coins,
+      gems: state.gems + refund.gems,
+    };
+    if (entity.kind === "lift") {
+      const { lift } = entity;
+      return {
+        state: {
+          ...base,
+          lifts: state.lifts.filter((l) => l.id !== lift.id),
+          // The two station buildings go with the cableway they belong to.
+          buildings: state.buildings.filter(
+            (b) => b.id !== lift.stationA && b.id !== lift.stationB,
+          ),
+        },
+        title: "Abgerissen",
+        body: `${BY_ID[lift.itemId].name} entfernt, ${refund.coins} CHF zurueck.`,
+        kind: "info",
+      };
+    }
+    if (entity.kind === "building") {
+      return {
+        state: { ...base, buildings: state.buildings.filter((b) => b.id !== entity.building.id) },
+        title: "Abgerissen",
+        body: `${BY_ID[entity.building.itemId].name} entfernt, ${refund.coins} CHF zurueck.`,
+        kind: "info",
+      };
+    }
+    return {
+      state: { ...base, pistes: state.pistes.filter((p) => p.id !== entity.piste.id) },
+      title: "Zurueckgebaut",
+      body: `${BY_ID[entity.piste.itemId].name} entfernt, ${refund.coins} CHF zurueck.`,
+      kind: "info",
     };
   }
 

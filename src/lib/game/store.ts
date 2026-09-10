@@ -3,8 +3,8 @@ import { BY_ID, isLift, isPiste } from "@ski/config";
 import {
   hexDistance,
   hexLine,
-  hexToWorld,
   validateHex,
+  validatePistePath,
   getDem,
   levelFromXp,
   worldToHex,
@@ -60,6 +60,7 @@ export interface GameStore extends ResortState, UiState {
   cancelBuild: () => void;
   finishPiste: () => void;
   upgrade: (id: string, key: "speed" | "cabins" | "capacity") => void;
+  demolish: (id: string) => void;
   claimQuest: (id: string) => void;
   dismissTutorial: () => void;
   nextTutorial: () => void;
@@ -270,9 +271,13 @@ export const useGame = create<GameStore>((set, get) => ({
   clickHex: (q, r) => {
     const s = get();
     if (s.phase === "idle" || !s.buildItem) {
+      // Pistes were not selectable at all, so a run could never be inspected
+      // or torn down. Buildings and stations win the hex; a run is what is
+      // left underneath.
       const hit =
         s.buildings.find((b) => b.q === q && b.r === r) ||
-        s.lifts.find((l) => (l.a.q === q && l.a.r === r) || (l.b.q === q && l.b.r === r));
+        s.lifts.find((l) => (l.a.q === q && l.a.r === r) || (l.b.q === q && l.b.r === r)) ||
+        s.pistes.find((p) => p.hexes.some((h) => h.q === q && h.r === r));
       set({ selectedId: hit?.id ?? null });
       return;
     }
@@ -331,15 +336,15 @@ export const useGame = create<GameStore>((set, get) => ({
       }
       const last = draft[draft.length - 1]!;
       const line = hexLine(last, { q, r }).slice(1);
-      const hm = getDem();
-      const lastW = hexToWorld(last.q, last.r);
-      const nextW = hexToWorld(q, r);
-      const downhill = hm.sample(nextW.x, nextW.z) <= hm.sample(lastW.x, lastW.z) + 18 || s.buildItem === "road";
-      if (!downhill && s.buildItem !== "road") {
-        get().pushNote("Piste muss talwärts", "Wähle einen tieferen Punkt.", "warn");
+      const candidate = [...draft, ...line];
+      // Exactly the rule the server will apply to the finished run, so the
+      // draft can never grow into something that gets rejected on submit.
+      const path = validatePistePath(s, getDem(), s.buildItem, candidate);
+      if (!path.ok) {
+        get().pushNote("Nicht möglich", path.reason, "warn");
         return;
       }
-      set({ pisteDraft: [...draft, ...line], lastStampAt: Date.now(), lastStampHex: { q, r } });
+      set({ pisteDraft: candidate, lastStampAt: Date.now(), lastStampHex: { q, r } });
     }
   },
 
@@ -351,6 +356,10 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   upgrade: (id, key) => net?.sendIntent({ type: "upgrade", entityId: id, key }),
+  demolish: (id) => {
+    net?.sendIntent({ type: "demolish", entityId: id });
+    set({ selectedId: null });
+  },
   claimQuest: (id) => net?.sendIntent({ type: "claim_quest", questId: id }),
   dismissTutorial: () => {
     set({ tutorialOpen: false });
