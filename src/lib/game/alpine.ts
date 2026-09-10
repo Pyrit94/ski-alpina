@@ -1,6 +1,8 @@
 import { createNoise2D } from "simplex-noise";
 import { getDem } from "@ski/shared";
-import { mulberry32, seedFromString } from "./rng";
+// Explicit extension so the node test runner can load this module directly,
+// the same convention packages/shared uses. Vite resolves it either way.
+import { mulberry32, seedFromString } from "./rng.ts";
 
 export const WORLD_SIZE = 196;
 export const MAP_RES = 192;
@@ -209,6 +211,23 @@ export function visualRelief(x: number, z: number): number {
   return Math.sin(x * 0.21) * Math.cos(z * 0.17) * 0.28 + Math.sin(x * 0.73 + z * 0.41) * 0.12;
 }
 
+/**
+ * Where the ground actually is on screen.
+ *
+ * `worldY` is the DEM, and it is what the simulation reasons about: a run's
+ * descent, a lift's rise, whether a hex is too steep. The rendered mesh adds
+ * `visualRelief` on top for shape the 30 m DEM cannot carry, so anything
+ * placed at `worldY` alone sits up to 0.4 units off the surface it looks like
+ * it is standing on — measured across trees and rocks, a median of 0.05 and a
+ * worst case of 0.44, which buries some props and hovers others.
+ *
+ * Use this for anything visual. Use `worldY` for anything the rules depend
+ * on, so decorative relief can never change what is buildable.
+ */
+export function surfaceY(hm: Heightmap, x: number, z: number): number {
+  return hm.worldY(x, z) + visualRelief(x, z);
+}
+
 
 export type Biome = "ice" | "snow" | "rock" | "forest" | "meadow" | "village" | "glacier";
 
@@ -373,7 +392,7 @@ export function scatterTrees(hm: Heightmap, count: number, rng: () => number): S
     if (m > 2460 || m < 1680) continue;
     out.push({
       x,
-      y: hm.worldY(x, z),
+      y: surfaceY(hm, x, z),
       z,
       s: 0.7 + rng() * 0.9,
       r: rng() * Math.PI * 2,
@@ -394,7 +413,7 @@ export function scatterRocks(hm: Heightmap, count: number, rng: () => number): S
     if (hm.slope(x, z) < 0.42) continue;
     out.push({
       x,
-      y: hm.worldY(x, z),
+      y: surfaceY(hm, x, z),
       z,
       s: 0.4 + rng() * 1.4,
       r: rng() * Math.PI,

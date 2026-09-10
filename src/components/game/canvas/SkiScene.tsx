@@ -10,8 +10,8 @@ import {
   PEAKS,
   scatterRocks,
   scatterTrees,
+  surfaceY,
   VILLAGE,
-  visualRelief,
   type Heightmap,
 } from "@/lib/game/alpine";
 import { ECONOMY } from "@/lib/game/catalog";
@@ -22,6 +22,7 @@ import { useGame } from "@/lib/game/store";
 import type { MapLayer, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game/types";
 import { BuildingModel } from "./models";
 import { ribbonGeometry } from "./geometry";
+import { useTerrainMaterial } from "./terrain-material";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
 
 function buildTerrain(
@@ -38,7 +39,7 @@ function buildTerrain(
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
-    const y = hm.worldY(x, z) + visualRelief(x, z);
+    const y = surfaceY(hm, x, z);
     pos.setY(i, y);
     const m = hm.sample(x, z);
     let c = terrainColor(hm, x, z, snowLineM);
@@ -58,6 +59,73 @@ function buildTerrain(
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
   return geo;
+}
+
+/**
+ * The rock wall that closes the map's edge.
+ *
+ * The ground is a single plane, so from any low angle — and the controls allow
+ * nearly horizontal — you see its underside and the whole range reads as a
+ * disc floating in the sky. A skirt dropped from the perimeter turns it into a
+ * block sitting on something, which is also how a diorama is built: the base
+ * is part of the object.
+ */
+function buildSkirt(hm: Heightmap, depth: number) {
+  const half = hm.world / 2;
+  const step = hm.world / (hm.n - 1);
+  const ring: Array<[number, number]> = [];
+  for (let i = 0; i < hm.n; i++) ring.push([-half + i * step, -half]);
+  for (let i = 1; i < hm.n; i++) ring.push([half, -half + i * step]);
+  for (let i = 1; i < hm.n; i++) ring.push([half - i * step, half]);
+  for (let i = 1; i < hm.n; i++) ring.push([-half, half - i * step]);
+
+  let floor = Infinity;
+  for (const [x, z] of ring) floor = Math.min(floor, surfaceY(hm, x, z));
+  floor -= depth;
+
+  const verts: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    const [x, z] = ring[i]!;
+    verts.push(x, surfaceY(hm, x, z), z, x, floor, z);
+  }
+  for (let i = 0; i < ring.length - 1; i++) {
+    const a = i * 2;
+    idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function Skirt() {
+  const hm = getHeightmap();
+  const geo = useMemo(() => buildSkirt(hm, 14), [hm]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  return (
+    <mesh geometry={geo} frustumCulled={false}>
+      {/*
+        Outward faces only. The camera orbits out to 250 units on a 196-unit
+        map, so it spends real time outside the perimeter — with both sides
+        drawn, the near wall stands between the viewer and the resort and the
+        screen goes black. Culled this way the wall is a cliff base seen from
+        outside and invisible from within, where the ground hides it anyway.
+
+        The emissive floor matters for the same reason: the sun comes from one
+        side, so two of the four walls are always near-grazing and a purely
+        lit material renders them as a black slab rather than rock in shade.
+      */}
+      <meshStandardMaterial
+        color="#6b6560"
+        emissive="#2b3138"
+        emissiveIntensity={0.55}
+        roughness={0.95}
+        side={THREE.BackSide}
+      />
+    </mesh>
+  );
 }
 
 function Terrain() {
@@ -86,14 +154,19 @@ function Terrain() {
   const hover = useGame((s) => s.hoverHex);
   const stampMode = useGame((s) => s.stampMode);
   const phase = useGame((s) => s.phase);
+  const quality = useGame((s) => s.quality);
   const down = useRef<THREE.Vector2 | null>(null);
   const stamp = stampMode && phase !== "idle";
+  // The height and heat overlays are read as data, so leave them alone —
+  // noise on a legend is just noise.
+  const material = useTerrainMaterial(layer === "3d" ? quality : "low");
 
   useEffect(() => () => geo.dispose(), [geo]);
 
   return (
     <mesh
       geometry={geo}
+      material={material}
       receiveShadow
       onPointerDown={(e) => {
         down.current = new THREE.Vector2(e.clientX, e.clientY);
@@ -115,7 +188,6 @@ function Terrain() {
         click(q, r);
       }}
     >
-      <meshStandardMaterial vertexColors roughness={0.88} metalness={0.02} />
     </mesh>
   );
 }
@@ -194,13 +266,13 @@ function PeakLabels() {
   return (
     <>
       {PEAKS.map((p) => (
-        <Html key={p.id} position={[p.x, hm.worldY(p.x, p.z) + 3.2, p.z]} center distanceFactor={compact ? 120 : 90}>
+        <Html key={p.id} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center distanceFactor={compact ? 120 : 90}>
           <div className="pointer-events-none whitespace-nowrap rounded-full bg-navy/70 px-2 py-0.5 text-[10px] font-medium text-snow backdrop-blur-sm">
             {compact ? p.name : `${p.name} · ${p.elev.toLocaleString("de-CH")} m`}
           </div>
         </Html>
       ))}
-      <Html position={[VILLAGE.x, hm.worldY(VILLAGE.x, VILLAGE.z) + 2.4, VILLAGE.z]} center distanceFactor={compact ? 110 : 80}>
+      <Html position={[VILLAGE.x, surfaceY(hm, VILLAGE.x, VILLAGE.z) + 2.4, VILLAGE.z]} center distanceFactor={compact ? 110 : 80}>
         <div className="pointer-events-none rounded-full bg-panel/90 px-2 py-0.5 text-[10px] font-semibold text-navy">
           {VILLAGE.name}
         </div>
@@ -272,7 +344,7 @@ function GroundContact() {
       const { x, z } = hexToWorld(b.q, b.r);
       // A hotel occludes more ground than a ticket hut.
       const spread = b.itemId.startsWith("hotel") ? 1.25 : 1;
-      at.set(x, hm.worldY(x, z) + 0.05, z);
+      at.set(x, surfaceY(hm, x, z) + 0.05, z);
       size.set(spread, spread, 1);
       inst.setMatrixAt(i, m.compose(at, flat, size));
     });
@@ -334,7 +406,7 @@ function PlacedStructure({ building: b }: { building: PlacedBuilding }) {
   const hm = getHeightmap();
   const group = useRef<THREE.Group>(null);
   const { x, z } = hexToWorld(b.q, b.r);
-  const baseY = hm.worldY(x, z);
+  const baseY = surfaceY(hm, x, z);
 
   useFrame(() => {
     if (!group.current) return;
@@ -430,8 +502,8 @@ interface LiftLine {
 function liftLine(l: PlacedLift, hm: Heightmap): LiftLine {
   const aw = hexToWorld(l.a.q, l.a.r);
   const bw = hexToWorld(l.b.q, l.b.r);
-  const a = new THREE.Vector3(aw.x, hm.worldY(aw.x, aw.z), aw.z);
-  const b = new THREE.Vector3(bw.x, hm.worldY(bw.x, bw.z), bw.z);
+  const a = new THREE.Vector3(aw.x, surfaceY(hm, aw.x, aw.z), aw.z);
+  const b = new THREE.Vector3(bw.x, surfaceY(hm, bw.x, bw.z), bw.z);
   const span = Math.hypot(b.x - a.x, b.z - a.z);
   const count = Math.max(1, Math.round(span / PYLON_SPACING) - 1);
   const towers: THREE.Vector3[] = [];
@@ -439,7 +511,7 @@ function liftLine(l: PlacedLift, hm: Heightmap): LiftLine {
     const t = i / (count + 1);
     const x = a.x + (b.x - a.x) * t;
     const z = a.z + (b.z - a.z) * t;
-    towers.push(new THREE.Vector3(x, hm.worldY(x, z), z));
+    towers.push(new THREE.Vector3(x, surfaceY(hm, x, z), z));
   }
   const stationTop = 1.6;
   const tops = [
@@ -833,7 +905,7 @@ function carrierParts(kind: CarrierKind) {
 function pistePoints(p: Pick<PlacedPiste, "hexes">, hm: Heightmap) {
   return p.hexes.map((h) => {
     const { x, z } = hexToWorld(h.q, h.r);
-    return new THREE.Vector3(x, hm.worldY(x, z) + 0.05, z);
+    return new THREE.Vector3(x, surfaceY(hm, x, z) + 0.05, z);
   });
 }
 
@@ -979,7 +1051,7 @@ function Traffic() {
       const u = (t * 0.05 + i / n) % 1;
       const x = -28 + u * 48;
       const z = 44 + Math.sin(u * 6 + i) * 1.4;
-      dummy.position.set(x, hm.worldY(x, z) + 0.28, z);
+      dummy.position.set(x, surfaceY(hm, x, z) + 0.28, z);
       dummy.rotation.set(0, u > 0.5 ? Math.PI : 0, 0);
       dummy.updateMatrix();
       ref.current.setMatrixAt(i, dummy.matrix);
@@ -1054,7 +1126,7 @@ function PeerFocus() {
       {peers.map((p) => {
         const hex = p.focus!;
         const { x, z } = hexToWorld(hex.q, hex.r);
-        const y = hm.worldY(x, z) + visualRelief(x, z);
+        const y = surfaceY(hm, x, z);
         const color = peerColor(p.id);
         return (
           <group key={p.id} position={[x, y + 0.14, z]}>
@@ -1110,7 +1182,11 @@ function SkyDome() {
         fog: false,
         uniforms: {
           zenith: { value: new THREE.Color("#3f74b4") },
-          horizon: { value: new THREE.Color("#d5e4f0") },
+          // Deepened from #d5e4f0. Snow no longer sits at full white, and a
+          // near-white horizon put ground and sky at the same value — the
+          // skyline read as one continuous pale field. This keeps the horizon
+          // light enough to feel like distance and dark enough to be an edge.
+          horizon: { value: new THREE.Color("#bcd3e8") },
         },
         vertexShader: `
           varying float vHeight;
@@ -1233,21 +1309,65 @@ function LightsAndSky() {
         sheet. The sun now dominates and the fill only keeps shadowed faces
         from going black — sky blue from above, bounced snow-light from below.
       */}
-      <hemisphereLight args={["#bcd8f5", "#7f8f9c", low ? 0.5 : 0.36]} />
+      {/*
+        The ground half used to be a neutral grey, which is right for a rock
+        valley and wrong for this one: snow bounces most of what hits it, and
+        with the fill this low a slope facing away from the sun fell to near
+        black. A brighter, bluer bounce is what puts shadowed snow in the
+        blue it actually is — and blue reads as snow in shade, where dark grey
+        just reads as a hole.
+      */}
+      <hemisphereLight args={["#bcd8f5", "#a3bcd4", low ? 0.56 : 0.44]} />
       <ambientLight intensity={low ? 0.16 : 0.1} />
       <SunLight low={low} elev={elev} />
       {/*
-        Haze used to start at 120 units, and the Matterhorn stands some 100 to
-        150 away — so the fog ate the range the map is named after.
+        Aerial perspective, not a fog bank.
 
-        It is also deliberately BLUER than the sky it sits against. Fading
-        distant snow to the horizon colour made peak and sky the same tone, so
-        the skyline vanished a second time. Real distance tints things blue,
-        not white, and that difference is what leaves a silhouette.
+        Haze first started at 120 units and ate the Matterhorn, which stands
+        some 100 to 150 away. Pushing it out to 250 fixed that by removing it
+        from the game: nothing at normal play distance is 250 units off, so
+        there was no depth cue at all, and distant snow met a near-white
+        horizon as one flat field of white.
+
+        A long shallow ramp is what actually happens in mountains. At 150 units
+        this tints a far ridge by about a sixth — enough to lay it behind the
+        near one — and still has somewhere to go at 400. It is deliberately
+        BLUER than the sky it sits against: fading snow to the horizon's own
+        colour makes peak and sky the same tone and the skyline vanishes a
+        second time. Real distance tints things blue, not white.
       */}
-      <fog attach="fog" args={["#9dbcd8", low ? 200 : 250, low ? 380 : 450]} />
+      <fog attach="fog" args={["#9dbcd8", low ? 30 : 40, low ? 600 : 720]} />
     </>
   );
+}
+
+/**
+ * Keeps the camera inside the world.
+ *
+ * Two things were reachable before and both looked broken. Orbiting past the
+ * perimeter — easy, since the controls allow 250 units on a 196-unit map —
+ * showed the ground plane's underside, so the range read as a disc floating in
+ * the sky. Dropping the camera low put it under the terrain and inside the
+ * mountain. The rock skirt fixes the first from outside but cannot fix being
+ * outside: no solid world can be seen into from below its own edge, which is
+ * why city builders keep the camera in bounds rather than walling it out.
+ *
+ * Applied after `MapControls` has had its say, so damping and inertia still
+ * feel free right up to the limit instead of fighting a hard stop.
+ */
+function keepCameraInWorld(camera: THREE.Camera, target: THREE.Vector3) {
+  const hm = getHeightmap();
+  const edge = (hm.world / 2) * 0.94;
+
+  target.x = THREE.MathUtils.clamp(target.x, -edge, edge);
+  target.z = THREE.MathUtils.clamp(target.z, -edge, edge);
+  camera.position.x = THREE.MathUtils.clamp(camera.position.x, -edge, edge);
+  camera.position.z = THREE.MathUtils.clamp(camera.position.z, -edge, edge);
+
+  // And above the ground it is standing over, with enough clearance that a
+  // ridge between camera and target does not fill the frame.
+  const floor = surfaceY(hm, camera.position.x, camera.position.z) + 6;
+  if (camera.position.y < floor) camera.position.y = floor;
 }
 
 function Controls() {
@@ -1305,6 +1425,7 @@ function Controls() {
       offset.setFromSpherical(spherical);
       camera.position.copy(c.target).add(offset);
     }
+    keepCameraInWorld(camera, c.target);
   });
   return (
     <MapControls
@@ -1383,7 +1504,7 @@ function VillageSeed() {
       {spots.map(([q, r], i) => {
         const { x, z } = hexToWorld(q!, r!);
         return (
-          <group key={i} position={[x, hm.worldY(x, z), z]} rotation={[0, i * 0.7, 0]}>
+          <group key={i} position={[x, surfaceY(hm, x, z), z]} rotation={[0, i * 0.7, 0]}>
             <BuildingModel itemId="hut" lit={lit} />
           </group>
         );
@@ -1427,6 +1548,7 @@ export function SkiScene() {
       <Controls />
       <Loop />
       <Terrain />
+      <Skirt />
       <Lake />
       <Forest quality={quality} />
       <VillageSeed />

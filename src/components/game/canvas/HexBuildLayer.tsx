@@ -2,7 +2,7 @@ import { Line } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { getHeightmap } from "@/lib/game/alpine";
+import { getHeightmap, surfaceY } from "@/lib/game/alpine";
 import { HEX_SIZE, hexDistance, hexToWorld, hexesInRange, worldToHex } from "@/lib/game/hex";
 import { useGame } from "@/lib/game/store";
 import { isPiste } from "@ski/config";
@@ -31,7 +31,7 @@ function sampleRayHex(origin: THREE.Vector3, dir: THREE.Vector3) {
     const y = origin.y + dir.y * mid;
     const x = origin.x + dir.x * mid;
     const z = origin.z + dir.z * mid;
-    if (y > hm.worldY(x, z) + 0.15) lo = mid;
+    if (y > surfaceY(hm, x, z) + 0.15) lo = mid;
     else hi = mid;
   }
   const t = (lo + hi) / 2;
@@ -94,7 +94,7 @@ export function HexRaster() {
     const positions: number[] = [];
     for (const cell of cells) {
       const { x, z } = hexToWorld(cell.q, cell.r);
-      const y = hm.worldY(x, z) + 0.08;
+      const y = surfaceY(hm, x, z) + 0.08;
       const s = HEX_SIZE * 0.97;
       for (let i = 0; i < 6; i++) {
         const a0 = (Math.PI / 180) * (60 * i - 30);
@@ -113,7 +113,7 @@ export function HexRaster() {
     const state = useGame.getState();
     cells.forEach((cell, i) => {
       const { x, z } = hexToWorld(cell.q, cell.r);
-      TMP_DUMMY.position.set(x, hm.worldY(x, z) + 0.055, z);
+      TMP_DUMMY.position.set(x, surfaceY(hm, x, z) + 0.055, z);
       TMP_DUMMY.scale.set(1, 1, 1);
       TMP_DUMMY.rotation.set(0, 0, 0);
       TMP_DUMMY.updateMatrix();
@@ -174,7 +174,7 @@ export function HexCursor() {
       return;
     }
     const { x, z } = hexToWorld(hover.q, hover.r);
-    target.current.set(x, hm.worldY(x, z), z);
+    target.current.set(x, surfaceY(hm, x, z), z);
     if (!seeded.current) {
       gpos.current.copy(target.current);
       seeded.current = true;
@@ -214,7 +214,7 @@ export function HexCursor() {
     <group>
       {rings.map((h, i) => {
         const { x, z } = hexToWorld(h.q, h.r);
-        const y = hm.worldY(x, z) + 0.12;
+        const y = surfaceY(hm, x, z) + 0.12;
         return (
           <mesh key={`${h.q}:${h.r}:${i}`} geometry={geo} position={[x, y, z]}>
             <meshBasicMaterial color={h.color} transparent opacity={h.opacity} side={THREE.DoubleSide} depthWrite={false} />
@@ -225,7 +225,7 @@ export function HexCursor() {
         <lineSegments
           position={[
             hexToWorld(hover.q, hover.r).x,
-            hm.worldY(hexToWorld(hover.q, hover.r).x, hexToWorld(hover.q, hover.r).z) + 0.18,
+            surfaceY(hm, hexToWorld(hover.q, hover.r).x, hexToWorld(hover.q, hover.r).z) + 0.18,
             hexToWorld(hover.q, hover.r).z,
           ]}
         >
@@ -241,8 +241,8 @@ export function HexCursor() {
       {liftGhost && (
         <Line
           points={[
-            [liftGhost.a.x, hm.worldY(liftGhost.a.x, liftGhost.a.z) + 1.6, liftGhost.a.z],
-            [liftGhost.b.x, hm.worldY(liftGhost.b.x, liftGhost.b.z) + 1.6, liftGhost.b.z],
+            [liftGhost.a.x, surfaceY(hm, liftGhost.a.x, liftGhost.a.z) + 1.6, liftGhost.a.z],
+            [liftGhost.b.x, surfaceY(hm, liftGhost.b.x, liftGhost.b.z) + 1.6, liftGhost.b.z],
           ]}
           color={hover?.valid ? "#2F6FED" : "#E24B4A"}
           lineWidth={2}
@@ -262,7 +262,7 @@ export function HexGhost() {
       {draft.map((h) => {
         const { x, z } = hexToWorld(h.q, h.r);
         return (
-          <mesh key={`${h.q}:${h.r}`} geometry={geo} position={[x, hm.worldY(x, z) + 0.1, z]}>
+          <mesh key={`${h.q}:${h.r}`} geometry={geo} position={[x, surfaceY(hm, x, z) + 0.1, z]}>
             <meshBasicMaterial color="#7ec8ff" transparent opacity={0.42} side={THREE.DoubleSide} depthWrite={false} />
           </mesh>
         );
@@ -272,7 +272,7 @@ export function HexGhost() {
           geometry={geo}
           position={[
             hexToWorld(liftStart.q, liftStart.r).x,
-            hm.worldY(hexToWorld(liftStart.q, liftStart.r).x, hexToWorld(liftStart.q, liftStart.r).z) + 0.12,
+            surfaceY(hm, hexToWorld(liftStart.q, liftStart.r).x, hexToWorld(liftStart.q, liftStart.r).z) + 0.12,
             hexToWorld(liftStart.q, liftStart.r).z,
           ]}
         >
@@ -303,7 +303,7 @@ export function StampFlash() {
     }
     const { x, z } = hexToWorld(hex.q, hex.r);
     mesh.current.visible = true;
-    mesh.current.position.set(x, hm.worldY(x, z) + 0.2, z);
+    mesh.current.position.set(x, surfaceY(hm, x, z) + 0.2, z);
     const s = 0.7 + t * 1.35;
     mesh.current.scale.set(s, 1, s);
     mat.current.opacity = 0.5 * (1 - t) * (1 - t);
