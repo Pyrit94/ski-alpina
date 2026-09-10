@@ -10,7 +10,9 @@ import {
   mergeAppEnv,
   parseAppEnv,
   projectRoot,
+  quoteForShell,
   readAppEnv,
+  resolveSpawn,
 } from "./with-app-env.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -111,6 +113,64 @@ test("a signal-killed command is never reported as success", async () => {
     ]),
     (err) => err.signal === "SIGTERM" || err.code !== 0,
   );
+});
+
+// The Windows branch is exercised with an injected platform and PATH so the
+// Linux CI run covers it. `npm run dev` on Windows resolves `vite` to a `.cmd`
+// shim, which CreateProcess cannot exec — the symptom was `spawn vite ENOENT`.
+const WIN_PATH = "C:\\repo\\node_modules\\.bin;C:\\Windows\\system32";
+const winResolve = (command, present) =>
+  resolveSpawn(command, { PATH: WIN_PATH }, { platform: "win32", exists: (p) => present.has(p) });
+
+test("a bare name that is only a .cmd shim goes through the shell, fully pathed", () => {
+  const shim = "C:\\repo\\node_modules\\.bin\\vite.cmd";
+  assert.deepEqual(winResolve("vite", new Set([shim])), {
+    command: `"${shim}"`,
+    shell: true,
+  });
+});
+
+test("a real executable on PATH never goes through the shell", () => {
+  // cmd.exe would re-split the argv of a `node -e "…"` payload.
+  const exe = "C:\\Windows\\system32\\where.exe";
+  assert.deepEqual(winResolve("where", new Set([exe])), { command: "where", shell: false });
+});
+
+test("an executable wins over a shim of the same name in the same directory", () => {
+  const dir = "C:\\repo\\node_modules\\.bin\\";
+  const present = new Set([`${dir}tool.exe`, `${dir}tool.cmd`]);
+  assert.deepEqual(winResolve("tool", present), { command: "tool", shell: false });
+});
+
+test("an absolute path is spawned as given, shell only for a batch file", () => {
+  assert.deepEqual(winResolve("C:\\Program Files\\nodejs\\node.exe", new Set()), {
+    command: "C:\\Program Files\\nodejs\\node.exe",
+    shell: false,
+  });
+  assert.deepEqual(winResolve("C:\\repo\\go.cmd", new Set()), {
+    command: '"C:\\repo\\go.cmd"',
+    shell: true,
+  });
+});
+
+test("an unresolvable name keeps the plain spawn, so the ENOENT still surfaces", () => {
+  assert.deepEqual(winResolve("nope", new Set()), { command: "nope", shell: false });
+});
+
+test("posix spawns directly whatever the name looks like", () => {
+  const onPosix = (command) =>
+    resolveSpawn(command, { PATH: "/usr/bin" }, { platform: "linux", exists: () => true });
+  assert.deepEqual(onPosix("vite"), { command: "vite", shell: false });
+  assert.deepEqual(onPosix("go.cmd"), { command: "go.cmd", shell: false });
+});
+
+test("shell quoting protects spaces and metacharacters, and doubles quotes", () => {
+  assert.equal(quoteForShell("--port"), "--port");
+  assert.equal(quoteForShell("8080"), "8080");
+  assert.equal(quoteForShell("a b"), '"a b"');
+  assert.equal(quoteForShell("a&b"), '"a&b"');
+  assert.equal(quoteForShell(""), '""');
+  assert.equal(quoteForShell('say "hi"'), '"say ""hi"""');
 });
 
 test("the CLI still runs when invoked through a symlinked path", async () => {

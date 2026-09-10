@@ -20,14 +20,19 @@
  * `process.env`, which is why the merge has to happen before Vite starts.
  */
 import { spawn } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const APP_ENV_REL_PATH = ".grok/app-env.json";
 
 const VITE_PREFIX = "VITE_";
+
+/** PATHEXT entries CreateProcess can exec directly, in lookup order. */
+const WIN_EXEC_EXT = [".exe", ".com"];
+/** PATHEXT entries only cmd.exe can run. */
+const WIN_BATCH_EXT = [".cmd", ".bat"];
 
 /**
  * Parse an app-env document, keeping only `VITE_`-prefixed string entries.
@@ -82,6 +87,60 @@ export function exitStatusFromChild(code, signal) {
   return code ?? 1;
 }
 
+/**
+ * How to spawn `command` on this platform: `{ command, shell }` for `spawn`.
+ *
+ * On Windows `npm run` puts `node_modules/.bin` on PATH, and a package binary
+ * there is a `.cmd` shim. CreateProcess cannot exec a batch file, so plain
+ * `spawn("vite", …)` fails with ENOENT — only cmd.exe does the PATHEXT lookup.
+ * Real executables must keep spawning without a shell: routing them through
+ * cmd.exe re-parses their arguments, which mangles any `-e "…"` payload.
+ *
+ * `platform` and `exists` are injectable so the Windows branch is covered by
+ * the Linux CI run too — otherwise the only machine that tests it is the one
+ * that already reproduced the bug.
+ */
+export function resolveSpawn(
+  command,
+  env = process.env,
+  { platform = process.platform, exists = existsSync } = {},
+) {
+  if (platform !== "win32") return { command, shell: false };
+  // Past this point everything is Windows path semantics, which the ambient
+  // `node:path` does not provide when this runs on Linux CI.
+  if (WIN_BATCH_EXT.includes(win32.extname(command).toLowerCase())) {
+    return { command: `"${command}"`, shell: true };
+  }
+  // An explicit path is the caller's business; only bare names hit PATH.
+  if (win32.isAbsolute(command) || command.includes("/") || command.includes("\\")) {
+    return { command, shell: false };
+  }
+  const dirs = (env.PATH ?? env.Path ?? "").split(win32.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    // PATHEXT order: a real executable next to a shim of the same name wins.
+    for (const ext of WIN_EXEC_EXT) {
+      if (exists(win32.join(dir, command + ext))) return { command, shell: false };
+    }
+    for (const ext of WIN_BATCH_EXT) {
+      const full = win32.join(dir, command + ext);
+      if (exists(full)) return { command: `"${full}"`, shell: true };
+    }
+  }
+  return { command, shell: false };
+}
+
+/**
+ * Quote one argv entry for cmd.exe.
+ *
+ * Only reached on the batch-shim path, where node hands the whole command line
+ * to `cmd /d /s /c` unquoted. Without this, `--mode development` survives but
+ * anything carrying a space or a metacharacter would be re-split.
+ */
+export function quoteForShell(arg) {
+  if (arg === "") return '""';
+  return /[\s&|<>^()"]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg;
+}
+
 /** The workspace root (this file lives in `<root>/scripts/`). */
 export function projectRoot() {
   return dirname(dirname(fileURLToPath(import.meta.url)));
@@ -111,7 +170,17 @@ function main(argv) {
     process.exit(2);
   }
   const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
-  const child = spawn(command, args, { stdio: "inherit", env });
+  const run = resolveSpawn(command, env);
+  // DEP0190: an argv array alongside `shell: true` is deprecated because node
+  // concatenates it without escaping. On the shim path we do the quoting and
+  // hand over one command line; everywhere else argv stays a real argv.
+  const child = run.shell
+    ? spawn([run.command, ...args.map(quoteForShell)].join(" "), {
+        stdio: "inherit",
+        env,
+        shell: true,
+      })
+    : spawn(run.command, args, { stdio: "inherit", env });
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => child.kill(signal));

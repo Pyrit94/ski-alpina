@@ -20,7 +20,9 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts packages/shared/src/engine/flow.test.ts packages/shared/src/terrain/dem.test.ts packages/shared/src/hex.test.ts",
+    "test": "npm run test:game && npm run test:scripts",
+    "test:game": "node --experimental-strip-types --test \"packages/**/*.test.ts\" \"src/**/*.test.ts\"",
+    "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
     "terrain:build": "node --experimental-strip-types tools/terrain/build.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
