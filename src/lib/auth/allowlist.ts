@@ -60,6 +60,20 @@ export function isEmailAllowed(
   return allowed.includes(normalizeEmail(email));
 }
 
+/**
+ * Who plays this resort when no roster is configured.
+ *
+ * A default is not a hole in the fail-closed rule: the door is still shut,
+ * just to these two rather than to nobody. A deployment that forgets
+ * `ALLOWED_EMAILS` is then playable by its owners instead of by no one, and
+ * still closed to everyone else — which is the failure mode that matters.
+ * Setting `ALLOWED_EMAILS` replaces this list entirely.
+ */
+export const DEFAULT_ROSTER: readonly string[] = [
+  "muesslemichael@gmail.com",
+  "johannajackstadt@gmail.com",
+];
+
 export interface RosterGate {
   /** Whether the roster decides access at all. */
   enforced: boolean;
@@ -79,8 +93,13 @@ export function rosterGate(env: {
   ALLOWED_EMAILS?: string | undefined;
   DATABASE_URL?: string | undefined;
 }): RosterGate {
-  const allowed = parseAllowedEmails(env.ALLOWED_EMAILS);
   const configured = Boolean(env.ALLOWED_EMAILS?.trim());
+  // An explicit roster replaces the default outright — including an explicit
+  // roster of nothing but junk, which admits nobody. That is the right answer
+  // for a misconfiguration someone meant to write.
+  const allowed = configured
+    ? parseAllowedEmails(env.ALLOWED_EMAILS)
+    : DEFAULT_ROSTER.map(normalizeEmail);
   const deployed = Boolean(env.DATABASE_URL?.trim());
   return { enforced: configured || deployed, allowed };
 }

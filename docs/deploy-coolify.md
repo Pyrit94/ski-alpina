@@ -46,7 +46,7 @@ beim **Build** gesetzt sein:
 | `BETTER_AUTH_SECRET` | zufaellig, min. 32 Byte: `openssl rand -hex 32` |
 | `GOOGLE_CLIENT_ID` | aus der Google Cloud Console |
 | `GOOGLE_CLIENT_SECRET` | dito |
-| `ALLOWED_EMAILS` | `deine@gmail.com, ihre@gmail.com` |
+| `ALLOWED_EMAILS` | optional — ohne Angabe gelten die beiden Konten aus `DEFAULT_ROSTER` |
 
 `GOOGLE_CLIENT_ID`/`SECRET` schalten den Login von der Grok-Broker-Federation
 auf **direktes Google OAuth** um. Der Broker existiert nur innerhalb der
@@ -70,7 +70,17 @@ Nutzer nicht noetig.
 
 ## Allowlist
 
-`ALLOWED_EMAILS` ist komma-, semikolon- oder zeilengetrennt. Gmail-Punkte und
+Ohne `ALLOWED_EMAILS` gilt `DEFAULT_ROSTER` aus `src/lib/auth/allowlist.ts` —
+die beiden Konten, denen dieses Skigebiet gehoert. Das ist **kein** Loch in der
+Fail-closed-Regel: die Tuer bleibt zu, nur eben fuer diese zwei statt fuer
+niemanden. Eine vergessene Variable macht das Gebiet also fuer euch spielbar
+und fuer alle anderen nicht.
+
+`ALLOWED_EMAILS` **ersetzt** diese Liste, sie ergaenzt sie nicht — sonst liesse
+sich jemand nicht mehr entfernen. Eine Liste, die nur Unsinn enthaelt, laesst
+niemanden rein: das hat jemand so geschrieben und faellt nicht still zurueck.
+
+Getrennt wird mit Komma, Semikolon oder Zeilenumbruch. Gmail-Punkte und
 `+tags` werden normalisiert: `m.uessle+ski@gmail.com` und `muessle@gmail.com`
 sind dasselbe Postfach und damit derselbe Zugang.
 

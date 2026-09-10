@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  DEFAULT_ROSTER,
   isEmailAllowed,
   normalizeEmail,
   parseAllowedEmails,
@@ -80,12 +81,39 @@ test("the roster is deduplicated across gmail spellings", () => {
 
 test("a deployment with a database gates even without a roster", () => {
   // The dangerous direction: a public URL plus a forgotten variable must not
-  // mean "any Google account may play". It locks everyone out instead, which
-  // gets noticed on the first sign-in.
+  // mean "any Google account may play". It falls back to the owners only.
   const gate = rosterGate({ DATABASE_URL: "postgres://x" });
   assert.equal(gate.enforced, true);
   assert.equal(rosterAdmits(gate, "anyone@gmail.com"), false);
   assert.equal(rosterAdmits(gate, "michael@example.com"), false);
+  for (const owner of DEFAULT_ROSTER) assert.equal(rosterAdmits(gate, owner), true);
+});
+
+test("the default roster is the two owners and nobody else", () => {
+  const gate = rosterGate({ DATABASE_URL: "postgres://x" });
+  assert.deepEqual(gate.allowed.sort(), [...DEFAULT_ROSTER].map(normalizeEmail).sort());
+  assert.equal(gate.allowed.length, 2);
+});
+
+test("an explicit roster replaces the default rather than adding to it", () => {
+  // Otherwise removing yourself from ALLOWED_EMAILS would silently not work.
+  const gate = rosterGate({ DATABASE_URL: "postgres://x", ALLOWED_EMAILS: "someone@else.com" });
+  assert.equal(rosterAdmits(gate, "someone@else.com"), true);
+  for (const owner of DEFAULT_ROSTER) assert.equal(rosterAdmits(gate, owner), false);
+});
+
+test("a roster of nothing but junk admits nobody", () => {
+  // Someone meant to write that, so it must not quietly fall back.
+  const gate = rosterGate({ DATABASE_URL: "postgres://x", ALLOWED_EMAILS: "not-an-email" });
+  assert.equal(gate.enforced, true);
+  assert.deepEqual(gate.allowed, []);
+  for (const owner of DEFAULT_ROSTER) assert.equal(rosterAdmits(gate, owner), false);
+});
+
+test("the owners' gmail spellings all resolve to the same access", () => {
+  const gate = rosterGate({ DATABASE_URL: "postgres://x" });
+  assert.equal(rosterAdmits(gate, "Muessle.Michael+ski@googlemail.com"), true);
+  assert.equal(rosterAdmits(gate, "Johanna.Jackstadt@GMAIL.COM"), true);
 });
 
 test("a deployment with a roster admits exactly that roster", () => {
