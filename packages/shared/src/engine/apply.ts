@@ -14,7 +14,81 @@ export interface Applied {
   kind: "ok" | "info" | "warn";
 }
 
-export function applyIntent(state: ResortState, intent: Intent, now: number): Applied {
+/** Who is doing this. Absent for a solo or unauthenticated session. */
+export interface Actor {
+  id: string;
+  name: string;
+}
+
+/** How much history the save carries. Enough to see a session's worth. */
+const ACTIVITY_LIMIT = 30;
+
+/**
+ * Record who did it.
+ *
+ * Two people were building one resort with no trace of either: events were
+ * broadcast and forgotten, nothing said who acted, and coming back after an
+ * hour told you nothing about what had changed. Bookkeeping lives here rather
+ * than in each branch, so a new intent is logged and attributed by default
+ * instead of by remembering to.
+ */
+function record(
+  before: ResortState,
+  applied: Applied,
+  intent: Intent,
+  now: number,
+  actor?: Actor,
+): Applied {
+  const next = applied.state;
+  const spent = Math.max(0, before.coins - next.coins);
+  const isBuild =
+    intent.type === "place_building" || intent.type === "place_lift" || intent.type === "place_piste";
+
+  let contributors = next.contributors;
+  if (actor) {
+    const prev = contributors[actor.id];
+    contributors = {
+      ...contributors,
+      [actor.id]: {
+        // The current name wins, so a rename shows up on old work too.
+        name: actor.name,
+        builds: (prev?.builds ?? 0) + (isBuild ? 1 : 0),
+        demolished: (prev?.demolished ?? 0) + (intent.type === "demolish" ? 1 : 0),
+        coinsSpent: (prev?.coinsSpent ?? 0) + spent,
+      },
+    };
+  }
+
+  // Reading the tutorial is not news for the other player.
+  const newsworthy = intent.type !== "next_tutorial" && intent.type !== "dismiss_tutorial";
+  const activity = newsworthy
+    ? [
+        {
+          id: createId("a"),
+          at: now,
+          actor: actor?.id ?? "",
+          actorName: actor?.name ?? "System",
+          title: applied.title,
+          body: applied.body,
+          kind: applied.kind,
+        },
+        ...next.activity,
+      ].slice(0, ACTIVITY_LIMIT)
+    : next.activity;
+
+  return { ...applied, state: { ...next, contributors, activity } };
+}
+
+export function applyIntent(
+  state: ResortState,
+  intent: Intent,
+  now: number,
+  actor?: Actor,
+): Applied {
+  return record(state, applyOne(state, intent, now, actor), intent, now, actor);
+}
+
+function applyOne(state: ResortState, intent: Intent, now: number, actor?: Actor): Applied {
   if (intent.type === "place_building") {
     const item = BY_ID[intent.itemId];
     const building = {
@@ -26,6 +100,7 @@ export function applyIntent(state: ResortState, intent: Intent, now: number): Ap
       builtAt: now,
       readyAt: now + item.buildSeconds * 1000,
       upgrades: { speed: 1, cabins: 1, capacity: 1 },
+      builtBy: actor?.id,
     };
     return {
       state: {
@@ -53,6 +128,7 @@ export function applyIntent(state: ResortState, intent: Intent, now: number): Ap
       builtAt: now,
       readyAt: now + item.buildSeconds * 1000,
       upgrades: { speed: 1, cabins: 1, capacity: 1 },
+      builtBy: actor?.id,
     };
     return {
       state: {
@@ -94,6 +170,7 @@ export function applyIntent(state: ResortState, intent: Intent, now: number): Ap
       hexes: intent.hexes,
       builtAt: now,
       readyAt: now + item.buildSeconds * 1000,
+      builtBy: actor?.id,
     };
     return {
       state: {

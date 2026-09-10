@@ -114,6 +114,13 @@ export function handleSocket(socket: Socket, identity?: SocketIdentity | null): 
       send(socket, { type: "pong", at: msg.data.at });
       return;
     }
+
+    if (msg.data.type === "focus") {
+      // Rides the next tick's snapshot rather than broadcasting its own, so a
+      // moving pointer cannot flood the room.
+      if (bound) getRoom(bound.roomId).setFocus(bound.playerId, msg.data.hex);
+      return;
+    }
     if (msg.data.type === "join") {
       const room = getRoom(msg.data.roomId);
       // When the socket was authenticated the account decides who this is —
@@ -152,6 +159,8 @@ export function handleSocket(socket: Socket, identity?: SocketIdentity | null): 
       title: result.event.title,
       body: result.event.body,
       kind: result.event.kind,
+      actorId: result.event.actorId,
+      actorName: result.event.actorName,
     });
     broadcast(bound.roomId, {
       type: "snapshot",

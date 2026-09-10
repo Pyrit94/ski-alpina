@@ -14,7 +14,8 @@ import {
   visualRelief,
   type Heightmap,
 } from "@/lib/game/alpine";
-import { hexToWorld, worldToHex } from "@/lib/game/hex";
+import { HEX_SIZE, hexToWorld, worldToHex } from "@/lib/game/hex";
+import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
 import type { MapLayer, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game/types";
@@ -507,6 +508,72 @@ function Snowfall({ on }: { on: boolean }) {
   );
 }
 
+/**
+ * Where the other builders are pointing.
+ *
+ * Two people on one mountain could previously only tell they had company from
+ * a number in the corner — you could not see what the other was about to do,
+ * or walk over to help. A ring under their pointer with their name on it makes
+ * the shared map actually shared.
+ */
+function PeerFocus() {
+  const players = useGame((s) => s.players);
+  const me = useGame((s) => s.playerId);
+  const hm = getHeightmap();
+  const ring = useRef<THREE.Group>(null);
+  const peers = players.filter((p) => p.id !== me && p.focus);
+
+  useFrame(({ clock }) => {
+    if (!ring.current) return;
+    // A slow breath, so a stationary marker still reads as someone present.
+    const s = 1 + Math.sin(clock.elapsedTime * 2.6) * 0.06;
+    for (const child of ring.current.children) child.scale.setScalar(s);
+  });
+
+  if (peers.length === 0) return null;
+  return (
+    <group ref={ring}>
+      {peers.map((p) => {
+        const hex = p.focus!;
+        const { x, z } = hexToWorld(hex.q, hex.r);
+        const y = hm.worldY(x, z) + visualRelief(x, z);
+        const color = peerColor(p.id);
+        return (
+          <group key={p.id} position={[x, y + 0.14, z]}>
+            <mesh rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[HEX_SIZE * 0.6, HEX_SIZE * 0.94, 6]} />
+              <meshBasicMaterial
+                color={color}
+                transparent
+                opacity={0.8}
+                depthWrite={false}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+            <Html center distanceFactor={110} position={[0, 2.6, 0]} zIndexRange={[20, 0]}>
+              <div
+                style={{
+                  background: color,
+                  color: "#fff",
+                  padding: "3px 9px",
+                  borderRadius: 999,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  boxShadow: "0 2px 8px rgba(11,26,48,.35)",
+                  pointerEvents: "none",
+                }}
+              >
+                {p.name}
+              </div>
+            </Html>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 function LightsAndSky() {
   const tod = useGame((s) => s.timeOfDay);
   const quality = useGame((s) => s.quality);
@@ -703,6 +770,7 @@ export function SkiScene() {
       <HexGhost />
       <CenterStamp />
       <StampFlash />
+      <PeerFocus />
       <PeakLabels />
       <Snowfall on={weather === "snow" || weather === "storm"} />
     </Canvas>

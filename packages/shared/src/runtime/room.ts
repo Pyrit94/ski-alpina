@@ -7,6 +7,7 @@ import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import { getDem } from "../terrain/dem.ts";
+import type { Axial } from "../hex.ts";
 import type { PlayerPresence, PlayerRole, ResortState } from "../types.ts";
 
 export interface RoomPlayer {
@@ -17,12 +18,17 @@ export interface RoomPlayer {
   lastSeen: number;
   /** The signed-in account, when the socket was authenticated. */
   userId?: string;
+  /** Hex this player is pointing at, for the others' benefit. */
+  focus?: Axial | null;
 }
 
 export interface RoomEvent {
   title: string;
   body: string;
   kind: "ok" | "info" | "warn";
+  /** Who caused it, so the other player's screen can say so. */
+  actorId: string;
+  actorName: string;
 }
 
 export class GameRoom {
@@ -107,6 +113,7 @@ export class GameRoom {
       name: p.name,
       role: p.role,
       lastSeen: p.lastSeen,
+      focus: p.focus ?? null,
     }));
   }
 
@@ -117,10 +124,32 @@ export class GameRoom {
     const now = Date.now();
     const v = validateIntent(this.state, this.dem, intent, player.role, now);
     if (!v.ok) return v;
-    const applied = applyIntent(this.state, intent, now);
+    const applied = applyIntent(this.state, intent, now, { id: player.id, name: player.name });
     this.state = applied.state;
     this.seq += 1;
-    return { ok: true, event: { title: applied.title, body: applied.body, kind: applied.kind } };
+    return {
+      ok: true,
+      event: {
+        title: applied.title,
+        body: applied.body,
+        kind: applied.kind,
+        actorId: player.id,
+        actorName: player.name,
+      },
+    };
+  }
+
+  /**
+   * Note where a player is pointing, for the others to see.
+   *
+   * Cheap and deliberately unvalidated: it is a hint about attention, not a
+   * claim on the hex, so a stale or silly value can only mislabel a marker.
+   */
+  setFocus(playerId: string, hex: Axial | null): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    player.lastSeen = Date.now();
+    player.focus = hex;
   }
 
   tick(): void {

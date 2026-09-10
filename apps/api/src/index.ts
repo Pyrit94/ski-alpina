@@ -68,6 +68,10 @@ app.get("/ws", { websocket: true }, (socket) => {
       socket.send(JSON.stringify({ type: "pong", at: msg.at }));
       return;
     }
+    if (msg.type === "focus") {
+      room(roomId).setFocus(playerId, msg.hex);
+      return;
+    }
     const r = room(roomId);
     const result = r.submit(playerId, msg.intent);
     if (!result.ok) {

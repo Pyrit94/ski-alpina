@@ -181,6 +181,12 @@ wss.on("connection", (ws, _req, identity) => {
       return;
     }
 
+    if (msg.type === "focus") {
+      // Carried by the next tick's snapshot, so a moving pointer cannot flood.
+      if (bound) getRoom(bound.roomId).setFocus(bound.playerId, msg.hex);
+      return;
+    }
+
     if (msg.type === "join") {
       const room = getRoom(msg.roomId);
       // An authenticated socket takes its identity from the account, never
@@ -215,6 +221,8 @@ wss.on("connection", (ws, _req, identity) => {
       title: result.event.title,
       body: result.event.body,
       kind: result.event.kind,
+      actorId: result.event.actorId,
+      actorName: result.event.actorName,
     });
     broadcast(bound.roomId, snapshotOf(room));
   });

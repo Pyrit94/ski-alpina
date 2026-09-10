@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BarChart3,
   Bus,
@@ -31,6 +31,7 @@ import {
   X,
   ZoomIn,
 } from "lucide-react";
+import { peerColor } from "@/lib/game/players";
 import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, QUICK, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
 import { fmt, fmtCompact } from "@/lib/game/format";
@@ -41,12 +42,98 @@ import type { Category, HudSheet, ItemId, MapLayer, PlacedPiste } from "@/lib/ga
 function PlayersLine() {
   const players = useGame((s) => s.players);
   const connected = useGame((s) => s.connected);
+  const me = useGame((s) => s.playerId);
   return (
-    <div className="mt-3 flex items-center gap-2 text-[11px] text-muted">
-      <span className={`size-2 rounded-full ${connected ? "bg-success" : "bg-warn"}`} />
-      {connected ? `${Math.max(1, players.length)} online` : "Verbinde…"}
-      <span className="truncate">{players.map((p) => p.name).join(", ")}</span>
+    <div className="mt-3 flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 text-[11px] text-muted">
+        <span className={`size-2 rounded-full ${connected ? "bg-success" : "bg-warn"}`} />
+        {connected ? `${Math.max(1, players.length)} online` : "Verbinde…"}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {players.map((p) => (
+          // The chip colour matches this player's ring on the mountain, which
+          // is what ties a name to the work happening under it.
+          <span
+            key={p.id}
+            className="inline-flex items-center gap-1.5 rounded-full bg-snow px-2 py-0.5 text-[11px] font-medium text-navy"
+          >
+            <span className="size-2 rounded-full" style={{ background: peerColor(p.id) }} />
+            {p.name}
+            {p.id === me && <span className="text-muted">(du)</span>}
+          </span>
+        ))}
+      </div>
     </div>
+  );
+}
+
+/** Minutes-ago, in the shortest form that is still honest. */
+function sinceLabel(at: number, now: number): string {
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  if (s < 45) return "gerade";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} h` : `${Math.round(h / 24)} d`;
+}
+
+/**
+ * What has happened in this resort, and who did it.
+ *
+ * Events were broadcast and forgotten: coming back after an hour told you
+ * nothing about what your partner had changed, and no event named its author.
+ * The log lives in the save, so it survives a reload and a restart.
+ */
+function ActivityPanel() {
+  const activity = useGame((s) => s.activity);
+  const contributors = useGame((s) => s.contributors);
+  const me = useGame((s) => s.playerId);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 20_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const ranked = Object.entries(contributors).sort((a, b) => b[1].builds - a[1].builds);
+  if (activity.length === 0 && ranked.length === 0) return null;
+
+  return (
+    <Panel className="p-3">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">
+        Gemeinsam gebaut
+      </div>
+      {ranked.length > 0 && (
+        <div className="mb-2.5 flex flex-col gap-1">
+          {ranked.map(([id, c]) => (
+            <div key={id} className="flex items-center gap-2 text-[11px]">
+              <span className="size-2 shrink-0 rounded-full" style={{ background: peerColor(id) }} />
+              <span className="min-w-0 flex-1 truncate font-medium text-navy">
+                {c.name}
+                {id === me && <span className="ml-1 text-muted">(du)</span>}
+              </span>
+              <span className="tabular-nums text-muted">{c.builds} Bauten</span>
+              <span className="tabular-nums text-subtle">{fmtCompact(c.coinsSpent)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5">
+        {activity.slice(0, 6).map((a) => (
+          <div key={a.id} className="flex gap-2 text-[11px] leading-snug">
+            <span
+              className="mt-1 size-1.5 shrink-0 rounded-full"
+              style={{ background: a.actor ? peerColor(a.actor) : "#7C8DA6" }}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="font-medium text-navy">{a.actorName}</span>
+              <span className="text-muted"> · {a.body}</span>
+            </span>
+            <span className="shrink-0 tabular-nums text-subtle">{sinceLabel(a.at, now)}</span>
+          </div>
+        ))}
+      </div>
+    </Panel>
   );
 }
 
@@ -375,6 +462,7 @@ function RightColumn() {
       <LayerTabs />
       <InfoPanel />
       <OperationsPanel />
+      <ActivityPanel />
       <Notifications />
       <Quests />
     </aside>
@@ -458,6 +546,7 @@ function InfoPanel() {
         </div>
       </div>
       {constructing && <div className="mt-2 text-[11px] text-warn">Im Bau…</div>}
+      <BuiltByLine builtBy={entity.builtBy} />
       <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
         <Stat label="Kapazität" value={cap ? `${fmt(cap)}/h` : "—"} />
         <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
@@ -511,6 +600,28 @@ function refundFor(cost: number) {
   return Math.floor(cost * ECONOMY.demolishRefund);
 }
 
+/**
+ * Who put this here.
+ *
+ * Resolved through the persisted contributor list rather than the live player
+ * list, so the name still shows after that player has gone offline — or after
+ * a server restart, when their session id no longer exists.
+ */
+function BuiltByLine({ builtBy }: { builtBy?: string }) {
+  const contributors = useGame((s) => s.contributors);
+  const me = useGame((s) => s.playerId);
+  if (!builtBy) return null;
+  const who = contributors[builtBy];
+  if (!who) return null;
+  return (
+    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted">
+      <span className="size-2 rounded-full" style={{ background: peerColor(builtBy) }} />
+      Gebaut von <span className="font-medium text-navy">{who.name}</span>
+      {builtBy === me && <span>(du)</span>}
+    </div>
+  );
+}
+
 function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
   const flow = useGame((s) => s.flow);
   const stats = useGame((s) => s.stats);
@@ -540,6 +651,7 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
           eine Talstation anschliessen.
         </p>
       )}
+      <BuiltByLine builtBy={piste.builtBy} />
       <DemolishButton id={piste.id} refund={refundFor(item.cost * segments)} label={item.name} />
     </Panel>
   );
@@ -1215,6 +1327,7 @@ function MobileSheets() {
             <div className="flex flex-col gap-2">
               <InfoPanel />
               <OperationsPanel />
+              <ActivityPanel />
             </div>
           )}
           {sheet === "menu" && <MobileMenuBody />}

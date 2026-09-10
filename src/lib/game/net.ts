@@ -38,7 +38,13 @@ export function saveName(name: string) {
 export interface NetHandlers {
   onWelcome: (playerId: string, token: string, roomId: string) => void;
   onSnapshot: (state: ResortState, players: PlayerPresence[], seq: number) => void;
-  onEvent: (title: string, body: string, kind: "ok" | "info" | "warn") => void;
+  onEvent: (
+    title: string,
+    body: string,
+    kind: "ok" | "info" | "warn",
+    actorId?: string,
+    actorName?: string,
+  ) => void;
   onError: (reason: string, code: string) => void;
   onStatus: (connected: boolean) => void;
 }
@@ -107,7 +113,7 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
       } else if (msg.type === "snapshot") {
         handlers.onSnapshot(msg.state as ResortState, msg.players, msg.seq);
       } else if (msg.type === "event") {
-        handlers.onEvent(msg.title, msg.body, msg.kind);
+        handlers.onEvent(msg.title, msg.body, msg.kind, msg.actorId, msg.actorName);
       } else if (msg.type === "error") {
         handlers.onError(msg.reason, msg.code);
       }
@@ -116,9 +122,28 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
 
   open();
 
+  let lastFocusAt = 0;
+  let lastFocusKey = "";
+
   return {
     sendIntent: (intent: Intent) => {
       send({ type: "intent", id: `i_${Date.now().toString(36)}`, intent });
+    },
+    /**
+     * Tell the room where this player is pointing.
+     *
+     * Throttled and deduplicated: a pointer crossing the map would otherwise
+     * send on every frame, and the server only carries the latest value on the
+     * next snapshot anyway.
+     */
+    sendFocus: (hex: { q: number; r: number } | null) => {
+      const key = hex ? `${hex.q},${hex.r}` : "";
+      const now = Date.now();
+      if (key === lastFocusKey) return;
+      if (now - lastFocusAt < 120) return;
+      lastFocusKey = key;
+      lastFocusAt = now;
+      send({ type: "focus", hex });
     },
     close: () => {
       closed = true;

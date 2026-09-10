@@ -77,6 +77,8 @@ export function emptyResort(roomId = "zermatt"): ResortState {
     stats: { ...DEFAULT_STATS },
     flow: [],
     unlocked: [],
+    contributors: {},
+    activity: [],
   };
 }
 
@@ -122,6 +124,8 @@ export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): 
     pistes: snapshot.pistes ?? [],
     flow: snapshot.flow ?? [],
     unlocked: snapshot.unlocked ?? [],
+    contributors: snapshot.contributors ?? {},
+    activity: snapshot.activity ?? [],
   };
 }
 

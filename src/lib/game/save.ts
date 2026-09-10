@@ -81,6 +81,8 @@ export function newSave(): GameSave {
     flow: [],
     stats: { ...DEFAULT_STATS },
     unlocked: [],
+    contributors: {},
+    activity: [],
   };
 }
 

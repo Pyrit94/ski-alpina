@@ -100,6 +100,8 @@ function flatten(s: ResortState): Partial<ResortState> {
     stats: s.stats,
     flow: s.flow,
     unlocked: s.unlocked,
+    contributors: s.contributors,
+    activity: s.activity,
   };
 }
 
@@ -178,7 +180,11 @@ export const useGame = create<GameStore>((set, get) => ({
     net = connectGame(room, playerName, {
       onWelcome: (playerId, _token, rid) => set({ playerId, roomId: rid }),
       onSnapshot: (state, players) => set({ ...flatten(state), players }),
-      onEvent: (title, body, kind) => get().pushNote(title, body, kind),
+      onEvent: (title, body, kind, actorId, actorName) => {
+        // Name the other builder; own actions need no attribution.
+        const mine = !actorId || actorId === get().playerId;
+        get().pushNote(title, mine || !actorName ? body : `${actorName}: ${body}`, kind);
+      },
       onError: (reason) => get().pushNote("Nicht möglich", reason, "warn"),
       onStatus: (connected) => set({ connected }),
     });
@@ -249,6 +255,8 @@ export const useGame = create<GameStore>((set, get) => ({
   hoverHex: (q, r) => {
     const s = get();
     if (s.hover && s.hover.q === q && s.hover.r === r) return;
+    // Let the other builders see where the work is happening.
+    net?.sendFocus({ q, r });
     if (!s.buildItem) {
       set({ hover: { q, r, valid: true, reason: "" } });
       return;

@@ -75,6 +75,12 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("ping"),
     at: z.number(),
   }),
+  // Where this player is pointing. Not an intent: it changes nobody's resort,
+  // it only lets the other person see where the work is happening.
+  z.object({
+    type: z.literal("focus"),
+    hex: AxialSchema.nullable(),
+  }),
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -96,6 +102,7 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
         name: z.string(),
         role: z.enum(["builder", "visitor"]),
         lastSeen: z.number(),
+        focus: AxialSchema.nullable().optional(),
       }),
     ),
   }),
@@ -104,6 +111,8 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     title: z.string(),
     body: z.string(),
     kind: z.enum(["ok", "info", "warn"]),
+    actorId: z.string().optional(),
+    actorName: z.string().optional(),
   }),
   z.object({
     type: z.literal("error"),

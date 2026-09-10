@@ -24,6 +24,8 @@ export interface PlacedBuilding {
   builtAt: number;
   readyAt: number;
   upgrades: Upgrades;
+  /** Player id of whoever put it here. Absent on anything built before this. */
+  builtBy?: string;
 }
 
 export interface PlacedLift {
@@ -37,6 +39,7 @@ export interface PlacedLift {
   builtAt: number;
   readyAt: number;
   upgrades: Upgrades;
+  builtBy?: string;
 }
 
 export interface PlacedPiste {
@@ -46,6 +49,7 @@ export interface PlacedPiste {
   hexes: Axial[];
   builtAt: number;
   readyAt: number;
+  builtBy?: string;
 }
 
 export interface QuestState {
@@ -128,6 +132,39 @@ export interface PlayerPresence {
   name: string;
   role: PlayerRole;
   lastSeen: number;
+  /**
+   * The hex this player is pointing at, when they are.
+   *
+   * Two people building one resort could not see each other work: the only
+   * sign of company was a number in the corner. This is what puts the other
+   * person on the mountain.
+   */
+  focus?: Axial | null;
+}
+
+/** What one player has put into the resort. Survives them leaving the room. */
+export interface Contributor {
+  name: string;
+  builds: number;
+  demolished: number;
+  coinsSpent: number;
+}
+
+/**
+ * One thing that happened, kept in the save.
+ *
+ * Events used to be broadcast and forgotten, so someone coming back had no
+ * way to see what changed while they were away — and no event said who did it.
+ */
+export interface ActivityEntry {
+  id: string;
+  at: number;
+  /** Player id, or "" for something the simulation did. */
+  actor: string;
+  actorName: string;
+  title: string;
+  body: string;
+  kind: "ok" | "info" | "warn";
 }
 
 export interface ResortState {
@@ -152,6 +189,16 @@ export interface ResortState {
   stats: SimStats;
   flow: FlowEdgeViz[];
   unlocked: ItemId[];
+  /**
+   * What each player has put in, keyed by player id.
+   *
+   * Persisted with the resort so a name survives its owner's session — an
+   * entity's `builtBy` would otherwise become an unresolvable id after a
+   * restart.
+   */
+  contributors: Record<string, Contributor>;
+  /** Newest first, bounded. */
+  activity: ActivityEntry[];
 }
 
 export interface IntentError {
