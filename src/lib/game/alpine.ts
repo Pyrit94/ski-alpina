@@ -212,18 +212,86 @@ export function visualRelief(x: number, z: number): number {
 
 export type Biome = "ice" | "snow" | "rock" | "forest" | "meadow" | "village" | "glacier";
 
+/**
+ * Which ground this is.
+ *
+ * The thresholds are real tangents. They were originally written against a
+ * slope that came out about eight times too steep, so once that was corrected
+ * `s > 0.85` for rock never fired and nearly everything fell into one band —
+ * which is what turned the mountain into a featureless white sheet.
+ */
 export function biomeAt(hm: Heightmap, x: number, z: number): Biome {
   if (hm.isWater(x, z)) return "ice";
   const m = hm.sample(x, z);
   const s = hm.slope(x, z);
   const vd = Math.hypot(x - VILLAGE.x, z - VILLAGE.z);
-  if (vd < 14 && m < 1900 && s < 0.28) return "village";
-  if (s > 0.85 || (m > 3200 && s > 0.55)) return "rock";
-  if (m > 3400 && s < 0.55) return "glacier";
-  if (m > 2480) return "snow";
-  if (m > 1880 && m < 2480 && s < 0.48) return "forest";
-  if (m < 1880 && s < 0.35) return "meadow";
+  if (vd < 14 && m < 1900 && s < 0.16) return "village";
+  if (s > 0.62) return "rock";
+  if (m > 3500 && s < 0.3) return "glacier";
+  if (m > 2500) return "snow";
+  if (m > 1800 && s < 0.5) return "forest";
+  if (s < 0.3) return "meadow";
   return "snow";
+}
+
+/** 0 below `edge0`, 1 above `edge1`, eased in between. */
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+type Rgb = [number, number, number];
+
+const mix = (a: Rgb, b: Rgb, t: number): Rgb => [
+  a[0] + (b[0] - a[0]) * t,
+  a[1] + (b[1] - a[1]) * t,
+  a[2] + (b[2] - a[2]) * t,
+];
+
+/** Bands the ground colour passes through as it climbs, with room to blend. */
+const GROUND = {
+  meadow: [0.58, 0.63, 0.42] as Rgb,
+  forest: [0.24, 0.38, 0.28] as Rgb,
+  alpine: [0.68, 0.72, 0.66] as Rgb,
+  snow: [0.93, 0.95, 0.99] as Rgb,
+  glacier: [0.82, 0.9, 0.97] as Rgb,
+  rock: [0.42, 0.39, 0.36] as Rgb,
+  scree: [0.55, 0.51, 0.46] as Rgb,
+  village: [0.72, 0.66, 0.53] as Rgb,
+  ice: [0.45, 0.68, 0.79] as Rgb,
+};
+
+/**
+ * Ground colour at a point, blended rather than switched.
+ *
+ * Hard biome bands read as flat plates from above. Blending along elevation
+ * gives the eye a gradient to follow, mixing rock in by steepness puts the
+ * mountain's structure on the surface, and darkening with steepness bakes
+ * relief into the vertex colour — so the shape stays readable even where the
+ * sun happens to fall flat on the slope.
+ */
+export function terrainColor(hm: Heightmap, x: number, z: number): Rgb {
+  if (hm.isWater(x, z)) return GROUND.ice;
+  const m = hm.sample(x, z);
+  const s = hm.slope(x, z);
+
+  // Up through pasture, forest, the treeline, snow and finally ice.
+  let c = mix(GROUND.meadow, GROUND.forest, smoothstep(1700, 1950, m));
+  c = mix(c, GROUND.alpine, smoothstep(2050, 2400, m));
+  c = mix(c, GROUND.snow, smoothstep(2400, 2850, m));
+  c = mix(c, GROUND.glacier, smoothstep(3500, 3900, m) * (1 - smoothstep(0.3, 0.55, s)));
+
+  // Steep ground sheds snow: scree first, then bare rock.
+  c = mix(c, GROUND.scree, smoothstep(0.4, 0.7, s));
+  c = mix(c, GROUND.rock, smoothstep(0.7, 1.15, s));
+
+  // The valley floor around the village reads as settled land.
+  const vd = Math.hypot(x - VILLAGE.x, z - VILLAGE.z);
+  c = mix(c, GROUND.village, (1 - smoothstep(6, 16, vd)) * (1 - smoothstep(0.1, 0.3, s)) * 0.75);
+
+  // Relief baked into the colour, so form survives flat lighting.
+  const shade = 1 - smoothstep(0.15, 1.3, s) * 0.34;
+  return [c[0] * shade, c[1] * shade, c[2] * shade];
 }
 
 export function biomeColor(b: Biome): [number, number, number] {

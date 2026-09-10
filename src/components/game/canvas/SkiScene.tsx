@@ -3,9 +3,8 @@ import { Html, MapControls } from "@react-three/drei";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import {
-  biomeAt,
-  biomeColor,
   getHeightmap,
+  terrainColor,
   LAKE,
   metersToWorldY,
   PEAKS,
@@ -34,7 +33,7 @@ function buildTerrain(hm: Heightmap, layer: MapLayer, heat: Map<string, number>)
     const y = hm.worldY(x, z) + visualRelief(x, z);
     pos.setY(i, y);
     const m = hm.sample(x, z);
-    let c = biomeColor(biomeAt(hm, x, z));
+    let c = terrainColor(hm, x, z);
     if (layer === "height") {
       const t = Math.min(1, Math.max(0, (m - 1580) / 2800));
       dummy.setHSL(0.58 - t * 0.45, 0.45, 0.35 + t * 0.45);
@@ -518,12 +517,18 @@ function LightsAndSky() {
   return (
     <>
       <color attach="background" args={["#9eb8d0"]} />
-      <hemisphereLight args={["#e7f1ff", "#8b9eae", low ? 1.28 : 1.05]} />
-      <ambientLight intensity={low ? 0.78 : 0.42} />
+      {/*
+        Fill light used to total more than the sun (hemisphere 1.05 + ambient
+        0.42 against a 1.35 directional), which flattened the mountain into a
+        sheet. The sun now dominates and the fill only keeps shadowed faces
+        from going black — sky blue from above, bounced snow-light from below.
+      */}
+      <hemisphereLight args={["#cfe2f7", "#9aa7ae", low ? 0.62 : 0.45]} />
+      <ambientLight intensity={low ? 0.2 : 0.12} />
       <directionalLight
         position={[48, 36 + elev * 28, 18]}
-        intensity={1.35 * (0.55 + elev * 0.5) * (low ? 1.15 : 1)}
-        color="#fff6e8"
+        intensity={2.35 * (0.55 + elev * 0.5) * (low ? 1.1 : 1)}
+        color="#fff4e0"
         castShadow={!low}
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
