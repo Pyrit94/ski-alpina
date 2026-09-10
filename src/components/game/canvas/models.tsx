@@ -511,7 +511,15 @@ export function useHexGeometry(size: number) {
   return useMemo(() => makeHexGeometry(size), [size]);
 }
 
-export function ribbonGeometry(points: THREE.Vector3[], width: number) {
+/**
+ * A flat strip laid along a path.
+ *
+ * `lift` is how far above the ground it floats. It is a parameter because a
+ * piste is drawn as two strips — a wider coloured one for the edge and a
+ * narrower white one on top — and they need different heights or they
+ * z-fight into a shimmering mess.
+ */
+export function ribbonGeometry(points: THREE.Vector3[], width: number, lift = 0.08) {
   if (points.length < 2) return new THREE.BufferGeometry();
   const verts: number[] = [];
   const norms: number[] = [];
@@ -527,8 +535,8 @@ export function ribbonGeometry(points: THREE.Vector3[], width: number) {
     const side = new THREE.Vector3().crossVectors(up, dir).normalize().multiplyScalar(width * 0.5);
     const a = p.clone().add(side);
     const b = p.clone().sub(side);
-    a.y += 0.08;
-    b.y += 0.08;
+    a.y += lift;
+    b.y += lift;
     verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
     norms.push(0, 1, 0, 0, 1, 0);
   }

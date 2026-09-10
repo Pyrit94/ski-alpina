@@ -14,6 +14,7 @@ import {
   visualRelief,
   type Heightmap,
 } from "@/lib/game/alpine";
+import { ECONOMY } from "@/lib/game/catalog";
 import { HEX_SIZE, hexToWorld, worldToHex } from "@/lib/game/hex";
 import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
@@ -290,15 +291,92 @@ function Scaffold() {
   );
 }
 
-function liftCurve(l: PlacedLift, hm: Heightmap) {
-  const a = hexToWorld(l.a.q, l.a.r);
-  const b = hexToWorld(l.b.q, l.b.r);
-  const ay = hm.worldY(a.x, a.z) + 1.7;
-  const by = hm.worldY(b.x, b.z) + 1.7;
-  const mid = new THREE.Vector3((a.x + b.x) / 2, (ay + by) / 2, (a.z + b.z) / 2);
-  const span = Math.hypot(a.x - b.x, a.z - b.z);
-  mid.y -= Math.min(8, span * 0.08);
-  return new THREE.CatmullRomCurve3([new THREE.Vector3(a.x, ay, a.z), mid, new THREE.Vector3(b.x, by, b.z)]);
+/** How tall a tower stands above the ground it is planted in. */
+const PYLON_HEIGHT = 3.2;
+/** Roughly one tower per this many world units of span. */
+const PYLON_SPACING = 7;
+
+interface LiftLine {
+  /** Ground positions of the two stations. */
+  a: THREE.Vector3;
+  b: THREE.Vector3;
+  /** Tower feet, in order from the valley station. */
+  towers: THREE.Vector3[];
+  /** The line the cable actually follows: station top, tower tops, station top. */
+  tops: THREE.Vector3[];
+  /** Sideways unit vector, for offsetting the up-line from the down-line. */
+  side: THREE.Vector3;
+  span: number;
+}
+
+/**
+ * Where a cableway's towers stand and how high the cable runs.
+ *
+ * The old version drew one long arc from station to station and put three
+ * cylinders under it at fixed fractions — so the towers floated, touched
+ * nothing, and the cable sagged straight through the mountain on a steep span.
+ * Towers are now placed along the span, planted on the ground they actually
+ * stand on, and the cable is hung from their tops.
+ */
+function liftLine(l: PlacedLift, hm: Heightmap): LiftLine {
+  const aw = hexToWorld(l.a.q, l.a.r);
+  const bw = hexToWorld(l.b.q, l.b.r);
+  const a = new THREE.Vector3(aw.x, hm.worldY(aw.x, aw.z), aw.z);
+  const b = new THREE.Vector3(bw.x, hm.worldY(bw.x, bw.z), bw.z);
+  const span = Math.hypot(b.x - a.x, b.z - a.z);
+  const count = Math.max(1, Math.round(span / PYLON_SPACING) - 1);
+  const towers: THREE.Vector3[] = [];
+  for (let i = 1; i <= count; i++) {
+    const t = i / (count + 1);
+    const x = a.x + (b.x - a.x) * t;
+    const z = a.z + (b.z - a.z) * t;
+    towers.push(new THREE.Vector3(x, hm.worldY(x, z), z));
+  }
+  const stationTop = 1.6;
+  const tops = [
+    new THREE.Vector3(a.x, a.y + stationTop, a.z),
+    ...towers.map((t) => new THREE.Vector3(t.x, t.y + PYLON_HEIGHT, t.z)),
+    new THREE.Vector3(b.x, b.y + stationTop, b.z),
+  ];
+  const dir = new THREE.Vector3(b.x - a.x, 0, b.z - a.z).normalize();
+  const side = new THREE.Vector3(-dir.z, 0, dir.x);
+  return { a, b, towers, tops, side, span };
+}
+
+/**
+ * The cable, sagging between supports rather than in one arc end to end.
+ *
+ * A rope over towers dips in each bay and is pulled back up at every tower.
+ * One arc across the whole span is what made a long lift look like a
+ * washing line.
+ */
+function cableCurve(tops: THREE.Vector3[], offset: THREE.Vector3): THREE.CatmullRomCurve3 {
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i < tops.length; i++) {
+    const here = tops[i]!.clone().add(offset);
+    pts.push(here);
+    const next = tops[i + 1];
+    if (!next) continue;
+    const to = next.clone().add(offset);
+    const bay = here.distanceTo(to);
+    const mid = here.clone().lerp(to, 0.5);
+    mid.y -= Math.min(0.9, bay * 0.06);
+    pts.push(mid);
+  }
+  return new THREE.CatmullRomCurve3(pts);
+}
+
+/**
+ * How many carriers one lift may show, given how many lifts exist.
+ *
+ * Visible cabins are decoration — the sim counts nobody by looking at them —
+ * so they answer to a fixed budget rather than to how many lifts get built.
+ * Without this, a large resort quietly multiplies its way past the draw-call
+ * budget, one perfectly reasonable-looking lift at a time.
+ */
+function carrierBudget(liftCount: number): number {
+  const perDirection = ECONOMY.maxVisualGondolas / Math.max(1, liftCount * 2);
+  return Math.max(2, Math.min(8, Math.floor(perDirection)));
 }
 
 function Lifts() {
@@ -307,75 +385,206 @@ function Lifts() {
   const selectEntity = useGame((s) => s.selectEntity);
   return (
     <group>
-      {lifts.map((l) => {
-        const curve = liftCurve(l, hm);
-        const tube = new THREE.TubeGeometry(curve, 32, 0.035, 5, false);
-        return (
-          <group
-            key={l.id}
-            onClick={(e) => {
-              e.stopPropagation();
-              selectEntity(l.id);
-            }}
-          >
-            <mesh geometry={tube}>
-              <meshStandardMaterial color="#2a3540" metalness={0.6} roughness={0.3} />
-            </mesh>
-            <LiftCabins curve={curve} kind={l.itemId} />
-            <Pylons lift={l} hm={hm} />
-          </group>
-        );
-      })}
+      {lifts.map((l) => (
+        <LiftRig
+          key={l.id}
+          lift={l}
+          hm={hm}
+          budget={carrierBudget(lifts.length)}
+          onSelect={() => selectEntity(l.id)}
+        />
+      ))}
     </group>
   );
 }
 
-function Pylons({ lift, hm }: { lift: PlacedLift; hm: Heightmap }) {
-  const a = hexToWorld(lift.a.q, lift.a.r);
-  const b = hexToWorld(lift.b.q, lift.b.r);
-  const items = [];
-  for (let i = 1; i <= 3; i++) {
-    const t = i / 4;
-    const x = a.x + (b.x - a.x) * t;
-    const z = a.z + (b.z - a.z) * t;
-    const y = hm.worldY(x, z);
-    items.push(
-      <mesh key={i} position={[x, y + 1.1, z]}>
-        <cylinderGeometry args={[0.08, 0.12, 2.2, 6]} />
-        <meshStandardMaterial color="#3a4650" />
-      </mesh>,
-    );
-  }
-  return <group>{items}</group>;
+function LiftRig({
+  lift: l,
+  hm,
+  budget,
+  onSelect,
+}: {
+  lift: PlacedLift;
+  hm: Heightmap;
+  budget: number;
+  onSelect: () => void;
+}) {
+  const surface = l.itemId === "tbar";
+  const rig = useMemo(() => {
+    const line = liftLine(l, hm);
+    // Two lines side by side: one going up, one coming back. A single cable
+    // is the tell that a lift was drawn rather than modelled.
+    const gap = surface ? 0.24 : 0.38;
+    const up = cableCurve(line.tops, line.side.clone().multiplyScalar(gap));
+    const down = cableCurve(line.tops, line.side.clone().multiplyScalar(-gap));
+    return {
+      line,
+      up,
+      down,
+      cables: [
+        new THREE.TubeGeometry(up, Math.max(24, line.tops.length * 8), 0.045, 5, false),
+        new THREE.TubeGeometry(down, Math.max(24, line.tops.length * 8), 0.045, 5, false),
+      ],
+    };
+  }, [l, hm, surface]);
+
+  useEffect(
+    () => () => {
+      for (const c of rig.cables) c.dispose();
+    },
+    [rig],
+  );
+
+  return (
+    <group
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+    >
+      {rig.cables.map((geo, i) => (
+        <mesh key={i} geometry={geo}>
+          <meshStandardMaterial color="#26323d" metalness={0.55} roughness={0.35} />
+        </mesh>
+      ))}
+      {rig.line.towers.map((t, i) => (
+        <Pylon key={i} at={t} side={rig.line.side} />
+      ))}
+      <LiftCarriers curve={rig.up} back={rig.down} kind={l.itemId} budget={budget} />
+    </group>
+  );
 }
 
-function LiftCabins({ curve, kind }: { curve: THREE.CatmullRomCurve3; kind: PlacedLift["itemId"] }) {
-  const n = kind === "tram" ? 2 : kind === "tbar" ? 4 : 6;
-  const refs = useRef<THREE.Group[]>([]);
+/** A lattice tower with the crossarm the cables actually run over. */
+function Pylon({ at, side }: { at: THREE.Vector3; side: THREE.Vector3 }) {
+  const yaw = Math.atan2(side.x, side.z);
+  return (
+    <group position={[at.x, at.y, at.z]} rotation={[0, yaw, 0]}>
+      <mesh position={[0, PYLON_HEIGHT / 2, 0]} castShadow>
+        <cylinderGeometry args={[0.09, 0.16, PYLON_HEIGHT, 6]} />
+        <meshStandardMaterial color="#48555f" metalness={0.35} roughness={0.6} />
+      </mesh>
+      {/* Crossarm, across the line rather than along it. */}
+      <mesh position={[0, PYLON_HEIGHT, 0]} castShadow>
+        <boxGeometry args={[1.05, 0.1, 0.12]} />
+        <meshStandardMaterial color="#3b4750" metalness={0.4} roughness={0.55} />
+      </mesh>
+      {[-0.38, 0.38].map((dx) => (
+        <mesh key={dx} position={[dx, PYLON_HEIGHT + 0.08, 0]}>
+          <cylinderGeometry args={[0.09, 0.09, 0.1, 10]} />
+          <meshStandardMaterial color="#d9890f" metalness={0.3} roughness={0.5} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/**
+ * What rides the cable, and how.
+ *
+ * Everything used to sit centred on a single line. A gondola hangs under the
+ * rope on a hanger, a chair hangs lower with an open seat, and a T-bar is a
+ * bar near the ground on a thin rope — three different silhouettes that say
+ * what kind of lift this is from a distance.
+ */
+function LiftCarriers({
+  curve,
+  back,
+  kind,
+  budget,
+}: {
+  curve: THREE.CatmullRomCurve3;
+  back: THREE.CatmullRomCurve3;
+  kind: PlacedLift["itemId"];
+  budget: number;
+}) {
+  const cabin = kind === "gondola" || kind === "tram" || kind === "funitel" || kind === "glacier";
+  // A tram has two cars by definition; everything else takes what it is given.
+  const n = kind === "tram" ? Math.min(2, budget) : budget;
+  const speed = kind === "tram" ? 0.035 : cabin ? 0.06 : 0.075;
+  const hang = kind === "tbar" ? 1.9 : cabin ? 0.55 : 0.72;
+  const up = useRef<THREE.Group[]>([]);
+  const dn = useRef<THREE.Group[]>([]);
+  const point = useMemo(() => new THREE.Vector3(), []);
+
   useFrame(() => {
-    const t0 = (performance.now() / 1000) * (kind === "tram" ? 0.04 : 0.07);
+    const t0 = (performance.now() / 1000) * speed;
     for (let i = 0; i < n; i++) {
-      const g = refs.current[i];
-      if (!g) continue;
       const u = (t0 + i / n) % 1;
-      const p = curve.getPointAt(u);
-      const t = curve.getTangentAt(u);
-      g.position.copy(p);
-      g.lookAt(p.clone().add(t));
+      const a = up.current[i];
+      if (a) {
+        curve.getPointAt(u, point);
+        a.position.set(point.x, point.y - hang, point.z);
+      }
+      const b = dn.current[i];
+      if (b) {
+        // The return side runs the other way, which is what makes the pair
+        // read as one circulating rope instead of two parallel queues.
+        back.getPointAt(1 - u, point);
+        b.position.set(point.x, point.y - hang, point.z);
+      }
     }
   });
+
+  const Carrier = kind === "tbar" ? TBarCarrier : cabin ? GondolaCabin : ChairCarrier;
   return (
     <group>
       {Array.from({ length: n }).map((_, i) => (
-        <group
-          key={i}
-          ref={(el) => {
-            if (el) refs.current[i] = el;
-          }}
-        >
-          <GondolaCabin />
+        <group key={`u${i}`} ref={(el) => void (el && (up.current[i] = el))}>
+          <group position={[0, hang, 0]}>
+            <Hanger length={hang} />
+          </group>
+          <Carrier />
         </group>
       ))}
+      {Array.from({ length: n }).map((_, i) => (
+        <group key={`d${i}`} ref={(el) => void (el && (dn.current[i] = el))}>
+          <group position={[0, hang, 0]}>
+            <Hanger length={hang} />
+          </group>
+          <Carrier />
+        </group>
+      ))}
+    </group>
+  );
+}
+
+/** The arm between rope and carrier. Without it, cabins float. */
+function Hanger({ length }: { length: number }) {
+  return (
+    <mesh position={[0, -length / 2, 0]}>
+      <cylinderGeometry args={[0.025, 0.025, length, 5]} />
+      <meshStandardMaterial color="#33414d" metalness={0.5} roughness={0.4} />
+    </mesh>
+  );
+}
+
+function ChairCarrier() {
+  return (
+    <group>
+      <mesh castShadow>
+        <boxGeometry args={[0.62, 0.07, 0.3]} />
+        <meshStandardMaterial color="#2f6fed" metalness={0.2} roughness={0.5} />
+      </mesh>
+      <mesh position={[0, 0.22, -0.15]}>
+        <boxGeometry args={[0.62, 0.4, 0.06]} />
+        <meshStandardMaterial color="#2f6fed" metalness={0.2} roughness={0.5} />
+      </mesh>
+    </group>
+  );
+}
+
+function TBarCarrier() {
+  return (
+    <group>
+      <mesh position={[0, 0.16, 0]}>
+        <cylinderGeometry args={[0.02, 0.02, 0.32, 5]} />
+        <meshStandardMaterial color="#33414d" />
+      </mesh>
+      <mesh>
+        <boxGeometry args={[0.42, 0.06, 0.06]} />
+        <meshStandardMaterial color="#d9890f" roughness={0.6} />
+      </mesh>
     </group>
   );
 }
@@ -387,37 +596,93 @@ function pistePoints(p: Pick<PlacedPiste, "hexes">, hm: Heightmap) {
   });
 }
 
+const PISTE_COLOR: Record<string, string> = {
+  blue: "#2b7de9",
+  red: "#d64545",
+  black: "#1c1c1c",
+  park: "#e8c04a",
+  road: "#5a6570",
+};
+
+/**
+ * Runs as groomed snow with a coloured edge, rather than a coloured stripe.
+ *
+ * A blue piste is not blue ground — it is white corduroy with blue markers
+ * down the side. Two strips do the job: a wider one in the difficulty colour
+ * and a narrower white one floating just above it, which leaves the colour
+ * showing as a border. That reads as both "this is snow" and "this is a blue
+ * run" at the same time, where a flat tinted band read as neither.
+ *
+ * Roads keep a single grey strip: they are not pistes and should not pretend.
+ */
 function Pistes() {
   const pistes = useGame((s) => s.pistes);
   const draft = useGame((s) => s.pisteDraft);
   const layer = useGame((s) => s.layer);
   const hm = getHeightmap();
   const hide = layer === "height";
-  const geos = useMemo(() => {
-    return pistes.map((p) => ({
-      p,
-      geo: ribbonGeometry(pistePoints(p, hm), p.difficulty === "park" ? 1.6 : 1.15),
-    }));
-  }, [pistes, hm]);
-  const draftGeo = useMemo(() => {
-    if (draft.length < 2) return null;
-    return ribbonGeometry(
-      pistePoints({ hexes: draft }, hm),
-      1.1,
-    );
-  }, [draft, hm]);
+
+  const geos = useMemo(
+    () =>
+      pistes.map((p) => {
+        const pts = pistePoints(p, hm);
+        const w = p.difficulty === "park" ? 1.7 : p.difficulty === "road" ? 1.0 : 1.25;
+        return {
+          p,
+          edge: ribbonGeometry(pts, w + 0.34, 0.07),
+          snow: p.difficulty === "road" ? null : ribbonGeometry(pts, w, 0.1),
+        };
+      }),
+    [pistes, hm],
+  );
+
+  const draftGeo = useMemo(
+    () => (draft.length < 2 ? null : ribbonGeometry(pistePoints({ hexes: draft }, hm), 1.2, 0.12)),
+    [draft, hm],
+  );
+
+  useEffect(
+    () => () => {
+      for (const g of geos) {
+        g.edge.dispose();
+        g.snow?.dispose();
+      }
+    },
+    [geos],
+  );
+  useEffect(() => () => draftGeo?.dispose(), [draftGeo]);
+
   if (hide) return null;
-  const col: Record<string, string> = { blue: "#2b7de9", red: "#d64545", black: "#222", park: "#e8c04a", road: "#5a6570" };
+  const emphasis = layer === "pistes";
   return (
     <group>
-      {geos.map(({ p, geo }) => (
-        <mesh key={p.id} geometry={geo}>
-          <meshStandardMaterial color={col[p.difficulty]} roughness={0.7} transparent opacity={layer === "pistes" ? 0.95 : 0.72} />
-        </mesh>
+      {geos.map(({ p, edge, snow }) => (
+        <group key={p.id}>
+          <mesh geometry={edge}>
+            <meshStandardMaterial
+              color={PISTE_COLOR[p.difficulty]}
+              roughness={0.72}
+              transparent
+              opacity={emphasis ? 0.98 : 0.9}
+            />
+          </mesh>
+          {snow && (
+            <mesh geometry={snow} receiveShadow>
+              <meshStandardMaterial
+                // Slightly blue-white and smoother than the terrain: groomed
+                // snow catches the light differently from the open mountain.
+                color="#eef5fd"
+                roughness={0.5}
+                transparent
+                opacity={emphasis ? 0.55 : 0.95}
+              />
+            </mesh>
+          )}
+        </group>
       ))}
       {draftGeo && (
         <mesh geometry={draftGeo}>
-          <meshStandardMaterial color="#7ec8ff" transparent opacity={0.7} />
+          <meshStandardMaterial color="#7ec8ff" transparent opacity={0.75} />
         </mesh>
       )}
     </group>
