@@ -99,6 +99,7 @@ export function GameHUD() {
         </div>
       </div>
       <BottomBar />
+      <BuildReticle />
       <MobileDock />
       <MobileSheets />
     </div>
@@ -420,7 +421,7 @@ function InfoPanel() {
     return (
       <Panel className="p-3">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Info</div>
-        <p className="mt-2 text-[12px] text-muted">Tippe ein Gebaeude oder eine Bahn, um Details zu sehen.</p>
+        <p className="mt-2 text-[12px] text-muted">Tippe ein Gebäude oder eine Bahn, um Details zu sehen.</p>
         <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
           <Stat label="Personen" value={`${fmt(stats.peoplePerHour)}/h`} />
           <Stat label="Zufrieden" value={`${stats.satisfaction}%`} />
@@ -555,16 +556,23 @@ function BuildHint() {
   const buildItem = useGame((s) => s.buildItem);
   const phase = useGame((s) => s.phase);
   const hover = useGame((s) => s.hover);
+  const stampMode = useGame((s) => s.stampMode);
   if (!buildItem || phase === "idle") return null;
   const item = BY_ID[buildItem];
   const msg =
     phase === "lift-a"
-      ? "Erste Station wählen"
+      ? stampMode
+        ? "Karte unter das Raster schieben — erste Station"
+        : "Talstation tippen"
       : phase === "lift-b"
-        ? "Gegenstation wählen"
+        ? stampMode
+          ? "Gegenstation unter das Raster schieben"
+          : "Bergstation tippen"
         : phase === "piste"
-          ? "Piste talwärts zeichnen, dann Fertig"
-          : hover?.reason || item.blurb;
+          ? stampMode
+            ? "Piste feldweise setzen, dann Fertig"
+            : "Hang talwärts tippen"
+          : hover?.reason || (stampMode ? "Karte schieben, Raster zielen, Setzen" : "Feld tippen zum Bauen");
   return (
     <div className="pointer-events-none absolute left-1/2 top-2 z-10 w-[min(92%,280px)] -translate-x-1/2 rounded-[16px] bg-panel/95 p-3 text-center shadow-[var(--shadow-panel)] lg:top-4">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
@@ -702,6 +710,46 @@ function toggleSheet(current: HudSheet, next: HudSheet) {
   useGame.getState().setSheet(current === next ? "none" : next);
 }
 
+function BuildReticle() {
+  const phase = useGame((s) => s.phase);
+  const stampMode = useGame((s) => s.stampMode);
+  const hover = useGame((s) => s.hover);
+  const buildItem = useGame((s) => s.buildItem);
+  const lastStampAt = useGame((s) => s.lastStampAt);
+  if (!stampMode || phase === "idle") return null;
+  const ok = hover?.valid === true;
+  const item = buildItem ? BY_ID[buildItem] : null;
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-[46%] z-20 hidden -translate-x-1/2 -translate-y-1/2 max-lg:block">
+      <div key={lastStampAt} className="flex flex-col items-center">
+        <svg viewBox="0 0 72 72" className="size-[4.5rem] drop-shadow-[0_2px_8px_rgba(11,31,58,0.28)]">
+          <polygon
+            points="36,6 64,21 64,51 36,66 8,51 8,21"
+            fill={ok ? "rgba(52,168,83,0.2)" : "rgba(226,75,74,0.2)"}
+            stroke={ok ? "#34A853" : "#E24B4A"}
+            strokeWidth="3.2"
+          />
+          <polygon
+            points="36,16 56,26 56,46 36,56 16,46 16,26"
+            fill="none"
+            stroke={ok ? "#ffffff" : "#ffd6d6"}
+            strokeWidth="1.2"
+            opacity="0.85"
+          />
+          <circle cx="36" cy="36" r="3.4" fill={ok ? "#34A853" : "#E24B4A"} />
+        </svg>
+        {item && (
+          <div
+            className={`mt-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold shadow-[var(--shadow-chip)] ${ok ? "bg-panel text-navy" : "bg-danger text-panel"}`}
+          >
+            {ok ? item.name : hover?.reason || "Nicht möglich"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MobileDock() {
   const sheet = useGame((s) => s.sheet);
   const tool = useGame((s) => s.tool);
@@ -709,11 +757,16 @@ function MobileDock() {
   const phase = useGame((s) => s.phase);
   const finish = useGame((s) => s.finishPiste);
   const cancel = useGame((s) => s.cancelBuild);
+  const confirm = useGame((s) => s.confirmHover);
   const buildItem = useGame((s) => s.buildItem);
+  const hover = useGame((s) => s.hover);
   const weather = useGame((s) => s.weather);
   const stats = useGame((s) => s.stats);
   const item = buildItem ? BY_ID[buildItem] : null;
   const building = phase !== "idle";
+  const ok = hover?.valid === true;
+  const stampLabel =
+    phase === "lift-a" ? "Talstation" : phase === "lift-b" ? "Bergstation" : phase === "piste" ? "Feld" : "Setzen";
 
   return (
     <div
@@ -728,20 +781,31 @@ function MobileDock() {
           {fmtCompact(stats.peoplePerHour)}/h · {stats.satisfaction}%
         </div>
       </div>
+      {building && <StampTray />}
       <div className="flex items-center gap-1.5 rounded-[22px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md">
         {building ? (
           <>
             <div className="min-w-0 flex-1 px-2">
               <div className="truncate text-[11px] font-semibold text-navy">{item?.name ?? "Bauen"}</div>
               <div className="truncate text-[10px] text-muted">
-                {phase === "lift-a" ? "Talstation tippen" : phase === "lift-b" ? "Bergstation tippen" : phase === "piste" ? "Hang tippen" : "Platz wählen"}
+                {ok ? "Raster zielen, dann stempeln" : hover?.reason || "Feld nicht bebaubar"}
               </div>
             </div>
+            <button
+              type="button"
+              onClick={confirm}
+              className={`flex h-11 min-w-[6.2rem] items-center justify-center gap-1 rounded-full px-3.5 text-[13px] font-semibold text-panel transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.97] ${ok ? "bg-success" : "bg-danger/80"}`}
+            >
+              {stampLabel}
+              {item && phase === "place" ? (
+                <span className="text-[10px] font-medium opacity-90">{fmtCompact(item.cost)}</span>
+              ) : null}
+            </button>
             {phase === "piste" && (
               <button
                 type="button"
                 onClick={finish}
-                className="flex h-11 items-center gap-1 rounded-full bg-success px-3.5 text-[12px] font-semibold text-panel"
+                className="flex h-11 items-center gap-1 rounded-full bg-accent px-3.5 text-[12px] font-semibold text-panel"
               >
                 <Check className="size-4" /> Fertig
               </button>
@@ -790,6 +854,60 @@ function MobileDock() {
             </button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function StampTray() {
+  const category = useGame((s) => s.category);
+  const setCategory = useGame((s) => s.setCategory);
+  const setBuildItem = useGame((s) => s.setBuildItem);
+  const buildItem = useGame((s) => s.buildItem);
+  const xp = useGame((s) => s.xp);
+  const coins = useGame((s) => s.coins);
+  const lvl = levelFromXp(xp);
+  const items = CATALOG.filter((i) => i.category === category);
+  return (
+    <div className="mb-1.5 rounded-[20px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md">
+      <div className="flex gap-1 overflow-x-auto pb-1">
+        {CATEGORIES.map((c) => {
+          const Icon = CAT_ICON[c.id];
+          const active = category === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setCategory(c.id)}
+              className={`flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold ${active ? "bg-accent text-panel" : "bg-ice text-navy"}`}
+            >
+              <Icon className="size-3.5" />
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-1 flex gap-1 overflow-x-auto">
+        {items.map((it) => {
+          const locked = lvl < it.unlockLevel;
+          const tooExpensive = coins < it.cost;
+          const active = buildItem === it.id;
+          const Icon = ITEM_ICON[it.id] ?? CAT_ICON[it.category];
+          return (
+            <button
+              key={it.id}
+              type="button"
+              onClick={() => setBuildItem(it.id)}
+              className={`flex h-14 w-[4.6rem] shrink-0 flex-col items-center justify-center rounded-[14px] px-1 ${active ? "bg-accent text-panel" : locked ? "bg-snow text-subtle" : "bg-ice text-navy"}`}
+            >
+              <Icon className="size-4" />
+              <span className="mt-0.5 max-w-full truncate text-[9px] font-semibold">{it.name.split(" ")[0]}</span>
+              <span className={`text-[9px] tabular-nums ${active ? "text-panel/85" : tooExpensive ? "text-danger" : "text-muted"}`}>
+                {locked ? `Lv ${it.unlockLevel}` : fmtCompact(it.cost)}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

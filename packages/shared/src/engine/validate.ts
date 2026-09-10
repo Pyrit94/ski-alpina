@@ -25,7 +25,7 @@ export function validateHex(
   const elev = dem.sample(x, z);
   const slope = dem.slope(x, z);
   if (elev < item.minElev || elev > item.maxElev) {
-    return { ok: false, code: "terrain", reason: "Falsche Hoehe" };
+    return { ok: false, code: "terrain", reason: "Falsche Höhe" };
   }
   if (slope > item.maxSlope) return { ok: false, code: "slope", reason: "Zu steil" };
   const occ = occupiedSet(state);
@@ -47,10 +47,10 @@ export function validateIntent(
   if (intent.type === "place_building") {
     const item = BY_ID[intent.itemId];
     if (!item || isLift(intent.itemId) || isPiste(intent.itemId)) {
-      return { ok: false, code: "invalid", reason: "Kein Gebaeude" };
+      return { ok: false, code: "invalid", reason: "Kein Gebäude" };
     }
     if (levelFromXp(state.xp) < item.unlockLevel) {
-      return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} noetig` };
+      return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
     }
     if (state.coins < item.cost) return { ok: false, code: "budget", reason: "Zu teuer" };
     if ((item.gemCost ?? 0) > state.gems) return { ok: false, code: "budget", reason: "Zu wenig Edelsteine" };
@@ -61,7 +61,7 @@ export function validateIntent(
     const item = BY_ID[intent.itemId];
     if (!item || !isLift(intent.itemId)) return { ok: false, code: "invalid", reason: "Kein Lift" };
     if (levelFromXp(state.xp) < item.unlockLevel) {
-      return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} noetig` };
+      return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
     }
     if (state.coins < item.cost) return { ok: false, code: "budget", reason: "Zu teuer" };
     if ((item.gemCost ?? 0) > state.gems) return { ok: false, code: "budget", reason: "Zu wenig Edelsteine" };
@@ -79,7 +79,7 @@ export function validateIntent(
     const item = BY_ID[intent.itemId];
     if (!item || !isPiste(intent.itemId)) return { ok: false, code: "invalid", reason: "Keine Piste" };
     if (levelFromXp(state.xp) < item.unlockLevel) {
-      return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} noetig` };
+      return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
     }
     const segs = Math.max(1, intent.hexes.length - 1);
     const cost = item.cost * segs;
@@ -91,7 +91,7 @@ export function validateIntent(
         const a = hexToWorld(prev.q, prev.r);
         const b = hexToWorld(cur.q, cur.r);
         if (dem.sample(b.x, b.z) > dem.sample(a.x, a.z) + 18) {
-          return { ok: false, code: "slope", reason: "Piste muss talwaerts" };
+          return { ok: false, code: "slope", reason: "Piste muss talwärts" };
         }
       }
     }

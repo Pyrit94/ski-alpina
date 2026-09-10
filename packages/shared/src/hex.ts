@@ -39,6 +39,25 @@ export function hexDistance(a: Axial, b: Axial): number {
   return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 }
 
+export const HEX_DIRS: Axial[] = [
+  { q: 1, r: 0 },
+  { q: 1, r: -1 },
+  { q: 0, r: -1 },
+  { q: -1, r: 0 },
+  { q: -1, r: 1 },
+  { q: 0, r: 1 },
+];
+
+export function hexesInRange(center: Axial, radius: number): Axial[] {
+  const out: Axial[] = [];
+  for (let q = -radius; q <= radius; q++) {
+    const r1 = Math.max(-radius, -q - radius);
+    const r2 = Math.min(radius, -q + radius);
+    for (let r = r1; r <= r2; r++) out.push({ q: center.q + q, r: center.r + r });
+  }
+  return out;
+}
+
 export function hexLine(a: Axial, b: Axial): Axial[] {
   const n = hexDistance(a, b);
   if (n === 0) return [{ ...a }];

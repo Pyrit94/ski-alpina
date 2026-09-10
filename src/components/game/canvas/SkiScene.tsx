@@ -15,11 +15,12 @@ import {
   visualRelief,
   type Heightmap,
 } from "@/lib/game/alpine";
-import { HEX_SIZE, hexToWorld, worldToHex } from "@/lib/game/hex";
+import { hexToWorld, worldToHex } from "@/lib/game/hex";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
-import type { MapLayer, PlacedLift, PlacedPiste } from "@/lib/game/types";
-import { BuildingModel, GondolaCabin, makeHexGeometry, ribbonGeometry } from "./models";
+import type { MapLayer, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game/types";
+import { BuildingModel, GondolaCabin, ribbonGeometry } from "./models";
+import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
 
 function buildTerrain(hm: Heightmap, layer: MapLayer, heat: Map<string, number>) {
   const geo = new THREE.PlaneGeometry(hm.world, hm.world, hm.n - 1, hm.n - 1);
@@ -69,7 +70,10 @@ function Terrain() {
   const geo = useMemo(() => buildTerrain(hm, layer, heat), [hm, layer, heat]);
   const click = useGame((s) => s.clickHex);
   const hover = useGame((s) => s.hoverHex);
+  const stampMode = useGame((s) => s.stampMode);
+  const phase = useGame((s) => s.phase);
   const down = useRef<THREE.Vector2 | null>(null);
+  const stamp = stampMode && phase !== "idle";
 
   useEffect(() => () => geo.dispose(), [geo]);
 
@@ -81,6 +85,7 @@ function Terrain() {
         down.current = new THREE.Vector2(e.clientX, e.clientY);
       }}
       onPointerMove={(e) => {
+        if (stamp) return;
         e.stopPropagation();
         const { q, r } = worldToHex(e.point.x, e.point.z);
         hover(q, r);
@@ -90,6 +95,7 @@ function Terrain() {
         const d = Math.hypot(e.clientX - down.current.x, e.clientY - down.current.y);
         down.current = null;
         if (d > 8) return;
+        if (stamp) return;
         e.stopPropagation();
         const { q, r } = worldToHex(e.point.x, e.point.z);
         click(q, r);
@@ -166,7 +172,10 @@ function PeakLabels() {
   const hm = getHeightmap();
   const layer = useGame((s) => s.layer);
   const quality = useGame((s) => s.quality);
+  const stampMode = useGame((s) => s.stampMode);
+  const phase = useGame((s) => s.phase);
   if (layer === "pistes") return null;
+  if (stampMode && phase !== "idle") return null;
   const compact = quality === "low";
   return (
     <>
@@ -186,84 +195,85 @@ function PeakLabels() {
   );
 }
 
-function HexCursor() {
-  const hover = useGame((s) => s.hover);
-  const phase = useGame((s) => s.phase);
-  const selectedId = useGame((s) => s.selectedId);
+function Structures() {
   const buildings = useGame((s) => s.buildings);
-  const lifts = useGame((s) => s.lifts);
-  const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.96), []);
-  const hm = getHeightmap();
-
-  const rings: { q: number; r: number; color: string }[] = [];
-  if (hover && phase !== "idle") {
-    rings.push({ q: hover.q, r: hover.r, color: hover.valid ? "#7CFFB2" : "#FF6B6B" });
-  }
-  const sel = buildings.find((b) => b.id === selectedId) || lifts.find((l) => l.id === selectedId);
-  if (sel && "q" in sel) rings.push({ q: sel.q, r: sel.r, color: "#7EC8FF" });
-  if (sel && "a" in sel) {
-    rings.push({ q: sel.a.q, r: sel.a.r, color: "#7EC8FF" });
-    rings.push({ q: sel.b.q, r: sel.b.r, color: "#7EC8FF" });
-  }
-
   return (
     <group>
-      {rings.map((h, i) => {
-        const { x, z } = hexToWorld(h.q, h.r);
-        const y = hm.worldY(x, z) + 0.12;
-        return (
-          <mesh key={`${h.q}:${h.r}:${i}`} geometry={geo} position={[x, y, z]}>
-            <meshBasicMaterial color={h.color} transparent opacity={0.38} side={THREE.DoubleSide} />
-          </mesh>
-        );
-      })}
-      {hover && phase !== "idle" && (
-        <lineSegments
-          position={[
-            hexToWorld(hover.q, hover.r).x,
-            hm.worldY(hexToWorld(hover.q, hover.r).x, hexToWorld(hover.q, hover.r).z) + 0.14,
-            hexToWorld(hover.q, hover.r).z,
-          ]}
-        >
-          <edgesGeometry args={[geo]} />
-          <lineBasicMaterial color={hover.valid ? "#2EE59D" : "#FF5A5A"} />
-        </lineSegments>
+      {buildings.map((b) => (
+        <PlacedStructure key={b.id} building={b} />
+      ))}
+    </group>
+  );
+}
+
+function PlacedStructure({ building: b }: { building: PlacedBuilding }) {
+  const selectedId = useGame((s) => s.selectedId);
+  const selectEntity = useGame((s) => s.selectEntity);
+  const hm = getHeightmap();
+  const group = useRef<THREE.Group>(null);
+  const { x, z } = hexToWorld(b.q, b.r);
+  const baseY = hm.worldY(x, z);
+
+  useFrame(() => {
+    if (!group.current) return;
+    const now = Date.now();
+    const age = Math.max(0, (now - b.builtAt) / 1000);
+    const drop = Math.min(1, age / 0.42);
+    const ease = 1 - (1 - drop) ** 3;
+    const bounce = drop < 1 ? Math.sin(drop * Math.PI) * 0.14 : 0;
+    const span = Math.max(1, b.readyAt - b.builtAt);
+    const construct = b.readyAt > now ? Math.min(1, (now - b.builtAt) / span) : 1;
+    const s = (0.22 + 0.78 * ease) * (0.55 + 0.45 * Math.max(construct, 0.35));
+    group.current.scale.setScalar(s);
+    group.current.position.y = (1 - ease) * 2.2 + bounce;
+  });
+
+  const constructing = b.readyAt > Date.now();
+  return (
+    <group
+      position={[x, baseY, z]}
+      onClick={(e) => {
+        e.stopPropagation();
+        selectEntity(b.id);
+      }}
+    >
+      <group ref={group}>
+        <BuildingModel itemId={b.itemId} constructing={constructing} />
+        {constructing && <Scaffold />}
+      </group>
+      {selectedId === b.id && (
+        <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[1.4, 1.7, 24]} />
+          <meshBasicMaterial color="#1a73e8" transparent opacity={0.7} />
+        </mesh>
       )}
     </group>
   );
 }
 
-function Structures() {
-  const buildings = useGame((s) => s.buildings);
-  const selectedId = useGame((s) => s.selectedId);
-  const selectEntity = useGame((s) => s.selectEntity);
-  const hm = getHeightmap();
-  const now = Date.now();
+function Scaffold() {
   return (
     <group>
-      {buildings.map((b) => {
-        const { x, z } = hexToWorld(b.q, b.r);
-        const y = hm.worldY(x, z);
-        const constructing = b.readyAt > now;
-        return (
-          <group
-            key={b.id}
-            position={[x, y, z]}
-            onClick={(e) => {
-              e.stopPropagation();
-              selectEntity(b.id);
-            }}
-          >
-            <BuildingModel itemId={b.itemId} constructing={constructing} />
-            {selectedId === b.id && (
-              <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                <ringGeometry args={[1.4, 1.7, 24]} />
-                <meshBasicMaterial color="#1a73e8" transparent opacity={0.7} />
-              </mesh>
-            )}
-          </group>
-        );
-      })}
+      <mesh position={[1.1, 1.1, 1.1]}>
+        <boxGeometry args={[0.08, 2.2, 0.08]} />
+        <meshBasicMaterial color="#c45c2a" />
+      </mesh>
+      <mesh position={[-1.1, 1.1, 1.1]}>
+        <boxGeometry args={[0.08, 2.2, 0.08]} />
+        <meshBasicMaterial color="#c45c2a" />
+      </mesh>
+      <mesh position={[1.1, 1.1, -1.1]}>
+        <boxGeometry args={[0.08, 2.2, 0.08]} />
+        <meshBasicMaterial color="#c45c2a" />
+      </mesh>
+      <mesh position={[-1.1, 1.1, -1.1]}>
+        <boxGeometry args={[0.08, 2.2, 0.08]} />
+        <meshBasicMaterial color="#c45c2a" />
+      </mesh>
+      <mesh position={[0, 2.15, 0]}>
+        <boxGeometry args={[2.3, 0.08, 2.3]} />
+        <meshBasicMaterial color="#d9890f" transparent opacity={0.7} />
+      </mesh>
     </group>
   );
 }
@@ -530,23 +540,73 @@ function LightsAndSky() {
 
 function Controls() {
   const tool = useGame((s) => s.tool);
+  const phase = useGame((s) => s.phase);
+  const stampMode = useGame((s) => s.stampMode);
+  const raster = stampMode && phase !== "idle";
   const { camera } = useThree();
+  const ref = useRef<{
+    target: THREE.Vector3;
+    mouseButtons: { LEFT: number };
+    touches: { ONE: number; TWO: number };
+    update: () => void;
+  } | null>(null);
+  const offset = useMemo(() => new THREE.Vector3(), []);
+  const spherical = useMemo(() => new THREE.Spherical(), []);
+
   useEffect(() => {
     camera.up.set(0, 1, 0);
-    camera.lookAt(0, 14, -10);
+    camera.lookAt(-4, 12, 38);
   }, [camera]);
+
+  useEffect(() => {
+    const c = ref.current;
+    if (!c || !raster) return;
+    const t = c.target;
+    camera.position.set(t.x + 6, t.y + 44, t.z + 18);
+    camera.lookAt(t.x, t.y, t.z);
+    c.update();
+  }, [raster, camera]);
+
+  useFrame((_, dt) => {
+    const c = ref.current;
+    if (!c) return;
+    const d = Math.min(dt, 0.1);
+    if (raster || tool === "pan") {
+      if (c.mouseButtons) c.mouseButtons.LEFT = THREE.MOUSE.PAN;
+      if (c.touches) {
+        c.touches.ONE = THREE.TOUCH.PAN;
+        c.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+      }
+    } else {
+      if (c.mouseButtons) c.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+      if (c.touches) {
+        c.touches.ONE = THREE.TOUCH.ROTATE;
+        c.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+      }
+    }
+    if (raster) {
+      offset.copy(camera.position).sub(c.target);
+      spherical.setFromVector3(offset);
+      const k = 1 - Math.exp(-4.8 * d);
+      spherical.phi += (0.46 - spherical.phi) * k;
+      spherical.makeSafe();
+      offset.setFromSpherical(spherical);
+      camera.position.copy(c.target).add(offset);
+    }
+  });
   return (
     <MapControls
+      ref={ref as never}
       makeDefault
       enableDamping
-      dampingFactor={0.12}
-      minDistance={16}
-      maxDistance={150}
-      maxPolarAngle={Math.PI / 2.12}
-      minPolarAngle={0.28}
-      enableRotate={tool !== "pan"}
+      dampingFactor={raster ? 0.2 : 0.12}
+      minDistance={raster ? 14 : 16}
+      maxDistance={raster ? 64 : 150}
+      maxPolarAngle={raster ? 0.58 : Math.PI / 2.12}
+      minPolarAngle={raster ? 0.34 : stampMode ? 0.36 : 0.28}
+      enableRotate={!raster && tool !== "pan"}
       screenSpacePanning
-      target={[0, 14, -10]}
+      target={[-4, 12, 38]}
     />
   );
 }
@@ -595,37 +655,6 @@ function VillageSeed() {
   );
 }
 
-function HexGhost() {
-  const draft = useGame((s) => s.pisteDraft);
-  const liftStart = useGame((s) => s.liftStart);
-  const hm = getHeightmap();
-  const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.9), []);
-  return (
-    <group>
-      {draft.map((h) => {
-        const { x, z } = hexToWorld(h.q, h.r);
-        return (
-          <mesh key={`${h.q}:${h.r}`} geometry={geo} position={[x, hm.worldY(x, z) + 0.1, z]}>
-            <meshBasicMaterial color="#7ec8ff" transparent opacity={0.35} side={THREE.DoubleSide} />
-          </mesh>
-        );
-      })}
-      {liftStart && (
-        <mesh
-          geometry={geo}
-          position={[
-            hexToWorld(liftStart.q, liftStart.r).x,
-            hm.worldY(hexToWorld(liftStart.q, liftStart.r).x, hexToWorld(liftStart.q, liftStart.r).z) + 0.1,
-            hexToWorld(liftStart.q, liftStart.r).z,
-          ]}
-        >
-          <meshBasicMaterial color="#1a73e8" transparent opacity={0.4} side={THREE.DoubleSide} />
-        </mesh>
-      )}
-    </group>
-  );
-}
-
 export function SkiScene() {
   const quality = useGame((s) => s.quality);
   const weather = useGame((s) => s.weather.kind);
@@ -633,8 +662,8 @@ export function SkiScene() {
   return (
     <Canvas
       camera={{
-        position: mobile ? [8, 50, 88] : [8, 58, 102],
-        fov: mobile ? 48 : 40,
+        position: mobile ? [4, 64, 58] : [16, 58, 92],
+        fov: mobile ? 44 : 40,
         near: 0.4,
         far: 420,
       }}
@@ -648,7 +677,7 @@ export function SkiScene() {
         gl.toneMappingExposure = mobile ? 1.28 : 1.12;
         gl.shadowMap.enabled = !mobile;
         gl.shadowMap.type = THREE.PCFShadowMap;
-        camera.lookAt(0, 14, -10);
+        camera.lookAt(-4, 12, 38);
         scene.background = new THREE.Color("#9eb8d0");
       }}
     >
@@ -664,8 +693,11 @@ export function SkiScene() {
       <Pistes />
       <Skiers />
       <Traffic />
+      <HexRaster />
       <HexCursor />
       <HexGhost />
+      <CenterStamp />
+      <StampFlash />
       <PeakLabels />
       <Snowfall on={weather === "snow" || weather === "storm"} />
     </Canvas>

@@ -43,7 +43,7 @@ export function StartScreen() {
             Gemeinsam ein Skigebiet bauen
           </h1>
           <p className="mt-3 max-w-md text-[15px] leading-relaxed text-ice lg:mt-4">
-            Autoritative Simulation, flussbasierte Wirtschaft, echtes Alpengelaende. Lifte, Pisten, Hotellerie, Quests.
+            Autoritative Simulation, flussbasierte Wirtschaft, echtes Alpengelände. Lifte, Pisten, Hotellerie, Quests.
           </p>
           <div className="mt-4 flex flex-wrap gap-1.5">
             {FEATURES.map((f) => (

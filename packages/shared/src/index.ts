@@ -1,4 +1,4 @@
-export { HEX_SIZE, hexKey, hexToWorld, worldToHex, hexDistance, hexLine } from "./hex.ts";
+export { HEX_SIZE, HEX_DIRS, hexKey, hexToWorld, worldToHex, hexDistance, hexLine, hexesInRange } from "./hex.ts";
 export type { Axial } from "./hex.ts";
 export { createId } from "./ids.ts";
 export type {

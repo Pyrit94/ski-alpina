@@ -18,6 +18,6 @@ export const QUEST_DEFS: QuestDef[] = [
   { id: "q6", title: "Drei Bahnen", hint: "Baue 3 Lifte oder Bahnen.", xp: 70, coins: 8000, gems: 25, target: 3, metric: "lifts" },
   { id: "q7", title: "Pistennetz", hint: "Lege 8 Pistensegmente an.", xp: 60, coins: 5000, gems: 12, target: 8, metric: "pisteSeg" },
   { id: "q8", title: "Zufriedenheit", hint: "Erreiche 80 % Zufriedenheit.", xp: 80, coins: 9000, gems: 30, target: 80, metric: "satisfaction" },
-  { id: "q9", title: "Gondel in die Hoehe", hint: "Baue eine Gondelbahn.", xp: 90, coins: 12000, gems: 35, target: 1, metric: "gondola" },
+  { id: "q9", title: "Gondel in die Höhe", hint: "Baue eine Gondelbahn.", xp: 90, coins: 12000, gems: 35, target: 1, metric: "gondola" },
   { id: "q10", title: "Tagestouristen", hint: "5.000 Personen an einem Tag.", xp: 100, coins: 15000, gems: 40, target: 5000, metric: "visitorsToday" },
 ];

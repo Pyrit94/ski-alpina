@@ -60,7 +60,7 @@ export const BY_ID: Record<ItemId, CatalogItem> = Object.fromEntries(
 
 export const CATEGORIES: { id: Category; label: string; hint: string }[] = [
   { id: "lifts", label: "Bergbahnen", hint: "Seilbahnen & Lifte" },
-  { id: "buildings", label: "Gebaeude", hint: "Hotels, Shops & mehr" },
+  { id: "buildings", label: "Gebäude", hint: "Hotels, Shops & mehr" },
   { id: "pistes", label: "Pisten & Wege", hint: "Pisten, Routen & Strassen" },
   { id: "deco", label: "Dekoration", hint: "Baeume, Felsen & Objekte" },
   { id: "services", label: "Dienste", hint: "Werkstaetten, Parken & Co." },

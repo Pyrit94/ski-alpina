@@ -42,6 +42,9 @@ export interface UiState {
   playerId: string | null;
   playerName: string;
   roomId: string;
+  stampMode: boolean;
+  lastStampAt: number;
+  lastStampHex: { q: number; r: number } | null;
 }
 
 export interface GameStore extends ResortState, UiState {
@@ -67,6 +70,7 @@ export interface GameStore extends ResortState, UiState {
   setSheet: (v: HudSheet) => void;
   rename: (name: string) => void;
   setTicketPrice: (chf: number) => void;
+  confirmHover: () => void;
   occupied: () => Set<string>;
 }
 
@@ -100,6 +104,10 @@ function flatten(s: ResortState): Partial<ResortState> {
 
 const empty = emptyResort("zermatt");
 
+function isPhone() {
+  return typeof window !== "undefined" && window.innerWidth < 1024;
+}
+
 export const useGame = create<GameStore>((set, get) => ({
   ...empty,
   selectedId: null,
@@ -122,12 +130,15 @@ export const useGame = create<GameStore>((set, get) => ({
   ],
   sheet: "none",
   started: false,
-  quality: typeof window !== "undefined" && window.innerWidth < 1024 ? "low" : "high",
+  quality: isPhone() ? "low" : "high",
   connected: false,
   players: [],
   playerId: null,
   playerName: "Gast",
   roomId: "zermatt",
+  stampMode: isPhone(),
+  lastStampAt: 0,
+  lastStampHex: null,
 
   occupied: () => {
     const s = get();
@@ -145,7 +156,7 @@ export const useGame = create<GameStore>((set, get) => ({
     saveName(playerName);
     const room = roomId || (fresh ? `resort-${Date.now().toString(36).slice(-6)}` : "zermatt");
     net?.close();
-    const phone = typeof window !== "undefined" && window.innerWidth < 1024;
+    const phone = isPhone();
     set({
       started: true,
       playerName,
@@ -157,14 +168,17 @@ export const useGame = create<GameStore>((set, get) => ({
       pisteDraft: [],
       hover: null,
       sheet: "none",
-      tool: phone ? "orbit" : "select",
+      tool: phone ? "pan" : "select",
+      stampMode: phone,
       connected: false,
+      lastStampAt: 0,
+      lastStampHex: null,
     });
     net = connectGame(room, playerName, {
       onWelcome: (playerId, _token, rid) => set({ playerId, roomId: rid }),
       onSnapshot: (state, players) => set({ ...flatten(state), players }),
       onEvent: (title, body, kind) => get().pushNote(title, body, kind),
-      onError: (reason) => get().pushNote("Nicht moeglich", reason, "warn"),
+      onError: (reason) => get().pushNote("Nicht möglich", reason, "warn"),
       onStatus: (connected) => set({ connected }),
     });
   },
@@ -191,7 +205,14 @@ export const useGame = create<GameStore>((set, get) => ({
 
   setBuildItem: (id) => {
     if (!id) {
-      set({ buildItem: null, phase: "idle", liftStart: null, pisteDraft: [], sheet: "none" });
+      set({
+        buildItem: null,
+        phase: "idle",
+        liftStart: null,
+        pisteDraft: [],
+        sheet: "none",
+        tool: get().stampMode ? "pan" : "select",
+      });
       return;
     }
     const item = BY_ID[id];
@@ -209,7 +230,7 @@ export const useGame = create<GameStore>((set, get) => ({
       liftStart: null,
       pisteDraft: [],
       selectedId: null,
-      tool: "select",
+      tool: get().stampMode ? "pan" : "select",
       sheet: "none",
     });
   },
@@ -221,16 +242,27 @@ export const useGame = create<GameStore>((set, get) => ({
       liftStart: null,
       pisteDraft: [],
       hover: null,
+      tool: get().stampMode ? "pan" : "select",
     }),
 
   hoverHex: (q, r) => {
     const s = get();
+    if (s.hover && s.hover.q === q && s.hover.r === r) return;
     if (!s.buildItem) {
       set({ hover: { q, r, valid: true, reason: "" } });
       return;
     }
     const v = validateHex(s, getDem(), q, r, s.buildItem);
     set({ hover: { q, r, valid: v.ok, reason: v.ok ? "" : v.reason } });
+  },
+
+  confirmHover: () => {
+    const s = get();
+    if (!s.hover || s.phase === "idle" || !s.buildItem) return;
+    if (s.hover.valid && (s.phase === "place" || s.phase === "lift-a" || s.phase === "lift-b" || s.phase === "piste")) {
+      set({ lastStampAt: Date.now(), lastStampHex: { q: s.hover.q, r: s.hover.r } });
+    }
+    get().clickHex(s.hover.q, s.hover.r);
   },
 
   selectEntity: (id) => set({ selectedId: id, buildItem: null, phase: "idle", pisteDraft: [], liftStart: null }),
@@ -249,28 +281,28 @@ export const useGame = create<GameStore>((set, get) => ({
 
     if (s.phase === "place") {
       if (!v.ok) {
-        get().pushNote("Nicht moeglich", v.reason, "warn");
+        get().pushNote("Nicht möglich", v.reason, "warn");
         return;
       }
       const intent: Intent = { type: "place_building", itemId: s.buildItem, q, r };
       net?.sendIntent(intent);
-      set({ selectedId: null, phase: "idle", buildItem: null });
+      set({ selectedId: null, lastStampAt: Date.now(), lastStampHex: { q, r } });
       return;
     }
 
     if (s.phase === "lift-a") {
       if (!v.ok) {
-        get().pushNote("Station unmoeglich", v.reason, "warn");
+        get().pushNote("Station unmöglich", v.reason, "warn");
         return;
       }
-      set({ liftStart: { q, r }, phase: "lift-b" });
-      get().pushNote("Zweite Station", "Waehle die Gegenstation.", "info");
+      set({ liftStart: { q, r }, phase: "lift-b", lastStampAt: Date.now(), lastStampHex: { q, r } });
+      get().pushNote("Zweite Station", "Schiebe die Gegenstation unter das Raster.", "info");
       return;
     }
 
     if (s.phase === "lift-b" && s.liftStart) {
       if (!v.ok) {
-        get().pushNote("Station unmoeglich", v.reason, "warn");
+        get().pushNote("Station unmöglich", v.reason, "warn");
         return;
       }
       const dist = hexDistance(s.liftStart, { q, r });
@@ -279,11 +311,11 @@ export const useGame = create<GameStore>((set, get) => ({
         return;
       }
       if (dist > (item.maxSpan ?? 24)) {
-        get().pushNote("Zu weit", "Waehle eine naehere Station.", "warn");
+        get().pushNote("Zu weit", "Wähle eine nähere Station.", "warn");
         return;
       }
       net?.sendIntent({ type: "place_lift", itemId: s.buildItem, a: s.liftStart, b: { q, r } });
-      set({ selectedId: null, phase: "idle", buildItem: null, liftStart: null });
+      set({ selectedId: null, phase: "lift-a", liftStart: null, lastStampAt: Date.now(), lastStampHex: { q, r } });
       return;
     }
 
@@ -291,10 +323,10 @@ export const useGame = create<GameStore>((set, get) => ({
       const draft = s.pisteDraft;
       if (draft.length === 0) {
         if (!v.ok && v.reason !== "Belegt") {
-          get().pushNote("Start unmoeglich", v.reason, "warn");
+          get().pushNote("Start unmöglich", v.reason, "warn");
           return;
         }
-        set({ pisteDraft: [{ q, r }] });
+        set({ pisteDraft: [{ q, r }], lastStampAt: Date.now(), lastStampHex: { q, r } });
         return;
       }
       const last = draft[draft.length - 1]!;
@@ -304,10 +336,10 @@ export const useGame = create<GameStore>((set, get) => ({
       const nextW = hexToWorld(q, r);
       const downhill = hm.sample(nextW.x, nextW.z) <= hm.sample(lastW.x, lastW.z) + 18 || s.buildItem === "road";
       if (!downhill && s.buildItem !== "road") {
-        get().pushNote("Piste muss talwaerts", "Waehle einen tieferen Punkt.", "warn");
+        get().pushNote("Piste muss talwärts", "Wähle einen tieferen Punkt.", "warn");
         return;
       }
-      set({ pisteDraft: [...draft, ...line] });
+      set({ pisteDraft: [...draft, ...line], lastStampAt: Date.now(), lastStampHex: { q, r } });
     }
   },
 
@@ -315,7 +347,7 @@ export const useGame = create<GameStore>((set, get) => ({
     const s = get();
     if (s.pisteDraft.length < 2 || !s.buildItem) return;
     net?.sendIntent({ type: "place_piste", itemId: s.buildItem, hexes: s.pisteDraft });
-    set({ pisteDraft: [], phase: "idle", buildItem: null });
+    set({ pisteDraft: [], phase: "piste" });
   },
 
   upgrade: (id, key) => net?.sendIntent({ type: "upgrade", entityId: id, key }),
