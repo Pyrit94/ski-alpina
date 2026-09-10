@@ -2,6 +2,7 @@ import { ECONOMY } from "../../../config/src/economy.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import type {
+  PisteDifficulty,
   PlacedBuilding,
   PlacedLift,
   PlacedPiste,
@@ -82,6 +83,27 @@ export function emptyResort(roomId = "zermatt"): ResortState {
   };
 }
 
+/** The three piste items that became one, and the grade each of them was. */
+const RETIRED_PISTE_IDS: Record<string, PisteDifficulty> = {
+  "piste-blue": "blue",
+  "piste-red": "red",
+  "piste-black": "black",
+};
+
+/**
+ * Fold the old blue/red/black items into the single piste.
+ *
+ * A save written before the change points at item ids that no longer exist, so
+ * `BY_ID[itemId]` would come back undefined and take the sim down with it. The
+ * grade the player already built is kept — it was true of that ground then and
+ * is true of it now — so nothing is regraded behind their back.
+ */
+function migratePiste(piste: PlacedPiste): PlacedPiste {
+  const wasGrade = RETIRED_PISTE_IDS[piste.itemId];
+  if (!wasGrade) return piste;
+  return { ...piste, itemId: "piste", difficulty: piste.difficulty ?? wasGrade };
+}
+
 /**
  * Bring a persisted snapshot up to the current shape.
  *
@@ -121,7 +143,7 @@ export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): 
     }),
     buildings: snapshot.buildings ?? [],
     lifts: snapshot.lifts ?? [],
-    pistes: snapshot.pistes ?? [],
+    pistes: (snapshot.pistes ?? []).map(migratePiste),
     flow: snapshot.flow ?? [],
     unlocked: snapshot.unlocked ?? [],
     contributors: snapshot.contributors ?? {},

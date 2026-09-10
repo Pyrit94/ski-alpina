@@ -32,7 +32,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
-import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, QUICK, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
+import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, GRADE_LABEL, QUICK, SEASON_LABEL, UPGRADES, getDem, gradeBand, isLift, levelFromXp, liftThroughput, seasonPhase, surveyPiste, xpForLevel } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
 import { fmt, fmtCompact } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
@@ -154,6 +154,17 @@ const CAT_ICON: Record<Category, typeof Cable> = {
   deco: Trees,
   services: Store,
 };
+
+/**
+ * The price to show in a list.
+ *
+ * A piste no longer has one price: gentle ground is cheap to cut and steep
+ * ground is not, so the catalogue figure is a floor rather than a quote. The
+ * real number appears while drawing, in `PisteSurvey`.
+ */
+function priceLabel(item: { id: ItemId; cost: number }): string {
+  return item.id === "piste" ? `ab ${fmt(item.cost)}` : fmt(item.cost);
+}
 
 const ITEM_ICON: Partial<Record<ItemId, typeof Cable>> = {
   gondola: Cable,
@@ -398,9 +409,9 @@ function LeftColumn() {
                   </span>
                 </span>
                 <span
-                  className={`ml-2 shrink-0 text-[11px] font-semibold tabular-nums ${tooExpensive && !active ? "text-danger" : active ? "text-panel" : "text-navy"}`}
+                  className={`value ml-2 shrink-0 text-[11px] font-bold ${tooExpensive && !active ? "text-danger" : active ? "text-panel" : "text-navy"}`}
                 >
-                  {fmt(it.cost)}
+                  {priceLabel(it)}
                 </span>
               </button>
             );
@@ -926,15 +937,73 @@ function BuildHint() {
             : "Hang talwärts tippen"
           : hover?.reason || (stampMode ? "Karte schieben, Raster zielen, Setzen" : "Feld tippen zum Bauen");
   return (
-    <div className="pointer-events-none absolute left-1/2 top-2 z-10 w-[min(92%,280px)] -translate-x-1/2 rounded-[16px] bg-panel/95 p-3 text-center shadow-[var(--shadow-panel)] lg:top-4">
+    <div className="pointer-events-none absolute left-1/2 top-2 z-10 w-[min(92%,300px)] -translate-x-1/2 rounded-[16px] bg-panel/95 p-3 text-center shadow-[var(--shadow-panel)] lg:top-4">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
       <div className="mt-1 text-[12px] text-muted">{msg}</div>
-      {item.capacity ? (
-        <div className="mt-1 text-[12px] font-semibold text-success">Kapazität {fmt(item.capacity)} Pers./h</div>
+      {buildItem === "piste" ? (
+        <PisteSurvey />
+      ) : item.capacity ? (
+        <div className="value mt-1 text-[13px] font-bold text-success">
+          Kapazität {fmt(item.capacity)} Pers./h
+        </div>
       ) : null}
     </div>
   );
 }
+
+/**
+ * What the line drawn so far would become.
+ *
+ * The grade is no longer a choice, so the player needs to see what the ground
+ * is making of their line while they draw it — and what it will cost. This runs
+ * the same `surveyPiste` the server prices with, so the number shown is the
+ * number charged.
+ */
+function PisteSurvey() {
+  const draft = useGame((s) => s.pisteDraft);
+  const coins = useGame((s) => s.coins);
+  if (draft.length < 2) {
+    return (
+      <div className="mt-1 text-[12px] text-muted">
+        Schwierigkeit und Preis ergeben sich aus dem Hang.
+      </div>
+    );
+  }
+  const survey = surveyPiste(getDem(), "piste", draft);
+  if (!survey) {
+    return (
+      <div className="mt-1 text-[12px] font-semibold text-danger">
+        Zu steil für eine Piste.
+      </div>
+    );
+  }
+  const segments = draft.length - 1;
+  const band = gradeBand(survey.grade);
+  return (
+    <div className="mt-1.5 flex items-center justify-center gap-2">
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold text-panel"
+        style={{ background: PISTE_TINT[survey.grade] }}
+      >
+        {GRADE_LABEL[survey.grade]} Piste
+      </span>
+      <span className="value text-[13px] font-bold text-navy">
+        {fmt(survey.cost)}
+      </span>
+      <span className="text-[11px] text-muted">
+        {segments} Seg. · {fmt(band.capacity)}/h
+      </span>
+      {coins < survey.cost && <span className="text-[11px] font-bold text-danger">zu teuer</span>}
+    </div>
+  );
+}
+
+/** Difficulty colours, matching the run edges drawn on the mountain. */
+const PISTE_TINT: Record<string, string> = {
+  blue: "#2b7de9",
+  red: "#d64545",
+  black: "#1c1c1c",
+};
 
 function CenterTools() {
   const tool = useGame((s) => s.tool);
@@ -1257,7 +1326,7 @@ function StampTray() {
               <Icon className="size-4" />
               <span className="mt-0.5 max-w-full truncate text-[9px] font-bold">{it.name.split(" ")[0]}</span>
               <span className={`value text-[9px] font-semibold ${active ? "text-panel/85" : tooExpensive ? "text-danger" : "text-muted"}`}>
-                {locked ? `Lv ${it.unlockLevel}` : fmtCompact(it.cost)}
+                {locked ? `Lv ${it.unlockLevel}` : it.id === "piste" ? `ab ${fmtCompact(it.cost)}` : fmtCompact(it.cost)}
               </span>
             </button>
           );

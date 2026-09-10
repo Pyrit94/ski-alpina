@@ -6,7 +6,7 @@ import type { Dem } from "../terrain/dem.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { IntentResult, PlayerRole, ResortState } from "../types.ts";
 import { findEntity, occupiedSet } from "./state.ts";
-import { levelFromXp } from "./level.ts";
+import { levelFromXp, measurePiste } from "./level.ts";
 
 export function validateHex(
   state: ResortState,
@@ -44,6 +44,38 @@ export function validateHex(
  * allowed could still be refused. Neither side may own this alone: the server
  * has to be authoritative and the client has to predict it exactly.
  */
+/**
+ * What a drawn run would be, if it were built.
+ *
+ * The one place grade and price are worked out, so the price shown while
+ * drawing is the price charged on submit. Null when the line crosses ground
+ * too steep to hold a piste.
+ */
+export function surveyPiste(dem: Dem, itemId: ItemId, hexes: readonly Axial[]) {
+  const item = BY_ID[itemId];
+  if (!item || itemId !== "piste") return null;
+  return measurePiste(
+    hexes,
+    (hex) => {
+      const { x, z } = hexToWorld(hex.q, hex.r);
+      return dem.slope(x, z);
+    },
+    item.cost,
+  );
+}
+
+/**
+ * What placing this costs.
+ *
+ * A plain piste is priced from the ground it crosses; everything else is a
+ * flat per-segment price as before.
+ */
+export function pisteCost(dem: Dem, itemId: ItemId, hexes: readonly Axial[]): number {
+  const survey = surveyPiste(dem, itemId, hexes);
+  if (survey) return survey.cost;
+  return BY_ID[itemId].cost * Math.max(1, hexes.length - 1);
+}
+
 export function validatePistePath(
   state: ResortState,
   dem: Dem,
@@ -116,10 +148,14 @@ export function validateIntent(
     if (levelFromXp(state.xp) < item.unlockLevel) {
       return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
     }
-    const segs = Math.max(1, intent.hexes.length - 1);
-    const cost = item.cost * segs;
-    if (state.coins < cost) return { ok: false, code: "budget", reason: "Zu teuer" };
-    return validatePistePath(state, dem, intent.itemId, intent.hexes);
+    const path = validatePistePath(state, dem, intent.itemId, intent.hexes);
+    if (!path.ok) return path;
+    // Price after the terrain check, so "too steep" is reported as too steep
+    // rather than as an affordability problem on an impossible run.
+    if (state.coins < pisteCost(dem, intent.itemId, intent.hexes)) {
+      return { ok: false, code: "budget", reason: "Zu teuer" };
+    }
+    return { ok: true };
   }
 
   if (intent.type === "upgrade") {

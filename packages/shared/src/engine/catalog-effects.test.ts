@@ -25,7 +25,7 @@ const run = (top: number, bottom: number): Axial[] => {
 function busy(day = 10, extra: { itemId: ItemId; q: number; r: number }[] = []): ResortState {
   let state: ResortState = { ...emptyResort(), timeOfDay: 0.5, day };
   state = applyIntent(state, { type: "place_lift", itemId: "funitel", a: VILLAGE_HEX, b: col(1) }, BUILT).state;
-  state = applyIntent(state, { type: "place_piste", itemId: "piste-blue", hexes: run(1, 9) }, BUILT).state;
+  state = applyIntent(state, { type: "place_piste", itemId: "piste", hexes: run(1, 9) }, BUILT).state;
   for (let i = 0; i < 8; i++) {
     state = applyIntent(state, { type: "place_building", itemId: "parking", q: -6, r: 9 }, BUILT).state;
   }

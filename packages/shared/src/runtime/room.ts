@@ -124,7 +124,13 @@ export class GameRoom {
     const now = Date.now();
     const v = validateIntent(this.state, this.dem, intent, player.role, now);
     if (!v.ok) return v;
-    const applied = applyIntent(this.state, intent, now, { id: player.id, name: player.name });
+    const applied = applyIntent(
+      this.state,
+      intent,
+      now,
+      { id: player.id, name: player.name },
+      this.dem,
+    );
     this.state = applied.state;
     this.seq += 1;
     return {

@@ -48,7 +48,7 @@ test("a lift and both its stations carry the same author", () => {
 test("a run records its author too", () => {
   const after = applyIntent(
     rich(),
-    { type: "place_piste", itemId: "piste-blue", hexes: run(1, 9) },
+    { type: "place_piste", itemId: "piste", hexes: run(1, 9) },
     NOW,
     MICHAEL,
   ).state;

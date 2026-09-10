@@ -3,9 +3,11 @@ import { ECONOMY, UPGRADES } from "../../../config/src/economy.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
+import type { Dem } from "../terrain/dem.ts";
 import type { QuestState, ResortState } from "../types.ts";
-import { pisteDifficulty } from "./level.ts";
+import { GRADE_LABEL, pisteDifficulty } from "./level.ts";
 import { entityCost, findEntity } from "./state.ts";
+import { surveyPiste } from "./validate.ts";
 
 export interface Applied {
   state: ResortState;
@@ -79,16 +81,29 @@ function record(
   return { ...applied, state: { ...next, contributors, activity } };
 }
 
+/**
+ * `dem` is what lets a piste be graded from the ground it crosses. It is
+ * optional only so the many call sites that never place one stay unchanged;
+ * `GameRoom` always passes it, and without it a run falls back to its
+ * catalogue difficulty.
+ */
 export function applyIntent(
   state: ResortState,
   intent: Intent,
   now: number,
   actor?: Actor,
+  dem?: Dem,
 ): Applied {
-  return record(state, applyOne(state, intent, now, actor), intent, now, actor);
+  return record(state, applyOne(state, intent, now, actor, dem), intent, now, actor);
 }
 
-function applyOne(state: ResortState, intent: Intent, now: number, actor?: Actor): Applied {
+function applyOne(
+  state: ResortState,
+  intent: Intent,
+  now: number,
+  actor?: Actor,
+  dem?: Dem,
+): Applied {
   if (intent.type === "place_building") {
     const item = BY_ID[intent.itemId];
     const building = {
@@ -163,24 +178,30 @@ function applyOne(state: ResortState, intent: Intent, now: number, actor?: Actor
   if (intent.type === "place_piste") {
     const item = BY_ID[intent.itemId];
     const segs = Math.max(1, intent.hexes.length - 1);
+    // The ground decides the grade, so it is settled here and stored — the
+    // run keeps its rating even if the terrain model is ever retuned.
+    const survey = dem ? surveyPiste(dem, intent.itemId, intent.hexes) : null;
     const piste = {
       id: createId("p"),
       itemId: intent.itemId,
-      difficulty: pisteDifficulty(intent.itemId),
+      difficulty: survey ? survey.grade : pisteDifficulty(intent.itemId),
       hexes: intent.hexes,
       builtAt: now,
       readyAt: now + item.buildSeconds * 1000,
       builtBy: actor?.id,
     };
+    const cost = survey ? survey.cost : item.cost * segs;
     return {
       state: {
         ...state,
         pistes: [...state.pistes, piste],
-        coins: state.coins - item.cost * segs,
+        coins: state.coins - cost,
         xp: state.xp + item.xp * segs,
       },
       title: "Piste geoeffnet",
-      body: `${item.name} ist bereit.`,
+      body: survey
+        ? `${GRADE_LABEL[survey.grade]} Piste, ${segs} Segmente.`
+        : `${item.name} ist bereit.`,
       kind: "ok",
     };
   }

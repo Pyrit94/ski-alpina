@@ -40,7 +40,7 @@ test("the valley around the village can take the starter buildings", () => {
   // can be placed near it the game is unwinnable rather than merely hard.
   const dem = generateDem();
   const village = worldToHex(VILLAGE.x, VILLAGE.z);
-  const fits = (id: "tbar" | "restaurant" | "parking" | "piste-blue") => {
+  const fits = (id: "tbar" | "restaurant" | "parking" | "piste") => {
     const item = BY_ID[id];
     return hexesInRange(village, 4).filter((hex) => {
       const { x, z } = hexToWorld(hex.q, hex.r);
@@ -53,7 +53,7 @@ test("the valley around the village can take the starter buildings", () => {
       );
     }).length;
   };
-  for (const id of ["tbar", "restaurant", "parking", "piste-blue"] as const) {
+  for (const id of ["tbar", "restaurant", "parking", "piste"] as const) {
     assert.ok(fits(id) >= 5, `only ${fits(id)} hexes near the village take ${id}`);
   }
 });

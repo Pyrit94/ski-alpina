@@ -5,6 +5,7 @@ import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { FlowEdgeViz, ResortState, SimStats } from "../types.ts";
 import { buildResortGraph, VILLAGE_HEX, type DemandSource } from "./graph.ts";
+import { pisteUpkeep } from "./level.ts";
 import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
 
 export interface FlowTick {
@@ -212,11 +213,10 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const buildingUpkeep = buildings
     .filter((b) => !isLift(b.itemId))
     .reduce((n, b) => n + (BY_ID[b.itemId].upkeep ?? 0), 0);
-  const pisteUpkeep = readyPistes.reduce(
-    (n, p) => n + (BY_ID[p.itemId].upkeep ?? 0) * Math.max(1, p.hexes.length - 1),
-    0,
-  );
-  const upkeepPerHour = liftUpkeep + buildingUpkeep + pisteUpkeep;
+  // Grooming a steep run costs more than a gentle one, so upkeep follows the
+  // grade the ground gave it rather than one catalogue number.
+  const runUpkeep = readyPistes.reduce((n, p) => n + pisteUpkeep(p), 0);
+  const upkeepPerHour = liftUpkeep + buildingUpkeep + runUpkeep;
   const incomePerHour = revenue - upkeepPerHour;
 
   const stats: SimStats = {

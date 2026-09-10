@@ -35,7 +35,7 @@ const SUMMER_DAY = SEASON.daysPerYear - 2;
 function circuit(day: number, extra: { itemId: "snowmaker"; q: number; r: number }[] = []): ResortState {
   let state: ResortState = { ...emptyResort(), timeOfDay: 0.5, day };
   state = applyIntent(state, { type: "place_lift", itemId: "gondola", a: VILLAGE_HEX, b: col(1) }, BUILT).state;
-  state = applyIntent(state, { type: "place_piste", itemId: "piste-blue", hexes: run(1, 9) }, BUILT).state;
+  state = applyIntent(state, { type: "place_piste", itemId: "piste", hexes: run(1, 9) }, BUILT).state;
   for (const e of extra) {
     state = applyIntent(state, { type: "place_building", itemId: e.itemId, q: e.q, r: e.r }, BUILT).state;
   }

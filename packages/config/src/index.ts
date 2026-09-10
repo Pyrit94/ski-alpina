@@ -6,4 +6,13 @@ export { ECONOMY, FLOW, LEVEL, UPGRADES } from "./economy.ts";
 export type { UpgradeKey } from "./economy.ts";
 export { QUEST_DEFS } from "./quests.ts";
 export type { QuestDef } from "./quests.ts";
-export { TERRAIN, PEAKS, RIDGES, VILLAGE, LAKE } from "./terrain.ts";
+export {
+  TERRAIN,
+  PEAKS,
+  RIDGES,
+  VILLAGE,
+  LAKE,
+  PISTE_GRADES,
+  MAX_PISTE_SLOPE,
+} from "./terrain.ts";
+export type { PisteGrade } from "./terrain.ts";

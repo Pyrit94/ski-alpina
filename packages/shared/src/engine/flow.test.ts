@@ -31,7 +31,7 @@ function circuit(from: Axial, topR: number, bottomR: number): ResortState {
   state = applyIntent(state, { type: "place_lift", itemId: "chair", a: from, b: col(topR) }, BUILT).state;
   state = applyIntent(
     state,
-    { type: "place_piste", itemId: "piste-blue", hexes: run(topR, bottomR) },
+    { type: "place_piste", itemId: "piste", hexes: run(topR, bottomR) },
     BUILT,
   ).state;
   return state;
@@ -271,7 +271,7 @@ test("piste must go downhill", () => {
     dem,
     {
       type: "place_piste",
-      itemId: "piste-blue",
+      itemId: "piste",
       hexes: [
         { q: 0, r: 16 },
         { q: -2, r: -18 },

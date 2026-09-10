@@ -1,4 +1,5 @@
 import type { Category, ItemId } from "./ids.ts";
+import { MAX_PISTE_SLOPE } from "./terrain.ts";
 
 export interface CatalogItem {
   id: ItemId;
@@ -65,9 +66,9 @@ export const CATALOG: CatalogItem[] = [
   { id: "ticket", category: "buildings", name: "Kasse", blurb: "Talstation-Tickets. +8 % Einnahmen im Umkreis.", cost: 6000, xp: 12, unlockLevel: 1, buildSeconds: 5, footprint: 1, maxSlope: 0.25, minElev: 1580, maxElev: 2000, upkeep: 130, satisfactionBonus: 0.8, color: "#2F6FED" },
   { id: "apres", category: "buildings", name: "Apres-Ski", blurb: "Huette mit Musik. Abends extra Umsatz.", cost: 18000, xp: 30, unlockLevel: 4, buildSeconds: 9, footprint: 1, maxSlope: 0.28, minElev: 1580, maxElev: 2400, upkeep: 380, seatsPerHour: 420, satisfactionBonus: 1.4, color: "#b03a3a" },
   { id: "spa", category: "buildings", name: "Berg-Spa", blurb: "Wellness nach der Abfahrt. Luxusbonus.", cost: 42000, xp: 55, unlockLevel: 7, buildSeconds: 14, footprint: 1, maxSlope: 0.2, minElev: 1580, maxElev: 2600, upkeep: 900, satisfactionBonus: 6, summerDraw: 0.08, color: "#3d8a8a" },
-  { id: "piste-blue", category: "pistes", name: "Blaue Piste", blurb: "Leicht. Breite Abfahrt fuer Familien.", cost: 700, xp: 6, unlockLevel: 1, buildSeconds: 3, footprint: 1, maxSlope: 0.42, minElev: 1560, maxElev: 3200, capacity: 1500, upkeep: 18, color: "#2b7de9" },
-  { id: "piste-red", category: "pistes", name: "Rote Piste", blurb: "Mittel. Mehr Tempo, mehr Nervenkitzel.", cost: 1100, xp: 9, unlockLevel: 2, buildSeconds: 3, footprint: 1, maxSlope: 0.7, minElev: 1700, maxElev: 3600, capacity: 1100, upkeep: 28, color: "#d64545" },
-  { id: "piste-black", category: "pistes", name: "Schwarze Piste", blurb: "Schwer. Steil, Prestige, Experten.", cost: 1700, xp: 14, unlockLevel: 4, buildSeconds: 4, footprint: 1, maxSlope: 1.15, minElev: 1900, maxElev: 4000, capacity: 700, upkeep: 42, color: "#1c1c1c" },
+  // The grade is not chosen here — see PISTE_GRADES. `cost`, `capacity` and
+  // `upkeep` are the gentle-ground baseline that each segment scales from.
+  { id: "piste", category: "pistes", name: "Piste", blurb: "Abfahrt praeparieren. Schwierigkeit und Preis richten sich nach dem Hang.", cost: 700, xp: 6, unlockLevel: 1, buildSeconds: 3, footprint: 1, maxSlope: MAX_PISTE_SLOPE, minElev: 1560, maxElev: 4000, capacity: 1500, upkeep: 18, color: "#2b7de9" },
   { id: "snowpark", category: "pistes", name: "Snowpark", blurb: "Kicker & Rails. Zieht junge Gaeste an.", cost: 22000, xp: 34, unlockLevel: 5, buildSeconds: 10, footprint: 1, maxSlope: 0.38, minElev: 1800, maxElev: 3000, capacity: 900, upkeep: 480, color: "#F4B942" },
   { id: "road", category: "pistes", name: "Zufahrt", blurb: "Verbindet Dorf, Parken und Talstationen. Kein Skiweg.", cost: 400, xp: 3, unlockLevel: 1, buildSeconds: 2, footprint: 1, maxSlope: 0.28, minElev: 1560, maxElev: 2000, capacity: 2600, upkeep: 8, color: "#5a6570" },
   { id: "tree", category: "deco", name: "Arve", blurb: "Schoener Wald. Kleiner Zufriedenheitsbonus.", cost: 180, xp: 1, unlockLevel: 1, buildSeconds: 1, footprint: 1, maxSlope: 0.5, minElev: 1600, maxElev: 2500, upkeep: 0, satisfactionBonus: 0.15, color: "#1f3d2a" },
@@ -106,4 +107,6 @@ export const CATEGORIES: { id: Category; label: string; hint: string }[] = [
   { id: "services", label: "Dienste", hint: "Werkstaetten, Parken & Co." },
 ];
 
-export const QUICK: ItemId[] = ["chair", "gondola", "tbar", "restaurant", "groomer", "viewpoint"];
+// The piste earns a slot: it is the action a player reaches for most, and
+// there is only one of it now instead of three to choose between.
+export const QUICK: ItemId[] = ["piste", "chair", "gondola", "tbar", "restaurant", "parking"];

@@ -4,7 +4,7 @@ import { VILLAGE } from "../../../config/src/terrain.ts";
 import { hexDistance, hexToWorld, worldToHex, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { PlacedLift, PlacedPiste } from "../types.ts";
-import { liftThroughput } from "./level.ts";
+import { liftThroughput, pisteCapacity } from "./level.ts";
 import { FlowNetwork, UNCAPPED } from "./maxflow.ts";
 
 /** Where guests enter the valley. Always a node, always a way out. */
@@ -229,7 +229,10 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
   });
 
   const pisteEdges: PisteEdge[] = pistePorts.map((p) => {
-    const base = BY_ID[p.piste.itemId].capacity ?? 0;
+    // Capacity follows the grade the ground gave this run, not the catalogue
+    // entry: a steep black carries far fewer people than a gentle blue, and
+    // both are the same item now.
+    const base = pisteCapacity(p.piste);
     const scale = pisteCapacityScale?.(p.piste, { top: p.top, bottom: p.bottom }) ?? 1;
     const capacity = Math.max(0, Math.round(base * scale));
     return {

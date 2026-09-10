@@ -13,9 +13,9 @@ export const ITEM_IDS = [
   "ticket",
   "apres",
   "spa",
-  "piste-blue",
-  "piste-red",
-  "piste-black",
+  // One run. What grade it is comes from the ground it crosses, not from a
+  // choice in a menu — see PISTE_GRADES.
+  "piste",
   "snowpark",
   "road",
   "tree",
@@ -44,7 +44,7 @@ export const CATEGORY_IDS = ["lifts", "buildings", "pistes", "deco", "services"]
 export type Category = (typeof CATEGORY_IDS)[number];
 
 export const LIFT_IDS: readonly ItemId[] = ["tbar", "chair", "gondola", "tram", "funitel", "glacier"];
-export const PISTE_IDS: readonly ItemId[] = ["piste-blue", "piste-red", "piste-black", "snowpark", "road"];
+export const PISTE_IDS: readonly ItemId[] = ["piste", "snowpark", "road"];
 export const HOTEL_IDS: readonly ItemId[] = ["hotel1", "hotel3", "hotel5", "hotel-resort"];
 
 export function isLift(id: ItemId): boolean {

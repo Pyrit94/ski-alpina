@@ -25,7 +25,7 @@ const run = (top: number, bottom: number): Axial[] => {
 function circuit(): ResortState {
   let state: ResortState = { ...emptyResort(), timeOfDay: 0.5, xp: 999_999 };
   state = applyIntent(state, { type: "place_lift", itemId: "chair", a: VILLAGE_HEX, b: col(1) }, BUILT).state;
-  state = applyIntent(state, { type: "place_piste", itemId: "piste-blue", hexes: run(1, 9) }, BUILT).state;
+  state = applyIntent(state, { type: "place_piste", itemId: "piste", hexes: run(1, 9) }, BUILT).state;
   return state;
 }
 
@@ -64,11 +64,11 @@ test("a run refunds per segment, the way it was billed", () => {
   const state = circuit();
   const piste = state.pistes[0]!;
   const segments = piste.hexes.length - 1;
-  assert.equal(entityCost({ kind: "piste", piste }).coins, BY_ID["piste-blue"].cost * segments);
+  assert.equal(entityCost({ kind: "piste", piste }).coins, BY_ID["piste"].cost * segments);
   const after = applyIntent(state, { type: "demolish", entityId: piste.id }, NOW).state;
   assert.equal(
     after.coins,
-    state.coins + Math.floor(BY_ID["piste-blue"].cost * segments * ECONOMY.demolishRefund),
+    state.coins + Math.floor(BY_ID["piste"].cost * segments * ECONOMY.demolishRefund),
   );
   assert.equal(after.pistes.length, 0);
 });
@@ -120,7 +120,7 @@ test("the server checks every hex of a run, as the client's preview does", () =>
   const impossible = validateIntent(
     state,
     dem,
-    { type: "place_piste", itemId: "piste-blue", hexes: [col(1), { q: -16, r: -18 }] },
+    { type: "place_piste", itemId: "piste", hexes: [col(1), { q: -16, r: -18 }] },
     "builder",
     NOW,
   );
@@ -137,11 +137,11 @@ test("the shared rule and the intent check agree exactly", () => {
     [col(1)],
   ];
   for (const hexes of paths) {
-    const direct = validatePistePath(state, dem, "piste-blue", hexes);
+    const direct = validatePistePath(state, dem, "piste", hexes);
     const viaIntent = validateIntent(
       state,
       dem,
-      { type: "place_piste", itemId: "piste-blue", hexes },
+      { type: "place_piste", itemId: "piste", hexes },
       "builder",
       NOW,
     );
@@ -152,13 +152,13 @@ test("the shared rule and the intent check agree exactly", () => {
 test("a valley run stays buildable under the stricter rule", () => {
   // Tightening the server must not make the basic first move impossible.
   const state = { ...emptyResort(), xp: 999_999 };
-  assert.equal(validatePistePath(state, dem, "piste-blue", run(1, 9)).ok, true);
+  assert.equal(validatePistePath(state, dem, "piste", run(1, 9)).ok, true);
 });
 
 test("a run may roll but not climb", () => {
   const state = { ...emptyResort(), xp: 999_999 };
   // Uphill from the village floor towards 1915 m is a sustained climb.
-  const uphill = validatePistePath(state, dem, "piste-blue", run(1, 9).slice().reverse());
+  const uphill = validatePistePath(state, dem, "piste", run(1, 9).slice().reverse());
   assert.equal(uphill.ok, false);
   if (!uphill.ok) assert.equal(uphill.code, "slope");
 });

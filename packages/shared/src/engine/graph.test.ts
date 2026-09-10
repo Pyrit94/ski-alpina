@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { ItemId } from "../../../config/src/ids.ts";
 import type { Axial } from "../hex.ts";
 import { generateDem } from "../terrain/dem.ts";
-import type { PlacedLift, PlacedPiste } from "../types.ts";
+import type { PisteDifficulty, PlacedLift, PlacedPiste } from "../types.ts";
 import { buildResortGraph, clusterPorts, VILLAGE_HEX } from "./graph.ts";
 import { pisteDifficulty } from "./level.ts";
 
@@ -27,8 +27,8 @@ function mkLift(id: string, itemId: ItemId, a: Axial, b: Axial): PlacedLift {
   };
 }
 
-function mkPiste(id: string, itemId: ItemId, hexes: Axial[]): PlacedPiste {
-  return { id, itemId, difficulty: pisteDifficulty(itemId), hexes, builtAt: 0, readyAt: 0 };
+function mkPiste(id: string, itemId: ItemId, hexes: Axial[], grade?: PisteDifficulty): PlacedPiste {
+  return { id, itemId, difficulty: grade ?? pisteDifficulty(itemId), hexes, builtAt: 0, readyAt: 0 };
 }
 
 /** The valley column through the village: r descends as the ground rises. */
@@ -60,7 +60,7 @@ test("the village is a node even with nothing built", () => {
 test("a lift out of the village with a piste back down carries guests", () => {
   const { served, graph } = solve({
     lifts: [mkLift("l1", "tbar", col(9), col(1))],
-    pistes: [mkPiste("p1", "piste-blue", run(1, 9))],
+    pistes: [mkPiste("p1", "piste", run(1, 9))],
     ...base,
   });
   assert.equal(served, 500);
@@ -100,7 +100,7 @@ test("guests ski when they can and ride down only for the overflow", () => {
   // edges happened to be added decided this — and the gondola always won.
   const { graph, skied, served } = solve({
     lifts: [mkLift("l1", "gondola", col(9), col(1))],
-    pistes: [mkPiste("p1", "piste-black", run(1, 9))],
+    pistes: [mkPiste("p1", "piste", run(1, 9), "black")],
     demands: [{ hex: VILLAGE_HEX, perHour: 900 }],
     exits: [],
     dem,
@@ -117,7 +117,7 @@ test("guests ski when they can and ride down only for the overflow", () => {
 test("a run wide enough for everyone leaves the cabins empty", () => {
   const { graph } = solve({
     lifts: [mkLift("l1", "gondola", col(9), col(1))],
-    pistes: [mkPiste("p1", "piste-blue", run(1, 9))],
+    pistes: [mkPiste("p1", "piste", run(1, 9))],
     ...base,
   });
   assert.equal(graph.net.flowOn(graph.lifts[0]!.downhill!), 0);
@@ -129,7 +129,7 @@ test("a lift nowhere near an arrival point carries nobody", () => {
   const stranded = mkLift("l1", "chair", { q: 30, r: -20 }, { q: 30, r: -28 });
   const { served } = solve({
     lifts: [stranded],
-    pistes: [mkPiste("p1", "piste-blue", [{ q: 30, r: -28 }, { q: 30, r: -20 }])],
+    pistes: [mkPiste("p1", "piste", [{ q: 30, r: -28 }, { q: 30, r: -20 }])],
     ...base,
   });
   assert.equal(served, 0);
@@ -138,7 +138,7 @@ test("a lift nowhere near an arrival point carries nobody", () => {
 test("adding stranded lifts does not add throughput", () => {
   const connected = {
     lifts: [mkLift("l1", "tbar", col(9), col(1))],
-    pistes: [mkPiste("p1", "piste-blue", run(1, 9))],
+    pistes: [mkPiste("p1", "piste", run(1, 9))],
     ...base,
   };
   const withJunk = {
@@ -156,7 +156,7 @@ test("the narrowest edge of the circuit sets the throughput", () => {
   // 1104 people/h up the T-bar, but only a 700-wide black run back down.
   const { served, graph } = solve({
     lifts: [mkLift("l1", "tbar", col(9), col(1))],
-    pistes: [mkPiste("p1", "piste-black", run(1, 9))],
+    pistes: [mkPiste("p1", "piste", run(1, 9), "black")],
     demands: [{ hex: VILLAGE_HEX, perHour: 5000 }],
     exits: [],
     dem,
@@ -170,8 +170,8 @@ test("two runs down from one lift add their widths, up to the lift", () => {
   const { served, graph } = solve({
     lifts: [lift],
     pistes: [
-      mkPiste("p1", "piste-black", run(1, 9)),
-      mkPiste("p2", "piste-black", run(1, 9)),
+      mkPiste("p1", "piste", run(1, 9), "black"),
+      mkPiste("p2", "piste", run(1, 9), "black"),
     ],
     demands: [{ hex: VILLAGE_HEX, perHour: 5000 }],
     exits: [],
@@ -185,8 +185,8 @@ test("throughput is capped by the lift when the runs are wider", () => {
   const { served, graph } = solve({
     lifts: [mkLift("l1", "tbar", col(9), col(1))],
     pistes: [
-      mkPiste("p1", "piste-blue", run(1, 9)),
-      mkPiste("p2", "piste-blue", run(1, 9)),
+      mkPiste("p1", "piste", run(1, 9)),
+      mkPiste("p2", "piste", run(1, 9)),
     ],
     demands: [{ hex: VILLAGE_HEX, perHour: 9000 }],
     exits: [],
@@ -198,7 +198,7 @@ test("throughput is capped by the lift when the runs are wider", () => {
 test("demand stranded away from the network is never served", () => {
   const { served } = solve({
     lifts: [mkLift("l1", "tbar", col(9), col(1))],
-    pistes: [mkPiste("p1", "piste-blue", run(1, 9))],
+    pistes: [mkPiste("p1", "piste", run(1, 9))],
     // 400 arrive in the village, 600 at a car park on the far ridge.
     demands: [
       { hex: VILLAGE_HEX, perHour: 400 },
@@ -214,7 +214,7 @@ test("a road brings otherwise stranded demand onto the mountain", () => {
   const carPark: Axial = { q: -5, r: 15 };
   const layout = {
     lifts: [mkLift("l1", "chair", col(9), col(1))],
-    pistes: [mkPiste("p1", "piste-blue", run(1, 9))],
+    pistes: [mkPiste("p1", "piste", run(1, 9))],
     demands: [
       { hex: VILLAGE_HEX, perHour: 100 },
       { hex: carPark, perHour: 600 },
@@ -234,7 +234,7 @@ test("a road brings otherwise stranded demand onto the mountain", () => {
 test("the ski-school bonus widens exactly the blue runs", () => {
   const layout = {
     lifts: [mkLift("l1", "gondola", col(9), col(1))],
-    pistes: [mkPiste("p1", "piste-blue", run(1, 9))],
+    pistes: [mkPiste("p1", "piste", run(1, 9))],
     demands: [{ hex: VILLAGE_HEX, perHour: 9000 }],
     exits: [],
     dem,

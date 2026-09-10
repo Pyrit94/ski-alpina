@@ -53,5 +53,34 @@ export const RIDGES: readonly [string, string][] = [
   ["klein", "riffelhorn"],
 ];
 
+export type PisteGrade = "blue" | "red" | "black";
+
+/**
+ * What the ground makes of a run.
+ *
+ * A piste used to be three catalogue items and the player picked one, which
+ * meant the difficulty was a menu choice that the terrain then had to permit.
+ * That is backwards: a run is blue *because* the slope is gentle. Now there is
+ * one piste, and each segment is graded by the ground it crosses — steeper
+ * ground grades harder, carries fewer people and costs more to cut and hold.
+ *
+ * Ordered gentlest first; the first band a slope fits is its grade. Above the
+ * last one the ground is too steep to hold a piste at all.
+ */
+export const PISTE_GRADES = [
+  { grade: "blue", maxSlope: 0.42, costFactor: 1, capacity: 1500, upkeepPerSegment: 18 },
+  { grade: "red", maxSlope: 0.7, costFactor: 1.7, capacity: 1100, upkeepPerSegment: 28 },
+  { grade: "black", maxSlope: 1.15, costFactor: 2.8, capacity: 700, upkeepPerSegment: 42 },
+] as const satisfies readonly {
+  grade: PisteGrade;
+  maxSlope: number;
+  costFactor: number;
+  capacity: number;
+  upkeepPerSegment: number;
+}[];
+
+/** The steepest ground any piste can be cut into. */
+export const MAX_PISTE_SLOPE = PISTE_GRADES[PISTE_GRADES.length - 1]!.maxSlope;
+
 export const VILLAGE = { name: "Zermatt Dorf", x: -4, z: 40, elev: 1608, lat: 46.0207, lon: 7.7491 } as const;
 export const LAKE = { name: "Riffelsee", x: 22, z: -24, elev: 2757, radius: 9.5 } as const;
