@@ -278,7 +278,11 @@ function tokenIdentityKey(token: string): string {
             .digest("base64url");
         }
       }
-    } catch {}
+    } catch {
+      // An unparseable token is not an error here: the whole point of this
+      // branch is to key on the subject when the token happens to be a JWT,
+      // and the hash of the raw token below is a perfectly good fallback.
+    }
   }
   return createHash("sha256").update(token).digest("base64url");
 }

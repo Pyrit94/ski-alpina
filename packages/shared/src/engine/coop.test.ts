@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Axial, ResortState } from "../index.ts";
 import { generateDem } from "../terrain/dem.ts";
-import { GameRoom, PRESENCE_TIMEOUT_MS } from "../runtime/room.ts";
+import { GameRoom, MAX_REMEMBERED_PLAYERS, PRESENCE_TIMEOUT_MS } from "../runtime/room.ts";
 import { applyIntent } from "./apply.ts";
 import { VILLAGE_HEX } from "./graph.ts";
 import { emptyResort, migrateResort } from "./state.ts";
@@ -193,15 +193,68 @@ test("different accounts are different players", () => {
   assert.equal(room.presence().length, 2);
 });
 
-test("a player who stops answering is dropped", () => {
+test("a player who stops answering leaves the presence list", () => {
   const room = new GameRoom("coop", undefined, dem);
-  const player = room.join("Michael");
+  const player = room.join("Michael", "tok-michael-1");
   room.prunePlayers(Date.now() + PRESENCE_TIMEOUT_MS + 1000);
   assert.equal(room.presence().length, 0);
-  // While a ping keeps them in the list.
-  const back = room.join("Michael");
+  // A ping keeps them in it.
+  const back = room.join("Michael", "tok-michael-1");
   room.touch(back.id);
   room.prunePlayers(Date.now() + PRESENCE_TIMEOUT_MS - 1000);
   assert.equal(room.presence().length, 1);
-  assert.notEqual(player.id, undefined);
+  assert.equal(back.id, player.id);
+});
+
+test("coming back after going quiet is the same person, not a new one", () => {
+  // Deleting a quiet player gave the returning one a fresh id, so their own
+  // past work stopped being attributed to them and they picked up a second row
+  // in the contributor list under the same name.
+  const room = new GameRoom("coop", undefined, dem);
+  room.state = { ...room.state, coins: 5_000_000, xp: 999_999 };
+  const first = room.join("Michael", undefined, { userId: "u1", name: "Michael" });
+  room.submit(first.id, { type: "place_building", itemId: "parking", q: -6, r: 9 });
+  room.prunePlayers(Date.now() + PRESENCE_TIMEOUT_MS + 1000);
+  assert.equal(room.presence().length, 0);
+
+  const again = room.join("Michael", undefined, { userId: "u1", name: "Michael" });
+  assert.equal(again.id, first.id);
+  room.submit(again.id, { type: "place_building", itemId: "ticket", q: -6, r: 10 });
+  assert.equal(Object.keys(room.state.contributors).length, 1);
+  assert.equal(room.state.contributors[first.id]!.builds, 2);
+  // And the work they did before still points at them.
+  for (const b of room.state.buildings) assert.equal(b.builtBy, first.id);
+});
+
+test("an unauthenticated player is remembered by their token", () => {
+  const room = new GameRoom("coop", undefined, dem);
+  const first = room.join("Gast", "guesttoken1234");
+  room.prunePlayers(Date.now() + PRESENCE_TIMEOUT_MS + 1000);
+  const again = room.join("Gast", "guesttoken1234");
+  assert.equal(again.id, first.id);
+});
+
+test("the remembered roster is bounded", () => {
+  // Otherwise a long-running server accumulates every guest token it ever saw.
+  const room = new GameRoom("coop", undefined, dem);
+  for (let i = 0; i < MAX_REMEMBERED_PLAYERS + 20; i++) {
+    room.join(`Gast ${i}`, `token-${i}-xxxxxxxx`);
+    room.prunePlayers(Date.now() + PRESENCE_TIMEOUT_MS + 1000 + i);
+  }
+  assert.ok(room.players.size <= MAX_REMEMBERED_PLAYERS);
+});
+
+test("someone still online is never forgotten to make room", () => {
+  const room = new GameRoom("coop", undefined, dem);
+  // A crowd of guests who have all gone quiet.
+  for (let i = 0; i < MAX_REMEMBERED_PLAYERS + 20; i++) {
+    room.join(`Gast ${i}`, `token-${i}-xxxxxxxx`);
+  }
+  room.prunePlayers(Date.now() + PRESENCE_TIMEOUT_MS + 1000);
+  // Then someone actually arrives, putting the roster over its cap.
+  const here = room.join("Michael", undefined, { userId: "u1", name: "Michael" });
+  room.prunePlayers(Date.now());
+  assert.ok(room.players.has(here.id), "the connected player was evicted");
+  assert.ok(room.players.size <= MAX_REMEMBERED_PLAYERS);
+  assert.equal(room.presence().length, 1);
 });

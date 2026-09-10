@@ -7,7 +7,8 @@ import { HEX_SIZE, hexDistance, hexToWorld, hexesInRange, worldToHex } from "@/l
 import { useGame } from "@/lib/game/store";
 import { isPiste } from "@ski/config";
 import { getDem, validateHex } from "@ski/shared";
-import { BuildingModel, makeHexGeometry } from "./models";
+import { BuildingModel } from "./models";
+import { makeHexGeometry } from "./geometry";
 
 const GRID_RADIUS = 12;
 const NDC_STAMP = new THREE.Vector2(0, 0.02);

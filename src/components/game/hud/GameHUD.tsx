@@ -32,6 +32,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
+import { useIsDesktop } from "@/lib/game/use-breakpoint";
 import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, GRADE_LABEL, QUICK, SEASON_LABEL, UPGRADES, getDem, gradeBand, isLift, levelFromXp, liftThroughput, seasonPhase, surveyPiste, xpForLevel } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
 import { fmt, fmtCompact } from "@/lib/game/format";
@@ -183,25 +184,33 @@ const ITEM_ICON: Partial<Record<ItemId, typeof Cable>> = {
 };
 
 export function GameHUD() {
+  // The wide columns are not rendered at all on a phone, rather than rendered
+  // and hidden: `hidden lg:flex` still mounts them, subscribes every selector
+  // inside and re-renders all of it on every tick, for pixels nobody sees.
+  const desktop = useIsDesktop();
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex flex-col text-ink">
       <TopBar />
       <div className="relative min-h-0 flex-1">
         <div className="flex h-full">
-          <LeftColumn />
+          {desktop && <LeftColumn />}
           <div className="relative min-w-0 flex-1">
             <BuildHint />
-            <CenterTools />
+            {desktop && <CenterTools />}
             <Minimap />
-            <MobileFloats />
+            {!desktop && <MobileFloats />}
           </div>
-          <RightColumn />
+          {desktop && <RightColumn />}
         </div>
       </div>
       <BottomBar />
       <BuildReticle />
-      <MobileDock />
-      <MobileSheets />
+      {!desktop && (
+        <>
+          <MobileDock />
+          <MobileSheets />
+        </>
+      )}
     </div>
   );
 }
@@ -446,33 +455,84 @@ function LeftColumn() {
   );
 }
 
+/**
+ * The tutorial, collapsible.
+ *
+ * On a phone this card took some forty per cent of the height, over the map it
+ * is telling you to build on — so it can be folded down to a single line and
+ * reopened. Collapsing is not dismissing: the step is kept, so folding it away
+ * to look at the mountain does not cost you the rest of the tutorial.
+ */
 function TutorialCard({ compact = false }: { compact?: boolean }) {
   const open = useGame((s) => s.tutorialOpen);
   const step = useGame((s) => s.tutorialStep);
   const next = useGame((s) => s.nextTutorial);
   const dismiss = useGame((s) => s.dismissTutorial);
+  const [folded, setFolded] = useState(false);
   if (!open) return null;
   const copy = [
     { t: "Dein Skigebiet wartet!", b: "Verbinde die ersten Hütten mit einer Gondelbahn und starte in die Saison." },
-    { t: "Pisten zeichnen", b: "Wähle eine blaue Piste und tippe den Hang hinunter – immer talwärts." },
+    { t: "Pisten zeichnen", b: "Wähle die Piste und tippe den Hang hinunter – immer talwärts. Schwierigkeit und Preis ergeben sich aus dem Gelände." },
     { t: "Einkehrschwung", b: "Ein Restaurant an der Strecke bringt Einnahmen und zufriedene Gäste." },
     { t: "Wachsen", b: "Erfülle Aufgaben, upgrade Bahnen und öffne höhere Lagen." },
   ];
   const c = copy[step] ?? copy[0]!;
+
+  if (folded) {
+    return (
+      <Panel className="overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setFolded(false)}
+          className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-wide text-accent">Tutorial</span>
+          <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-navy">{c.t}</span>
+          <span className="value shrink-0 text-[10px] font-bold text-muted">{step + 1}/4</span>
+          <ChevronRight className="size-4 shrink-0 -rotate-90 text-muted" />
+        </button>
+      </Panel>
+    );
+  }
+
   return (
     <Panel className="overflow-hidden">
       {!compact && <img src="/textures/station.jpg" alt="" className="h-20 w-full object-cover" />}
       <div className="p-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-accent">Tutorial</div>
-        <div className="mt-1 text-[14px] font-semibold text-navy">{c.t}</div>
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-accent">
+              Tutorial {step + 1}/4
+            </div>
+            <div className="mt-1 text-[14px] font-semibold text-navy">{c.t}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFolded(true)}
+            aria-label="Tutorial einklappen"
+            className="grid size-8 shrink-0 place-items-center rounded-full bg-ice text-muted"
+          >
+            <ChevronRight className="size-4 rotate-90" />
+          </button>
+        </div>
         <p className="mt-1 text-[11px] leading-snug text-muted">{c.b}</p>
-        <button
-          type="button"
-          onClick={step >= 3 ? dismiss : next}
-          className="mt-3 flex h-11 w-full items-center justify-center gap-1 rounded-full bg-accent text-[12px] font-semibold text-panel"
-        >
-          {step >= 3 ? "Loslegen" : "Starten"} <ChevronRight className="size-4" />
-        </button>
+        <div className="mt-3 flex gap-1.5">
+          <button
+            type="button"
+            onClick={dismiss}
+            className="btn-3d btn-3d-light h-11 shrink-0 rounded-full bg-ice px-4 text-[12px] font-bold text-navy"
+          >
+            Überspringen
+          </button>
+          <button
+            type="button"
+            onClick={step >= 3 ? dismiss : next}
+            className="btn-3d flex h-11 flex-1 items-center justify-center gap-1 rounded-full bg-accent text-[13px] font-bold text-panel"
+            style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
+          >
+            {step >= 3 ? "Loslegen" : "Weiter"} <ChevronRight className="size-4" />
+          </button>
+        </div>
       </div>
     </Panel>
   );
@@ -541,8 +601,16 @@ function InfoPanel() {
         <p className="mt-2 text-[12px] text-muted">Tippe ein Gebäude oder eine Bahn, um Details zu sehen.</p>
         <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
           <Stat label="Personen" value={`${fmt(stats.peoplePerHour)}/h`} />
-          <Stat label="Zufrieden" value={`${stats.satisfaction}%`} />
-          <Stat label="Einnahmen" value={`+${fmt(stats.incomePerHour)}/h`} />
+          <Stat
+            label="Zufrieden"
+            value={`${stats.satisfaction}%`}
+            tone={stats.satisfaction < 55 ? "bad" : stats.satisfaction < 75 ? "warn" : "good"}
+          />
+          <Stat
+            label="Einnahmen"
+            value={`${stats.incomePerHour < 0 ? "−" : "+"}${fmt(Math.abs(stats.incomePerHour))}`}
+            tone={stats.incomePerHour < 0 ? "bad" : "good"}
+          />
         </div>
         <PlayersLine />
         <p className="mt-3 text-[10px] leading-snug text-subtle">
@@ -999,6 +1067,38 @@ function PisteSurvey() {
 }
 
 /**
+ * Who else is here, on a phone.
+ *
+ * The player list only exists in the desktop rail, so on a phone the fact that
+ * somebody else is building with you was invisible until they happened to
+ * appear on screen. The dots use the same colour as each player's ring on the
+ * mountain, so a name in the sheet and a marker on the slope connect.
+ */
+function MobilePresence() {
+  const players = useGame((s) => s.players);
+  const connected = useGame((s) => s.connected);
+  const me = useGame((s) => s.playerId);
+  const setSheet = useGame((s) => s.setSheet);
+  const others = players.filter((p) => p.id !== me);
+  if (!connected || others.length === 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => setSheet("info")}
+      className="flex min-h-7 shrink-0 items-center gap-1 rounded-full bg-panel/92 px-2 py-1 shadow-[var(--shadow-chip)]"
+      aria-label={`${others.length} weitere online`}
+    >
+      {others.slice(0, 3).map((p) => (
+        <span key={p.id} className="size-2.5 rounded-full" style={{ background: peerColor(p.id) }} />
+      ))}
+      <span className="value text-[10px] font-bold text-navy">
+        {others.length > 3 ? `+${others.length - 3}` : others.length}
+      </span>
+    </button>
+  );
+}
+
+/**
  * The one thing that is wrong, on a phone.
  *
  * The operational warnings live in a side panel that only desktop shows, so on
@@ -1245,8 +1345,11 @@ function MobileDock() {
     >
       <MobileAlert />
       <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
-        <div className="rounded-full bg-panel/92 px-2.5 py-1 text-[10px] font-medium text-muted shadow-[var(--shadow-chip)]">
-          {weather.label} · {weather.tempC}°
+        <div className="flex min-w-0 items-center gap-1.5">
+          <div className="shrink-0 rounded-full bg-panel/92 px-2.5 py-1 text-[10px] font-medium text-muted shadow-[var(--shadow-chip)]">
+            {weather.label} · {weather.tempC}°
+          </div>
+          <MobilePresence />
         </div>
         <div className="value rounded-full bg-panel/92 px-2.5 py-1 text-[11px] font-bold text-navy shadow-[var(--shadow-chip)]">
           {fmtCompact(stats.peoplePerHour)}/h · {stats.satisfaction}%

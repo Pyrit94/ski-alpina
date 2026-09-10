@@ -20,7 +20,8 @@ import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
 import type { MapLayer, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game/types";
-import { BuildingModel, GondolaCabin, ribbonGeometry } from "./models";
+import { BuildingModel } from "./models";
+import { ribbonGeometry } from "./geometry";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
 
 function buildTerrain(hm: Heightmap, layer: MapLayer, heat: Map<string, number>) {
@@ -379,214 +380,346 @@ function carrierBudget(liftCount: number): number {
   return Math.max(2, Math.min(8, Math.floor(perDirection)));
 }
 
+type CarrierKind = "cabin" | "chair" | "tbar";
+
+function carrierKindOf(itemId: PlacedLift["itemId"]): CarrierKind {
+  if (itemId === "tbar") return "tbar";
+  if (itemId === "chair") return "chair";
+  return "cabin";
+}
+
+/** How the three kinds of carrier behave on the rope. */
+const CARRIER_RIG: Record<CarrierKind, { hang: number; speed: number }> = {
+  cabin: { hang: 0.55, speed: 0.06 },
+  chair: { hang: 0.72, speed: 0.075 },
+  // A bar is dragged along the ground rather than hung from the rope.
+  tbar: { hang: 1.9, speed: 0.075 },
+};
+
+interface Rig {
+  lift: PlacedLift;
+  line: LiftLine;
+  up: THREE.CatmullRomCurve3;
+  down: THREE.CatmullRomCurve3;
+  cables: THREE.TubeGeometry[];
+  kind: CarrierKind;
+  riders: number;
+}
+
+/**
+ * One rider on a rope: which curve, where along it, and which way round.
+ *
+ * Flattened across every lift so all carriers of one kind can be drawn as a
+ * single instanced mesh. Per-lift meshes multiplied out to well over a
+ * thousand draw calls on a large resort, which is exactly what the project's
+ * performance budget forbids.
+ */
+interface Rider {
+  curve: THREE.CatmullRomCurve3;
+  /** Position along the curve at time zero, 0..1. */
+  phase: number;
+  speed: number;
+  hang: number;
+  /** Return side runs the other way, so one rope reads as circulating. */
+  reverse: boolean;
+}
+
 function Lifts() {
   const lifts = useGame((s) => s.lifts);
   const hm = getHeightmap();
   const selectEntity = useGame((s) => s.selectEntity);
-  return (
-    <group>
-      {lifts.map((l) => (
-        <LiftRig
-          key={l.id}
-          lift={l}
-          hm={hm}
-          budget={carrierBudget(lifts.length)}
-          onSelect={() => selectEntity(l.id)}
-        />
-      ))}
-    </group>
-  );
-}
+  const budget = carrierBudget(lifts.length);
 
-function LiftRig({
-  lift: l,
-  hm,
-  budget,
-  onSelect,
-}: {
-  lift: PlacedLift;
-  hm: Heightmap;
-  budget: number;
-  onSelect: () => void;
-}) {
-  const surface = l.itemId === "tbar";
-  const rig = useMemo(() => {
-    const line = liftLine(l, hm);
-    // Two lines side by side: one going up, one coming back. A single cable
-    // is the tell that a lift was drawn rather than modelled.
-    const gap = surface ? 0.24 : 0.38;
-    const up = cableCurve(line.tops, line.side.clone().multiplyScalar(gap));
-    const down = cableCurve(line.tops, line.side.clone().multiplyScalar(-gap));
-    return {
-      line,
-      up,
-      down,
-      cables: [
-        new THREE.TubeGeometry(up, Math.max(24, line.tops.length * 8), 0.045, 5, false),
-        new THREE.TubeGeometry(down, Math.max(24, line.tops.length * 8), 0.045, 5, false),
-      ],
-    };
-  }, [l, hm, surface]);
+  const rigs = useMemo<Rig[]>(
+    () =>
+      lifts.map((lift) => {
+        const line = liftLine(lift, hm);
+        const kind = carrierKindOf(lift.itemId);
+        // Two lines side by side: one going up, one coming back. A single
+        // cable is the tell that a lift was drawn rather than modelled.
+        const gap = kind === "tbar" ? 0.24 : 0.38;
+        const up = cableCurve(line.tops, line.side.clone().multiplyScalar(gap));
+        const down = cableCurve(line.tops, line.side.clone().multiplyScalar(-gap));
+        const segments = Math.max(24, line.tops.length * 8);
+        return {
+          lift,
+          line,
+          up,
+          down,
+          kind,
+          // A tram has two cars by definition; the rest take what they are given.
+          riders: lift.itemId === "tram" ? Math.min(2, budget) : budget,
+          cables: [
+            new THREE.TubeGeometry(up, segments, 0.045, 5, false),
+            new THREE.TubeGeometry(down, segments, 0.045, 5, false),
+          ],
+        };
+      }),
+    [lifts, hm, budget],
+  );
 
   useEffect(
     () => () => {
-      for (const c of rig.cables) c.dispose();
+      for (const rig of rigs) for (const c of rig.cables) c.dispose();
     },
-    [rig],
+    [rigs],
   );
 
   return (
-    <group
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelect();
-      }}
-    >
-      {rig.cables.map((geo, i) => (
-        <mesh key={i} geometry={geo}>
-          <meshStandardMaterial color="#26323d" metalness={0.55} roughness={0.35} />
-        </mesh>
+    <group>
+      {/* Cables stay per-lift: each is a unique curve, and they are what a
+          player clicks to select the installation. */}
+      {rigs.map((rig) => (
+        <group
+          key={rig.lift.id}
+          onClick={(e) => {
+            e.stopPropagation();
+            selectEntity(rig.lift.id);
+          }}
+        >
+          {rig.cables.map((geo, i) => (
+            <mesh key={i} geometry={geo}>
+              <meshStandardMaterial color="#26323d" metalness={0.55} roughness={0.35} />
+            </mesh>
+          ))}
+        </group>
       ))}
-      {rig.line.towers.map((t, i) => (
-        <Pylon key={i} at={t} side={rig.line.side} />
-      ))}
-      <LiftCarriers curve={rig.up} back={rig.down} kind={l.itemId} budget={budget} />
-    </group>
-  );
-}
-
-/** A lattice tower with the crossarm the cables actually run over. */
-function Pylon({ at, side }: { at: THREE.Vector3; side: THREE.Vector3 }) {
-  const yaw = Math.atan2(side.x, side.z);
-  return (
-    <group position={[at.x, at.y, at.z]} rotation={[0, yaw, 0]}>
-      <mesh position={[0, PYLON_HEIGHT / 2, 0]} castShadow>
-        <cylinderGeometry args={[0.09, 0.16, PYLON_HEIGHT, 6]} />
-        <meshStandardMaterial color="#48555f" metalness={0.35} roughness={0.6} />
-      </mesh>
-      {/* Crossarm, across the line rather than along it. */}
-      <mesh position={[0, PYLON_HEIGHT, 0]} castShadow>
-        <boxGeometry args={[1.05, 0.1, 0.12]} />
-        <meshStandardMaterial color="#3b4750" metalness={0.4} roughness={0.55} />
-      </mesh>
-      {[-0.38, 0.38].map((dx) => (
-        <mesh key={dx} position={[dx, PYLON_HEIGHT + 0.08, 0]}>
-          <cylinderGeometry args={[0.09, 0.09, 0.1, 10]} />
-          <meshStandardMaterial color="#d9890f" metalness={0.3} roughness={0.5} />
-        </mesh>
-      ))}
+      <PylonField rigs={rigs} />
+      <CarrierField rigs={rigs} />
     </group>
   );
 }
 
 /**
- * What rides the cable, and how.
+ * Every tower on the mountain, in three draw calls.
  *
- * Everything used to sit centred on a single line. A gondola hangs under the
- * rope on a hanger, a chair hangs lower with an open seat, and a T-bar is a
- * bar near the ground on a thin rope — three different silhouettes that say
- * what kind of lift this is from a distance.
+ * Mast, crossarm and sheaves are separate instanced meshes because they are
+ * different shapes and colours; all three share one transform per tower.
  */
-function LiftCarriers({
-  curve,
-  back,
-  kind,
-  budget,
-}: {
-  curve: THREE.CatmullRomCurve3;
-  back: THREE.CatmullRomCurve3;
-  kind: PlacedLift["itemId"];
-  budget: number;
-}) {
-  const cabin = kind === "gondola" || kind === "tram" || kind === "funitel" || kind === "glacier";
-  // A tram has two cars by definition; everything else takes what it is given.
-  const n = kind === "tram" ? Math.min(2, budget) : budget;
-  const speed = kind === "tram" ? 0.035 : cabin ? 0.06 : 0.075;
-  const hang = kind === "tbar" ? 1.9 : cabin ? 0.55 : 0.72;
-  const up = useRef<THREE.Group[]>([]);
-  const dn = useRef<THREE.Group[]>([]);
-  const point = useMemo(() => new THREE.Vector3(), []);
+function PylonField({ rigs }: { rigs: Rig[] }) {
+  const towers = useMemo(() => {
+    const out: { at: THREE.Vector3; yaw: number }[] = [];
+    for (const rig of rigs) {
+      const yaw = Math.atan2(rig.line.side.x, rig.line.side.z);
+      for (const at of rig.line.towers) out.push({ at, yaw });
+    }
+    return out;
+  }, [rigs]);
+
+  const mast = useRef<THREE.InstancedMesh>(null);
+  const arm = useRef<THREE.InstancedMesh>(null);
+  const sheave = useRef<THREE.InstancedMesh>(null);
+
+  const parts = useMemo(
+    () => ({
+      mast: offsetGeometry(
+        new THREE.CylinderGeometry(0.09, 0.16, PYLON_HEIGHT, 6),
+        PYLON_HEIGHT / 2,
+      ),
+      arm: offsetGeometry(new THREE.BoxGeometry(1.05, 0.1, 0.12), PYLON_HEIGHT),
+      // One wide, flat cylinder reads as the pair of sheaves at the distance
+      // this game is played at, and costs one instance instead of two.
+      sheave: offsetGeometry(
+        new THREE.CylinderGeometry(0.09, 0.09, 0.86, 10),
+        PYLON_HEIGHT + 0.08,
+        Math.PI / 2,
+      ),
+    }),
+    [],
+  );
+  useEffect(
+    () => () => {
+      for (const g of Object.values(parts)) g.dispose();
+    },
+    [parts],
+  );
+
+  useEffect(() => {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const one = new THREE.Vector3(1, 1, 1);
+    const at = new THREE.Vector3();
+    towers.forEach((t, i) => {
+      q.setFromAxisAngle(up, t.yaw);
+      // Each part's offset is baked into its geometry, so one transform per
+      // tower positions all three.
+      m.compose(at.copy(t.at), q, one);
+      mast.current?.setMatrixAt(i, m);
+      arm.current?.setMatrixAt(i, m);
+      sheave.current?.setMatrixAt(i, m);
+    });
+    for (const ref of [mast, arm, sheave]) {
+      if (ref.current) ref.current.instanceMatrix.needsUpdate = true;
+    }
+  }, [towers]);
+
+  if (towers.length === 0) return null;
+  return (
+    <group>
+      <instancedMesh
+        ref={mast}
+        args={[parts.mast, undefined, towers.length]}
+        castShadow
+        frustumCulled={false}
+      >
+        <meshStandardMaterial color="#48555f" metalness={0.35} roughness={0.6} />
+      </instancedMesh>
+      <instancedMesh
+        ref={arm}
+        args={[parts.arm, undefined, towers.length]}
+        castShadow
+        frustumCulled={false}
+      >
+        <meshStandardMaterial color="#3b4750" metalness={0.4} roughness={0.55} />
+      </instancedMesh>
+      <instancedMesh
+        ref={sheave}
+        args={[parts.sheave, undefined, towers.length]}
+        frustumCulled={false}
+      >
+        <meshStandardMaterial color="#d9890f" metalness={0.3} roughness={0.5} />
+      </instancedMesh>
+    </group>
+  );
+}
+
+/**
+ * Bake an offset into a geometry so an instance needs no child node.
+ *
+ * Built once in a memo rather than through R3F's `onUpdate`: that hook can
+ * fire more than once, and `translate` is cumulative, so the part would
+ * silently drift further from its tower on every re-render.
+ */
+function offsetGeometry<T extends THREE.BufferGeometry>(geo: T, y: number, rotateZ = 0): T {
+  if (rotateZ) geo.rotateZ(rotateZ);
+  geo.translate(0, y, 0);
+  return geo;
+}
+
+/**
+ * Every carrier on the mountain, animated as instances.
+ *
+ * Two draw calls per kind — body and detail — sharing one transform each, plus
+ * one for the hangers. A resort with twenty lifts therefore costs the same
+ * handful of calls as one with a single lift.
+ */
+function CarrierField({ rigs }: { rigs: Rig[] }) {
+  const byKind = useMemo(() => {
+    const out: Record<CarrierKind, Rider[]> = { cabin: [], chair: [], tbar: [] };
+    for (const rig of rigs) {
+      const { hang, speed } = CARRIER_RIG[rig.kind];
+      for (let i = 0; i < rig.riders; i++) {
+        const phase = i / rig.riders;
+        out[rig.kind].push({ curve: rig.up, phase, speed, hang, reverse: false });
+        out[rig.kind].push({ curve: rig.down, phase, speed, hang, reverse: true });
+      }
+    }
+    return out;
+  }, [rigs]);
+
+  return (
+    <group>
+      {(["cabin", "chair", "tbar"] as const).map((kind) => (
+        <CarrierInstances key={kind} kind={kind} riders={byKind[kind]} />
+      ))}
+    </group>
+  );
+}
+
+function CarrierInstances({ kind, riders }: { kind: CarrierKind; riders: Rider[] }) {
+  const body = useRef<THREE.InstancedMesh>(null);
+  const detail = useRef<THREE.InstancedMesh>(null);
+  const rope = useRef<THREE.InstancedMesh>(null);
+  const scratch = useMemo(
+    () => ({
+      m: new THREE.Matrix4(),
+      p: new THREE.Vector3(),
+      q: new THREE.Quaternion(),
+      one: new THREE.Vector3(1, 1, 1),
+    }),
+    [],
+  );
+  const parts = useMemo(() => carrierParts(kind), [kind]);
+  useEffect(
+    () => () => {
+      parts.rope.dispose();
+      parts.body.dispose();
+      parts.detail.dispose();
+    },
+    [parts],
+  );
 
   useFrame(() => {
-    const t0 = (performance.now() / 1000) * speed;
-    for (let i = 0; i < n; i++) {
-      const u = (t0 + i / n) % 1;
-      const a = up.current[i];
-      if (a) {
-        curve.getPointAt(u, point);
-        a.position.set(point.x, point.y - hang, point.z);
-      }
-      const b = dn.current[i];
-      if (b) {
-        // The return side runs the other way, which is what makes the pair
-        // read as one circulating rope instead of two parallel queues.
-        back.getPointAt(1 - u, point);
-        b.position.set(point.x, point.y - hang, point.z);
-      }
+    if (riders.length === 0) return;
+    const now = performance.now() / 1000;
+    const { m, p, q, one } = scratch;
+    for (let i = 0; i < riders.length; i++) {
+      const r = riders[i]!;
+      const t = (now * r.speed + r.phase) % 1;
+      r.curve.getPointAt(r.reverse ? 1 - t : t, p);
+      p.y -= r.hang;
+      m.compose(p, q, one);
+      body.current?.setMatrixAt(i, m);
+      detail.current?.setMatrixAt(i, m);
+      rope.current?.setMatrixAt(i, m);
+    }
+    for (const ref of [body, detail, rope]) {
+      if (ref.current) ref.current.instanceMatrix.needsUpdate = true;
     }
   });
 
-  const Carrier = kind === "tbar" ? TBarCarrier : cabin ? GondolaCabin : ChairCarrier;
+  if (riders.length === 0) return null;
+  const n = riders.length;
   return (
     <group>
-      {Array.from({ length: n }).map((_, i) => (
-        <group key={`u${i}`} ref={(el) => void (el && (up.current[i] = el))}>
-          <group position={[0, hang, 0]}>
-            <Hanger length={hang} />
-          </group>
-          <Carrier />
-        </group>
-      ))}
-      {Array.from({ length: n }).map((_, i) => (
-        <group key={`d${i}`} ref={(el) => void (el && (dn.current[i] = el))}>
-          <group position={[0, hang, 0]}>
-            <Hanger length={hang} />
-          </group>
-          <Carrier />
-        </group>
-      ))}
+      {/* The arm back up to the rope. Without it, carriers float. */}
+      <instancedMesh ref={rope} args={[parts.rope, undefined, n]} frustumCulled={false}>
+        <meshStandardMaterial color="#33414d" metalness={0.5} roughness={0.4} />
+      </instancedMesh>
+      <instancedMesh ref={body} args={[parts.body, undefined, n]} castShadow frustumCulled={false}>
+        <meshStandardMaterial {...parts.bodyMaterial} />
+      </instancedMesh>
+      <instancedMesh ref={detail} args={[parts.detail, undefined, n]} frustumCulled={false}>
+        <meshStandardMaterial {...parts.detailMaterial} />
+      </instancedMesh>
     </group>
   );
 }
 
-/** The arm between rope and carrier. Without it, cabins float. */
-function Hanger({ length }: { length: number }) {
-  return (
-    <mesh position={[0, -length / 2, 0]}>
-      <cylinderGeometry args={[0.025, 0.025, length, 5]} />
-      <meshStandardMaterial color="#33414d" metalness={0.5} roughness={0.4} />
-    </mesh>
-  );
-}
-
-function ChairCarrier() {
-  return (
-    <group>
-      <mesh castShadow>
-        <boxGeometry args={[0.62, 0.07, 0.3]} />
-        <meshStandardMaterial color="#2f6fed" metalness={0.2} roughness={0.5} />
-      </mesh>
-      <mesh position={[0, 0.22, -0.15]}>
-        <boxGeometry args={[0.62, 0.4, 0.06]} />
-        <meshStandardMaterial color="#2f6fed" metalness={0.2} roughness={0.5} />
-      </mesh>
-    </group>
-  );
-}
-
-function TBarCarrier() {
-  return (
-    <group>
-      <mesh position={[0, 0.16, 0]}>
-        <cylinderGeometry args={[0.02, 0.02, 0.32, 5]} />
-        <meshStandardMaterial color="#33414d" />
-      </mesh>
-      <mesh>
-        <boxGeometry args={[0.42, 0.06, 0.06]} />
-        <meshStandardMaterial color="#d9890f" roughness={0.6} />
-      </mesh>
-    </group>
-  );
+/** Geometry and colours for one kind of carrier, built once. */
+function carrierParts(kind: CarrierKind) {
+  const hang = CARRIER_RIG[kind].hang;
+  const rope = offsetGeometry(new THREE.CylinderGeometry(0.025, 0.025, hang, 5), hang / 2);
+  if (kind === "cabin") {
+    const detail = new THREE.BoxGeometry(0.3, 0.2, 0.03);
+    detail.translate(0, 0.06, 0.18);
+    return {
+      rope,
+      body: new THREE.BoxGeometry(0.42, 0.44, 0.34),
+      detail,
+      bodyMaterial: { color: "#c23b32", metalness: 0.25, roughness: 0.42 },
+      detailMaterial: { color: "#c9e7f7", emissive: "#c9e7f7", emissiveIntensity: 0.25 },
+    };
+  }
+  if (kind === "chair") {
+    const back = new THREE.BoxGeometry(0.62, 0.4, 0.06);
+    back.translate(0, 0.22, -0.15);
+    return {
+      rope,
+      body: new THREE.BoxGeometry(0.62, 0.07, 0.3),
+      detail: back,
+      bodyMaterial: { color: "#2f6fed", metalness: 0.2, roughness: 0.5 },
+      detailMaterial: { color: "#2f6fed", metalness: 0.2, roughness: 0.5 },
+    };
+  }
+  return {
+    rope,
+    body: new THREE.BoxGeometry(0.42, 0.06, 0.06),
+    detail: offsetGeometry(new THREE.CylinderGeometry(0.02, 0.02, 0.32, 5), 0.16),
+    bodyMaterial: { color: "#d9890f", roughness: 0.6 },
+    detailMaterial: { color: "#33414d" },
+  };
 }
 
 function pistePoints(p: Pick<PlacedPiste, "hexes">, hm: Heightmap) {

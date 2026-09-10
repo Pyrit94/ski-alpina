@@ -20,6 +20,16 @@ export interface RoomPlayer {
   userId?: string;
   /** Hex this player is pointing at, for the others' benefit. */
   focus?: Axial | null;
+  /**
+   * Whether they are connected right now.
+   *
+   * A player who goes quiet is marked offline rather than deleted, so coming
+   * back reuses the same id. Deleting them meant a reconnect minted a fresh
+   * id, which gave the same person a second row in the contributor list and a
+   * different colour on the mountain — their own past work stopped being
+   * theirs.
+   */
+  online: boolean;
 }
 
 export interface RoomEvent {
@@ -54,36 +64,27 @@ export class GameRoom {
    * presence list, which is what made the online count drift upwards.
    */
   join(name: string, token?: string, identity?: { userId: string; name: string }): RoomPlayer {
-    if (identity) {
-      const known = [...this.players.values()].find((p) => p.userId === identity.userId);
-      if (known) {
-        known.lastSeen = Date.now();
-        known.name = identity.name;
-        return known;
-      }
-      const player: RoomPlayer = {
-        id: createId("pl"),
-        token: createId("tok"),
-        name: identity.name,
-        role: "builder",
-        lastSeen: Date.now(),
-        userId: identity.userId,
-      };
-      this.players.set(player.id, player);
-      return player;
-    }
-    const existing = token ? [...this.players.values()].find((p) => p.token === token) : undefined;
-    if (existing) {
-      existing.lastSeen = Date.now();
-      existing.name = name.slice(0, 24);
-      return existing;
+    // Look across offline players too: the whole point of keeping them is that
+    // returning restores the same identity rather than creating a stranger.
+    const known = identity
+      ? [...this.players.values()].find((p) => p.userId === identity.userId)
+      : token
+        ? [...this.players.values()].find((p) => p.token === token)
+        : undefined;
+    if (known) {
+      known.lastSeen = Date.now();
+      known.online = true;
+      known.name = identity ? identity.name : name.slice(0, 24) || known.name;
+      return known;
     }
     const player: RoomPlayer = {
       id: createId("pl"),
-      token: token && token.length >= 8 ? token : createId("tok"),
-      name: name.slice(0, 24) || "Gast",
+      token: identity ? createId("tok") : token && token.length >= 8 ? token : createId("tok"),
+      name: (identity ? identity.name : name.slice(0, 24)) || "Gast",
       role: "builder",
       lastSeen: Date.now(),
+      online: true,
+      ...(identity ? { userId: identity.userId } : {}),
     };
     this.players.set(player.id, player);
     return player;
@@ -96,25 +97,42 @@ export class GameRoom {
   }
 
   /**
-   * Forget players who stopped answering.
+   * Take quiet players out of the presence list, without forgetting them.
    *
-   * Nothing ever removed a player, so "1 online" only ever climbed — a closed
-   * tab left a ghost in the list for the lifetime of the process.
+   * Nothing used to remove a player at all, so "1 online" only ever climbed.
+   * Deleting them was the other extreme: a reconnect minted a fresh id and the
+   * same person picked up a second row in the contributor list. They go offline
+   * instead, and are only really forgotten once the roster grows past what any
+   * plausible session needs — oldest first, and never one who is still here.
    */
   prunePlayers(now = Date.now()): void {
-    for (const [id, player] of this.players) {
-      if (now - player.lastSeen > PRESENCE_TIMEOUT_MS) this.players.delete(id);
+    for (const player of this.players.values()) {
+      if (player.online && now - player.lastSeen > PRESENCE_TIMEOUT_MS) {
+        player.online = false;
+        player.focus = null;
+      }
+    }
+    if (this.players.size <= MAX_REMEMBERED_PLAYERS) return;
+    const forgettable = [...this.players.values()]
+      .filter((p) => !p.online)
+      .sort((a, b) => a.lastSeen - b.lastSeen);
+    let over = this.players.size - MAX_REMEMBERED_PLAYERS;
+    for (const player of forgettable) {
+      if (over-- <= 0) break;
+      this.players.delete(player.id);
     }
   }
 
   presence(): PlayerPresence[] {
-    return [...this.players.values()].map((p) => ({
-      id: p.id,
-      name: p.name,
-      role: p.role,
-      lastSeen: p.lastSeen,
-      focus: p.focus ?? null,
-    }));
+    return [...this.players.values()]
+      .filter((p) => p.online)
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        role: p.role,
+        lastSeen: p.lastSeen,
+        focus: p.focus ?? null,
+      }));
   }
 
   submit(playerId: string, intent: Intent): { ok: true; event: RoomEvent } | { ok: false; code: string; reason: string } {
@@ -180,3 +198,10 @@ export const PERSIST_MS = ECONOMY.persistMs;
  * closed tab does not haunt the online count.
  */
 export const PRESENCE_TIMEOUT_MS = 45_000;
+/**
+ * How many identities a room keeps, online and offline together.
+ *
+ * Generous for a resort meant for two people, and bounded so a long-running
+ * server cannot accumulate every guest token it has ever seen.
+ */
+export const MAX_REMEMBERED_PLAYERS = 32;

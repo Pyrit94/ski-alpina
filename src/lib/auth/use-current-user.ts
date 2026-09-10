@@ -56,7 +56,11 @@ export type CurrentUserState = {
  */
 export function useCurrentUserState(): CurrentUserState {
   if (!authEnabled) return { user: DEV_USER, isPending: false };
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- authEnabled is constant for the app's lifetime
+  // A hook behind an early return, which is normally a mistake: it is safe
+  // only because `authEnabled` is a module constant fixed at load, so the hook
+  // order is identical on every render of a given component. The rule no
+  // longer flags this, so the disable directive it used to need is gone — the
+  // reasoning is not.
   const { data, isPending } = authClient.useSession();
   const user = data?.user;
   return {
