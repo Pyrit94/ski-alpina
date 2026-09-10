@@ -39,7 +39,7 @@ test("quest progress survives while a newly added goal appears", () => {
   const first = QUEST_DEFS[0]!;
   const migrated = migrateResort({
     quests: [
-      { id: first.id, title: "alt", hint: "alt", xp: 1, coins: 1, gems: 1, progress: 1, target: 1, claimed: true },
+      { id: first.id, title: "alt", hint: "alt", xp: 1, coins: 1, gems: 1, progress: 1, target: 1, claimed: true, tier: 0 },
     ],
   });
   assert.equal(migrated.quests.length, QUEST_DEFS.length);
@@ -54,7 +54,7 @@ test("quest progress survives while a newly added goal appears", () => {
 test("a quest that no longer exists is dropped", () => {
   const migrated = migrateResort({
     quests: [
-      { id: "gone", title: "x", hint: "x", xp: 1, coins: 1, gems: 1, progress: 5, target: 5, claimed: false },
+      { id: "gone", title: "x", hint: "x", xp: 1, coins: 1, gems: 1, progress: 5, target: 5, claimed: false, tier: 0 },
     ],
   });
   assert.equal(

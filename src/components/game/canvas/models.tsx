@@ -18,6 +18,8 @@ export function BuildingModel({ itemId, constructing }: { itemId: ItemId; constr
     case "chair":
     case "tbar":
     case "tram":
+    case "funitel":
+    case "glacier":
       return <Station constructing={constructing} kind={itemId} />;
     case "hotel5":
       return <Hotel floors={5} width={2.4} />;
@@ -183,7 +185,9 @@ function Hotel({ floors, width, accent = woodDark }: { floors: number; width: nu
 }
 
 function Station({ kind, constructing }: { kind: ItemId; constructing?: boolean }) {
-  const roof = kind === "gondola" || kind === "tram" ? 1.9 : 1.5;
+  // Cabin cableways get the taller hall; surface and chair lifts a low one.
+  const cabinway = kind === "gondola" || kind === "tram" || kind === "funitel" || kind === "glacier";
+  const roof = cabinway ? 1.9 : 1.5;
   return (
     <group>
       <mesh position={[0, 0.12, 0]} receiveShadow>
@@ -202,7 +206,7 @@ function Station({ kind, constructing }: { kind: ItemId; constructing?: boolean 
         <boxGeometry args={[0.55, 0.08, 0.55]} />
         <meshStandardMaterial color="#2a3a48" />
       </mesh>
-      {kind === "gondola" && (
+      {cabinway && (
         <mesh position={[0.55, 0.55, 0.9]} rotation={[0, 0.2, 0]}>
           <boxGeometry args={[0.42, 0.38, 0.32]} />
           <meshStandardMaterial color={red} />

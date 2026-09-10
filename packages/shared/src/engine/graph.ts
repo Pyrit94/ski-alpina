@@ -20,7 +20,10 @@ export interface LiftEdge {
   lift: PlacedLift;
   /** Metered edge for the ride up. */
   uphill: number;
-  /** Metered edge for the ride down, for cabins that carry guests both ways. */
+  /**
+   * Metered edge for the ride down, once descents are open. Null until then,
+   * and null for a lift whose guests can only ride it uphill.
+   */
   downhill: number | null;
   capacity: number;
   base: Axial;
@@ -46,6 +49,16 @@ export interface ResortGraph {
   pistes: PisteEdge[];
   /** People per hour offered at the source, after clustering. */
   offered: number;
+  /**
+   * Add the ride-down edges, then solve again to place the rest of the demand.
+   *
+   * Guests would rather ski, and max-flow has no preferences: it takes whatever
+   * augmenting path it finds first, so the order edges happen to be added
+   * decided whether a gondola or a piste carried the resort. Solving once
+   * without descents and once with them states the preference exactly — ski if
+   * you can, ride down if you must — and costs one extra solve on a tiny graph.
+   */
+  openDescents: () => void;
 }
 
 export interface GraphInput {
@@ -58,11 +71,13 @@ export interface GraphInput {
   exits: Axial[];
   dem: Dem;
   /**
-   * Multiplier on a piste's carrying capacity, for effects that widen a run
-   * (a ski school on the easy slopes, mountain rescue on the steep ones).
-   * Kept as a callback so no economy number has to reach this module.
+   * Multiplier on a piste's carrying capacity, for effects that widen or close
+   * a run — a ski school on the easy slopes, mountain rescue on the steep
+   * ones, bare ground under the snow line. Kept as a callback so no economy
+   * number has to reach this module; the ends come along because snow cover
+   * depends on how high the run sits.
    */
-  pisteCapacityScale?: (piste: PlacedPiste) => number;
+  pisteCapacityScale?: (piste: PlacedPiste, ends: { top: Axial; bottom: Axial }) => number;
 }
 
 function elevationAt(dem: Dem, hex: Axial): number {
@@ -180,6 +195,7 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
     net.addEdge(ski(cluster[port]!), SINK, UNCAPPED);
   }
 
+  const pendingDescents: { edge: LiftEdge; from: number; to: number; capacity: number }[] = [];
   const liftEdges: LiftEdge[] = liftPorts.map((p, i) => {
     const item = BY_ID[p.lift.itemId];
     const capacity = liftThroughput(item, p.lift.upgrades);
@@ -191,17 +207,31 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
     net.addEdge(ski(baseCluster), liftIn(i), UNCAPPED);
     const uphill = net.addEdge(liftIn(i), liftOut(i), capacity);
     net.addEdge(liftOut(i), ski(topCluster), UNCAPPED);
+    const edge: LiftEdge = {
+      lift: p.lift,
+      uphill,
+      downhill: null,
+      capacity,
+      base: p.base,
+      top: p.top,
+      rise: Math.round(elevationAt(dem, p.top) - elevationAt(dem, p.base)),
+    };
     const share = item.downhillShare ?? 0;
-    const downhill =
-      share > 0
-        ? net.addEdge(ski(topCluster), ski(baseCluster), Math.round(capacity * share))
-        : null;
-    return { lift: p.lift, uphill, downhill, capacity, base: p.base, top: p.top, rise: Math.round(elevationAt(dem, p.top) - elevationAt(dem, p.base)) };
+    if (share > 0) {
+      pendingDescents.push({
+        edge,
+        from: ski(topCluster),
+        to: ski(baseCluster),
+        capacity: Math.round(capacity * share),
+      });
+    }
+    return edge;
   });
 
   const pisteEdges: PisteEdge[] = pistePorts.map((p) => {
     const base = BY_ID[p.piste.itemId].capacity ?? 0;
-    const capacity = Math.round(base * (pisteCapacityScale?.(p.piste) ?? 1));
+    const scale = pisteCapacityScale?.(p.piste, { top: p.top, bottom: p.bottom }) ?? 1;
+    const capacity = Math.max(0, Math.round(base * scale));
     return {
       piste: p.piste,
       edge: net.addEdge(ski(cluster[p.topPort]!), ski(cluster[p.bottomPort]!), capacity),
@@ -223,5 +253,20 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
     }
   }
 
-  return { net, source: SOURCE, sink: SINK, lifts: liftEdges, pistes: pisteEdges, offered };
+  const openDescents = () => {
+    for (const d of pendingDescents) {
+      if (d.edge.downhill !== null) continue;
+      d.edge.downhill = net.addEdge(d.from, d.to, d.capacity);
+    }
+  };
+
+  return {
+    net,
+    source: SOURCE,
+    sink: SINK,
+    lifts: liftEdges,
+    pistes: pisteEdges,
+    offered,
+    openDescents,
+  };
 }

@@ -1,4 +1,4 @@
-import type { WeatherKind, WeatherState } from "./types";
+import type { WeatherState } from "./types";
 
 function mapCode(code: number, temp: number): Pick<WeatherState, "kind" | "label" | "snowQuality"> {
   if (code === 0) return { kind: "sun", label: "Klar", snowQuality: 0.9 };
@@ -33,27 +33,7 @@ export async function fetchAlpineWeather(): Promise<WeatherState | null> {
   }
 }
 
-export function cycleWeather(kind: WeatherKind, rng: number): WeatherState {
-  const roll = rng;
-  let next: WeatherKind = kind;
-  if (roll > 0.82) next = "snow";
-  else if (roll > 0.64) next = "cloud";
-  else if (roll > 0.5) next = "sun";
-  else if (roll > 0.42) next = "fog";
-  else if (roll > 0.97) next = "storm";
-  const temp =
-    next === "sun" ? -4 : next === "snow" ? -8 : next === "storm" ? -11 : next === "fog" ? -3 : -6;
-  const snowQuality =
-    next === "snow" ? 0.95 : next === "sun" ? 0.84 : next === "storm" ? 0.5 : next === "fog" ? 0.68 : 0.78;
-  const label =
-    next === "sun"
-      ? "Sonnig"
-      : next === "snow"
-        ? "Schneefall"
-        : next === "storm"
-          ? "Sturm"
-          : next === "fog"
-            ? "Nebel"
-            : "Bewölkt";
-  return { kind: next, tempC: temp, snowQuality, live: false, label };
-}
+// `cycleWeather` used to live here and was never called. Its storm branch was
+// unreachable anyway — `roll > 0.97` sat behind `roll > 0.82` — and weather it
+// produced could not have reached the sim, which runs on the server. The sky is
+// now rolled there, deterministically per day, in packages/shared/engine/weather.

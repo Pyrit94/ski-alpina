@@ -10,5 +10,5 @@ export {
   isPiste,
 } from "@ski/config";
 export type { CatalogItem, Category, ItemId } from "@ski/config";
-export { xpForLevel, levelFromXp, liftThroughput } from "@ski/shared";
+export { xpForLevel, levelFromXp, liftThroughput, seasonPhase, SEASON_LABEL } from "@ski/shared";
 export type { UpgradeDef } from "./types";

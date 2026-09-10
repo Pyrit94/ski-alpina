@@ -30,7 +30,7 @@ import {
   X,
   ZoomIn,
 } from "lucide-react";
-import { BY_ID, CATALOG, CATEGORIES, QUICK, UPGRADES, isLift, levelFromXp, liftThroughput, xpForLevel } from "@/lib/game/catalog";
+import { BY_ID, CATALOG, CATEGORIES, QUICK, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
 import { fmt, fmtCompact } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
 import { useGame } from "@/lib/game/store";
@@ -509,8 +509,10 @@ function InfoPanel() {
  */
 function OperationsPanel() {
   const stats = useGame((s) => s.stats);
+  const day = useGame((s) => s.day);
   const idle = stats.idleLifts + stats.idlePistes;
   const turnedAway = stats.demandPerHour - stats.peoplePerHour;
+  const phase = seasonPhase(day);
   return (
     <Panel className="p-3">
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Betrieb</div>
@@ -554,8 +556,20 @@ function OperationsPanel() {
             naechste Ausbau gehoert dorthin.
           </Warning>
         )}
+        {stats.closedPistes > 0 && (
+          <Warning tone="warn">
+            {stats.closedPistes === 1 ? "Eine Piste liegt" : `${stats.closedPistes} Pisten liegen`}{" "}
+            unter der Schneegrenze und {stats.closedPistes === 1 ? "ist" : "sind"} zu.
+            {phase === "summer"
+              ? " Im Sommer traegt nur, was auch talwaerts faehrt."
+              : " Beschneiung oder hoeher gelegene Abfahrten helfen."}
+          </Warning>
+        )}
       </div>
       <div className="mt-2 text-[10px] text-muted">
+        {SEASON_LABEL[phase]} · Schneegrenze {fmt(stats.snowLineM)} m
+      </div>
+      <div className="text-[10px] text-muted">
         Hoehenmeter {fmt(stats.verticalPerHour)}/h · Kapazitaet {fmt(stats.liftCapacity)}/h
       </div>
     </Panel>

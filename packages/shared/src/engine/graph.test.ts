@@ -40,10 +40,13 @@ const run = (top: number, bottom: number): Axial[] => {
   return out;
 };
 
+/** The two-phase solve the sim runs: ski what you can, ride the rest down. */
 const solve = (input: Parameters<typeof buildResortGraph>[0]) => {
   const graph = buildResortGraph(input);
-  const served = graph.net.maxFlow(graph.source, graph.sink);
-  return { graph, served };
+  const skied = graph.net.maxFlow(graph.source, graph.sink);
+  graph.openDescents();
+  const served = skied + graph.net.maxFlow(graph.source, graph.sink);
+  return { graph, served, skied };
 };
 
 const base = { demands: [{ hex: VILLAGE_HEX, perHour: 500 }], exits: [], dem };
@@ -90,6 +93,35 @@ test("a gondola is its own way down, so it works without a piste", () => {
   // The ride up is wider; coming back down is what limits a sightseeing loop.
   assert.equal(served, graph.net.capacityOf(down));
   assert.ok(served < graph.lifts[0]!.capacity);
+});
+
+test("guests ski when they can and ride down only for the overflow", () => {
+  // Max-flow has no preferences, so without the two-phase solve the order the
+  // edges happened to be added decided this — and the gondola always won.
+  const { graph, skied, served } = solve({
+    lifts: [mkLift("l1", "gondola", col(9), col(1))],
+    pistes: [mkPiste("p1", "piste-black", run(1, 9))],
+    demands: [{ hex: VILLAGE_HEX, perHour: 900 }],
+    exits: [],
+    dem,
+  });
+  const onPiste = graph.net.flowOn(graph.pistes[0]!.edge);
+  const inCabins = graph.net.flowOn(graph.lifts[0]!.downhill!);
+  // The 700-wide run fills first; only the rest takes the cabins back down.
+  assert.equal(onPiste, graph.pistes[0]!.capacity);
+  assert.equal(skied, graph.pistes[0]!.capacity);
+  assert.equal(inCabins, served - skied);
+  assert.ok(inCabins > 0);
+});
+
+test("a run wide enough for everyone leaves the cabins empty", () => {
+  const { graph } = solve({
+    lifts: [mkLift("l1", "gondola", col(9), col(1))],
+    pistes: [mkPiste("p1", "piste-blue", run(1, 9))],
+    ...base,
+  });
+  assert.equal(graph.net.flowOn(graph.lifts[0]!.downhill!), 0);
+  assert.equal(graph.net.flowOn(graph.pistes[0]!.edge), 500);
 });
 
 test("a lift nowhere near an arrival point carries nobody", () => {

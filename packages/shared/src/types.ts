@@ -58,6 +58,8 @@ export interface QuestState {
   progress: number;
   target: number;
   claimed: boolean;
+  /** Times a standing contract has been completed. 0 on a one-shot goal. */
+  tier: number;
 }
 
 export interface WeatherState {
@@ -100,6 +102,15 @@ export interface SimStats {
   bottleneckId: string;
   /** Utilisation of that edge, 0..1. */
   bottleneckUse: number;
+  /**
+   * Height in metres above which there is snow today, snowmaking included.
+   *
+   * A run whose bottom sits under this loses the bare part of itself, so this
+   * is the number that decides whether a low valley run is open.
+   */
+  snowLineM: number;
+  /** Ready pistes closed outright for want of snow. */
+  closedPistes: number;
 }
 
 export interface FlowEdgeViz {

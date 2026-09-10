@@ -25,6 +25,8 @@ export const DEFAULT_STATS: SimStats = {
   bottleneckLabel: "",
   bottleneckId: "",
   bottleneckUse: 0,
+  snowLineM: 0,
+  closedPistes: 0,
 };
 
 export const DEFAULT_WEATHER: WeatherState = {

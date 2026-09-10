@@ -1,8 +1,9 @@
 import { BY_ID } from "../../../config/src/items.ts";
 import { UPGRADES } from "../../../config/src/economy.ts";
+import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
-import type { ResortState } from "../types.ts";
+import type { QuestState, ResortState } from "../types.ts";
 import { pisteDifficulty } from "./level.ts";
 
 export interface Applied {
@@ -138,6 +139,24 @@ export function applyIntent(state: ResortState, intent: Intent, now: number): Ap
 
   if (intent.type === "claim_quest") {
     const q = state.quests.find((x) => x.id === intent.questId)!;
+    const def = QUEST_DEFS.find((d) => d.id === intent.questId);
+    // A standing contract comes straight back, harder and worth more, so the
+    // goal list never empties out.
+    const renew = (x: QuestState): QuestState => {
+      if (!def?.repeatable) return { ...x, claimed: true };
+      const tier = x.tier + 1;
+      const scale = Math.pow(def.growth ?? 1.6, tier);
+      return {
+        ...x,
+        tier,
+        claimed: false,
+        progress: 0,
+        target: Math.round(def.target * scale),
+        coins: Math.round(def.coins * scale),
+        gems: Math.round(def.gems * scale),
+        xp: Math.round(def.xp * scale),
+      };
+    };
     return {
       state: {
         ...state,
@@ -145,10 +164,12 @@ export function applyIntent(state: ResortState, intent: Intent, now: number): Ap
         gems: state.gems + q.gems,
         xp: state.xp + q.xp,
         stars: state.stars + 1,
-        quests: state.quests.map((x) => (x.id === intent.questId ? { ...x, claimed: true } : x)),
+        quests: state.quests.map((x) => (x.id === intent.questId ? renew(x) : x)),
       },
       title: "Belohnung",
-      body: `${q.title} abgeschlossen.`,
+      body: def?.repeatable
+        ? `${q.title} abgeschlossen. Neuer Auftrag steht.`
+        : `${q.title} abgeschlossen.`,
       kind: "ok",
     };
   }

@@ -5,6 +5,7 @@ import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { FlowEdgeViz, ResortState, SimStats } from "../types.ts";
 import { buildResortGraph, VILLAGE_HEX, type DemandSource } from "./graph.ts";
+import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
 
 export interface FlowTick {
   stats: SimStats;
@@ -36,19 +37,28 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const count = (id: string) => buildings.filter((b) => b.itemId === id).length;
   const beds = buildings.reduce((n, b) => n + (BY_ID[b.itemId].beds ?? 0), 0);
   const hasSchool = count("skischool") > 0;
-  const hasSpa = count("spa") > 0;
   const hasClinic = count("clinic") > 0;
   const hasLights = count("lights") > 0;
   const snowmakers = count("snowmaker");
   const groomers = count("groomer");
   const tickets = count("ticket");
-  const restaurants = count("restaurant") + count("hut") + count("apres");
-  const shops = count("shop");
+  // Read off the items rather than off their type, so a bigger restaurant is
+  // simply a bigger number and not another branch here.
+  const sum = (field: "seatsPerHour" | "retailPerHour" | "satisfactionBonus" | "summerDraw") =>
+    buildings.reduce((n, b) => n + (BY_ID[b.itemId][field] ?? 0), 0);
+  const seats = sum("seatsPerHour");
+  const retailCapacity = sum("retailPerHour");
+  const comfort = sum("satisfactionBonus");
+  const summerDraw = sum("summerDraw");
 
   // Everything that scales demand up or down applies to every arrival point.
   const nightLights = hasLights && (state.timeOfDay < 0.3 || state.timeOfDay > 0.7);
   let appetite = hourFactor(state.timeOfDay) * (nightLights ? 1 + ECONOMY.lightsDayExtension : 1);
   appetite *= 0.72 + state.weather.snowQuality * 0.4;
+  // Nobody comes to ski a green mountain; sightseeing keeps a fraction, and a
+  // museum or a spa claws some of the rest back.
+  const inSeason = seasonDemandShare(state.day);
+  appetite *= Math.min(1, inSeason + summerDraw * (1 - inSeason));
   // Willingness to pay: 1 at the reference price, falling away either side of
   // it steeply enough that revenue peaks at an interior price.
   appetite *=
@@ -57,6 +67,9 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const reputation = Math.max(0, Math.min(1, state.stats.satisfaction / 100));
   appetite *= ECONOMY.reputationFloor + (1 - ECONOMY.reputationFloor) * reputation;
   appetite = Math.max(0, appetite);
+
+  // Where the snow actually ends today, snowmaking included.
+  const line = snowLine(state.day, state.weather.snowQuality, snowmakers);
 
   const demands: DemandSource[] = [
     { hex: VILLAGE_HEX, perHour: ECONOMY.walkInPerHour * appetite },
@@ -83,14 +96,21 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     demands,
     exits,
     dem,
-    pisteCapacityScale: (piste) => {
-      if (piste.difficulty === "blue" && hasSchool) return 1 + ECONOMY.schoolBonus;
-      if (piste.difficulty === "black" && hasClinic) return 1 + ECONOMY.clinicBlackBonus;
-      return 1;
+    pisteCapacityScale: (piste, ends) => {
+      // Snow first: a run standing on bare ground carries nobody, whatever
+      // else is built next to it.
+      let scale = pisteSnowScale(worldElev(dem, ends.bottom.q, ends.bottom.r), line);
+      if (scale <= 0) return 0;
+      if (piste.difficulty === "blue" && hasSchool) scale *= 1 + ECONOMY.schoolBonus;
+      if (piste.difficulty === "black" && hasClinic) scale *= 1 + ECONOMY.clinicBlackBonus;
+      return scale;
     },
   });
 
-  const served = graph.net.maxFlow(graph.source, graph.sink);
+  // Skiing first, cabins only for what is left over.
+  const skiedDown = graph.net.maxFlow(graph.source, graph.sink);
+  graph.openDescents();
+  const served = skiedDown + graph.net.maxFlow(graph.source, graph.sink);
   const unserved = Math.max(0, graph.offered - served);
 
   const liftFlow = graph.lifts.map((l) => ({ edge: l, used: graph.net.flowOn(l.uphill) }));
@@ -161,9 +181,12 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   sat +=
     Math.min(1, state.weather.snowQuality + snowmakers * ECONOMY.snowmakerQuality) *
     ECONOMY.snowSatisfactionWeight;
-  sat += restaurants * ECONOMY.restaurantSatisfaction + shops * ECONOMY.shopSatisfaction;
-  sat += hasSpa ? ECONOMY.spaSatisfaction : 0;
-  sat += tickets * ECONOMY.ticketOfficeSatisfaction;
+  sat += comfort;
+  // Guests who came to ski and only got a cabin ride down are not satisfied
+  // guests, however smoothly the network moved them.
+  const onPistes = pisteFlow.reduce((n, { used }) => n + used, 0);
+  const skiedShare = served > 0 ? Math.min(1, onPistes / served) : 1;
+  sat -= (1 - skiedShare) * inSeason * ECONOMY.noSkiingPenalty;
   sat -=
     Math.max(0, state.ticketPrice - ECONOMY.ticketReference) * ECONOMY.pricePenaltyPerFranc;
   sat = Math.max(ECONOMY.minSatisfaction, Math.min(ECONOMY.maxSatisfaction, sat));
@@ -173,15 +196,17 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const occupancy = beds <= 0 ? 0 : Math.min(1, (served * ECONOMY.occupancyPerVisitor) / beds);
   const ticketIncome = served * state.ticketPrice * (1 + tickets * ECONOMY.ticketOfficeIncomeBonus);
   const hotelIncome = beds * occupancy * ECONOMY.hotelRatePerBedPerHour;
-  const fb = Math.min(served, restaurants * ECONOMY.restaurantSeatsPerHour) * ECONOMY.fbPerVisitor;
-  const retail = Math.min(served, shops * ECONOMY.shopVisitorsPerHour) * ECONOMY.shopPerVisitor;
+  const fb = Math.min(served, seats) * ECONOMY.fbPerVisitor;
+  const retail = Math.min(served, retailCapacity) * ECONOMY.shopPerVisitor;
   const revenue = ticketIncome + hotelIncome + fb + retail;
 
   // Upkeep runs whether or not anyone shows up, which is what makes an
   // over-built resort a mistake rather than merely a slow start. A workshop
   // maintains the cableways, so it only discounts the lifts.
-  const workshopCut = count("workshop") > 0 ? 1 - ECONOMY.workshopUpkeepCut : 1;
-  const liftUpkeep = readyLifts.reduce((n, l) => n + (BY_ID[l.itemId].upkeep ?? 0), 0) * workshopCut;
+  // Only the best maintenance depot on the mountain counts; two workshops do
+  // not halve the bill twice over.
+  const bestCut = buildings.reduce((n, b) => Math.max(n, BY_ID[b.itemId].upkeepCut ?? 0), 0);
+  const liftUpkeep = readyLifts.reduce((n, l) => n + (BY_ID[l.itemId].upkeep ?? 0), 0) * (1 - bestCut);
   // Placing a lift also records its two stations in `buildings`, so charging
   // every building would bill each cableway three times over.
   const buildingUpkeep = buildings
@@ -215,6 +240,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     bottleneckLabel: saturated ? bottleneckLabel : "",
     bottleneckId: saturated ? bottleneckId : "",
     bottleneckUse: Math.round(bottleneckUse * 100) / 100,
+    snowLineM: Math.round(line),
+    closedPistes: graph.pistes.filter((p) => p.capacity <= 0).length,
   };
 
   return { stats, coinsDelta: incomePerHour * dtHours, flow };

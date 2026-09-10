@@ -21,9 +21,15 @@ export function syncQuestProgress(state: ResortState): ResortState {
     satisfaction: Math.round(state.stats.satisfaction),
     gondola,
     visitorsToday: state.stats.visitorsToday,
+    verticalPerHour: state.stats.verticalPerHour,
+    revenuePerHour: state.stats.revenuePerHour,
+    pisteKm: state.stats.pisteKm,
   };
   const quests = state.quests.map((q) => {
     const def = QUEST_DEFS.find((d) => d.id === q.id);
+    // Progress tracks the live figure, so a rate-based contract can fall back
+    // as well as climb: it is claimable while the resort is hitting the mark,
+    // not forever after one good minute.
     const progress = def ? Math.min(q.target, map[def.metric] ?? q.progress) : q.progress;
     return { ...q, progress };
   });

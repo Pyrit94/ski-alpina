@@ -36,5 +36,15 @@ export type { DemandSource, GraphInput, LiftEdge, PisteEdge, ResortGraph } from 
 export { FlowNetwork, UNCAPPED } from "./engine/maxflow.ts";
 export { tickResort } from "./engine/tick.ts";
 export { syncQuestProgress } from "./engine/quests.ts";
+export {
+  naturalSnowLine,
+  pisteSnowScale,
+  seasonDemandShare,
+  seasonPhase,
+  snowLine,
+  SEASON_LABEL,
+} from "./engine/season.ts";
+export type { SeasonPhase } from "./engine/season.ts";
+export { weatherForDay } from "./engine/weather.ts";
 export { GameRoom, TICK_MS, PERSIST_MS } from "./runtime/room.ts";
 export type { RoomPlayer, RoomEvent } from "./runtime/room.ts";

@@ -31,10 +31,6 @@ export const ECONOMY = {
   hotelRatePerBedPerHour: 18,
   fbPerVisitor: 4.2,
   shopPerVisitor: 2.1,
-  /** Guests one restaurant, hut or apres bar can actually serve per hour. */
-  restaurantSeatsPerHour: 420,
-  /** Guests one sport shop can serve per hour. */
-  shopVisitorsPerHour: 600,
   /** Extra capacity a ski school gives the easy runs. */
   schoolBonus: 0.08,
   /** Extra capacity mountain rescue gives the steep runs. */
@@ -42,7 +38,6 @@ export const ECONOMY = {
   lightsDayExtension: 0.12,
   snowmakerQuality: 0.12,
   groomerWaitCut: 0.18,
-  workshopUpkeepCut: 0.15,
   parkingDemandPerHour: 140,
   busDemandPerHour: 110,
   walkInPerHour: 36,
@@ -57,11 +52,16 @@ export const ECONOMY = {
   targetSatisfaction: 72,
   /** Satisfaction points from a full-quality snowpack. */
   snowSatisfactionWeight: 12,
-  restaurantSatisfaction: 1.4,
-  shopSatisfaction: 1.1,
-  ticketOfficeSatisfaction: 0.8,
-  /** Satisfaction points a mountain spa adds. */
-  spaSatisfaction: 6,
+  /**
+   * Satisfaction lost when guests who came to ski had to ride back down.
+   *
+   * Max-flow cannot tell a run from a cabin ride, so without this a resort
+   * with no open piste at all looks perfectly well served — which made pistes
+   * optional next to one gondola, and snowmaking pointless with it. Scaled by
+   * how much of the year is ski season, so a green-season sightseer is not
+   * disappointed by the absence of snow.
+   */
+  noSkiingPenalty: 26,
   minSatisfaction: 28,
   maxSatisfaction: 99,
   daySecondsReal: 90,
@@ -97,6 +97,49 @@ export const FLOW = {
   bottleneckThreshold: 0.92,
   /** Hex length of one piste segment, in kilometres. */
   kmPerSegment: 0.12,
+} as const;
+
+/**
+ * The year, and the snow line that runs it.
+ *
+ * Elevation is the one thing a player cannot change about a slope, so tying
+ * snow cover to it turns "how high did you build" into a real decision rather
+ * than flavour. A run whose bottom sits under the snow line loses the part of
+ * itself that is bare; in the green season everything closes and only the
+ * cableways that carry guests both ways still earn.
+ */
+export const SEASON = {
+  /** Days in a full year. One day is `daySecondsReal` of real time. */
+  daysPerYear: 90,
+  /** Share of the year that is deep winter, counted from day 1. */
+  winterShare: 0.58,
+  /**
+   * Share of the year the thaw takes, after winter.
+   *
+   * Long enough that snowmaking is a real decision. At 0.17 the line climbed
+   * some 180 m a day and a full battery of cannons bought about four days,
+   * which made them pure cost in winter and too late in spring.
+   */
+  springShare: 0.24,
+  /** Snow line in metres in deep winter: below every piste in the game. */
+  winterSnowLine: 1500,
+  /** Snow line in metres at the height of summer: above every piste. */
+  summerSnowLine: 4200,
+  /** Metres of snow line one snow cannon buys back. */
+  snowmakerDrop: 140,
+  /** Ceiling on that, however many cannons get built. */
+  maxSnowmakerDrop: 1200,
+  /**
+   * Metres below the line over which a run fades out instead of shutting.
+   *
+   * Wide enough that a partly bare run still carries reduced traffic, so the
+   * end of the season is a decline rather than a cliff.
+   */
+  fadeMetres: 400,
+  /** How far a full swing in snow quality moves the line, in metres. */
+  weatherSwingMetres: 300,
+  /** Demand left in the green season, when nobody is coming to ski. */
+  summerDemandShare: 0.45,
 } as const;
 
 export const LEVEL = {

@@ -23,6 +23,8 @@ export const DEFAULT_STATS: SimStats = {
   bottleneckLabel: "",
   bottleneckId: "",
   bottleneckUse: 0,
+  snowLineM: 0,
+  closedPistes: 0,
 };
 
 export const DEFAULT_WEATHER: WeatherState = {
@@ -59,6 +61,7 @@ export function emptyResort(roomId = "zermatt"): ResortState {
       progress: 0,
       target: q.target,
       claimed: false,
+      tier: 0,
     })),
     tutorialStep: 0,
     tutorialOpen: true,
@@ -89,19 +92,22 @@ export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): 
     weather: { ...base.weather, ...snapshot.weather },
     quests: QUEST_DEFS.map((def) => {
       const saved = snapshot.quests?.find((q) => q.id === def.id);
-      const fresh = {
+      const tier = saved?.tier ?? 0;
+      // Target and reward are derived from the tier rather than trusted from
+      // the save, so retuning a contract in config reaches players mid-run.
+      const scale = def.repeatable ? Math.pow(def.growth ?? 1.6, tier) : 1;
+      return {
         id: def.id,
         title: def.title,
         hint: def.hint,
-        xp: def.xp,
-        coins: def.coins,
-        gems: def.gems,
-        progress: 0,
-        target: def.target,
-        claimed: false,
+        xp: Math.round(def.xp * scale),
+        coins: Math.round(def.coins * scale),
+        gems: Math.round(def.gems * scale),
+        target: Math.round(def.target * scale),
+        progress: saved?.progress ?? 0,
+        claimed: saved?.claimed ?? false,
+        tier,
       };
-      // Rewards and wording follow the config; only the player's state carries over.
-      return saved ? { ...fresh, progress: saved.progress, claimed: saved.claimed } : fresh;
     }),
     buildings: snapshot.buildings ?? [],
     lifts: snapshot.lifts ?? [],
