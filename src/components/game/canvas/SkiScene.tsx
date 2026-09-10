@@ -206,9 +206,21 @@ function Structures() {
   );
 }
 
+/**
+ * Whether the windows are on.
+ *
+ * A boolean rather than the raw clock, so it flips twice a day instead of on
+ * every frame — a subscription to `timeOfDay` in every building would re-render
+ * the whole village continuously.
+ */
+function useLampsOn(): boolean {
+  return useGame((s) => s.timeOfDay < 0.29 || s.timeOfDay > 0.72);
+}
+
 function PlacedStructure({ building: b }: { building: PlacedBuilding }) {
   const selectedId = useGame((s) => s.selectedId);
   const selectEntity = useGame((s) => s.selectEntity);
+  const lit = useLampsOn();
   const hm = getHeightmap();
   const group = useRef<THREE.Group>(null);
   const { x, z } = hexToWorld(b.q, b.r);
@@ -238,7 +250,7 @@ function PlacedStructure({ building: b }: { building: PlacedBuilding }) {
       }}
     >
       <group ref={group}>
-        <BuildingModel itemId={b.itemId} constructing={constructing} />
+        <BuildingModel itemId={b.itemId} constructing={constructing} lit={lit} />
         {constructing && <Scaffold />}
       </group>
       {selectedId === b.id && (
@@ -762,6 +774,7 @@ function Loop() {
 
 function VillageSeed() {
   const hm = getHeightmap();
+  const lit = useLampsOn();
   const spots = [
     [-6, 12],
     [0, 12],
@@ -775,7 +788,7 @@ function VillageSeed() {
         const { x, z } = hexToWorld(q!, r!);
         return (
           <group key={i} position={[x, hm.worldY(x, z), z]} rotation={[0, i * 0.7, 0]}>
-            <BuildingModel itemId="hut" />
+            <BuildingModel itemId="hut" lit={lit} />
           </group>
         );
       })}
