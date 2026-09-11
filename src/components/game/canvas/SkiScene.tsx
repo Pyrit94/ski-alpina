@@ -23,6 +23,7 @@ import type { MapLayer, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/ga
 import { BuildingModel } from "./models";
 import { ribbonGeometry } from "./geometry";
 import { useTerrainMaterial } from "./terrain-material";
+import { QUALITY, type QualityTier } from "./quality";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
 
 function buildTerrain(
@@ -194,14 +195,15 @@ function Terrain() {
 
 function Forest({ quality }: { quality: "low" | "high" }) {
   const hm = getHeightmap();
+  const tier = QUALITY[quality];
   const trees = useMemo(() => {
     const rng = mulberry32(seedFromString("trees-alpina"));
-    return scatterTrees(hm, quality === "low" ? 280 : 720, rng);
-  }, [hm, quality]);
+    return scatterTrees(hm, tier.trees, rng);
+  }, [hm, tier.trees]);
   const rocks = useMemo(() => {
     const rng = mulberry32(seedFromString("rocks-alpina"));
-    return scatterRocks(hm, quality === "low" ? 80 : 180, rng);
-  }, [hm, quality]);
+    return scatterRocks(hm, tier.rocks, rng);
+  }, [hm, tier.rocks]);
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const rockRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -262,7 +264,7 @@ function PeakLabels() {
   const phase = useGame((s) => s.phase);
   if (layer === "pistes") return null;
   if (stampMode && phase !== "idle") return null;
-  const compact = quality === "low";
+  const compact = QUALITY[quality].compactLabels;
   return (
     <>
       {PEAKS.map((p) => (
@@ -1230,7 +1232,7 @@ const SHADOW_MAP = 2048;
  * enough to hold the range when pulled back — which buys roughly five times
  * the resolution where the player is actually looking.
  */
-function SunLight({ low, elev }: { low: boolean; elev: number }) {
+function SunLight({ tier, elev }: { tier: QualityTier; elev: number }) {
   const light = useRef<THREE.DirectionalLight>(null);
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as { target?: THREE.Vector3 } | null;
@@ -1277,9 +1279,9 @@ function SunLight({ low, elev }: { low: boolean; elev: number }) {
       position={[48, 36 + elev * 28, 18]}
       // Strong enough to sculpt, not so strong that the mid-tones blow out
       // to white — which is what a 2.35 sun through ACES was doing to snow.
-      intensity={1.55 * (0.55 + elev * 0.5) * (low ? 1.12 : 1)}
+      intensity={1.55 * (0.55 + elev * 0.5) * tier.sunBoost}
       color="#fff2d8"
-      castShadow={!low}
+      castShadow={tier.shadows}
       shadow-mapSize-width={SHADOW_MAP}
       shadow-mapSize-height={SHADOW_MAP}
       shadow-camera-near={SUN_DISTANCE * 0.25}
@@ -1299,7 +1301,7 @@ function LightsAndSky() {
   const hour = tod * 24;
   const sunT = (hour - 6) / 12;
   const elev = Math.sin(Math.max(0.08, Math.min(1, sunT)) * Math.PI);
-  const low = quality === "low";
+  const tier = QUALITY[quality];
   return (
     <>
       <SkyDome />
@@ -1317,9 +1319,9 @@ function LightsAndSky() {
         blue it actually is — and blue reads as snow in shade, where dark grey
         just reads as a hole.
       */}
-      <hemisphereLight args={["#bcd8f5", "#a3bcd4", low ? 0.56 : 0.44]} />
-      <ambientLight intensity={low ? 0.16 : 0.1} />
-      <SunLight low={low} elev={elev} />
+      <hemisphereLight args={["#bcd8f5", "#a3bcd4", tier.hemisphere]} />
+      <ambientLight intensity={tier.ambient} />
+      <SunLight tier={tier} elev={elev} />
       {/*
         Aerial perspective, not a fog bank.
 
@@ -1336,7 +1338,7 @@ function LightsAndSky() {
         colour makes peak and sky the same tone and the skyline vanishes a
         second time. Real distance tints things blue, not white.
       */}
-      <fog attach="fog" args={["#9dbcd8", low ? 30 : 40, low ? 600 : 720]} />
+      <fog attach="fog" args={["#9dbcd8", tier.fogNear, tier.fogFar]} />
     </>
   );
 }
@@ -1516,29 +1518,29 @@ function VillageSeed() {
 export function SkiScene() {
   const quality = useGame((s) => s.quality);
   const weather = useGame((s) => s.weather.kind);
-  const mobile = quality === "low";
+  const tier = QUALITY[quality];
   return (
     <Canvas
       camera={{
         // Pulled back and pitched lower than before, so the establishing shot
         // includes the skyline rather than only the valley floor the resort
         // starts on.
-        position: mobile ? [10, 54, 84] : [22, 50, 108],
-        fov: mobile ? 46 : 42,
+        position: tier.cameraAt,
+        fov: tier.fov,
         near: 0.4,
         far: 460,
       }}
-      dpr={mobile ? [1, 1.25] : [1, 1.7]}
-      shadows={!mobile}
-      gl={{ antialias: !mobile, powerPreference: "high-performance", alpha: false }}
+      dpr={tier.dpr}
+      shadows={tier.shadows}
+      gl={{ antialias: tier.antialias, powerPreference: "high-performance", alpha: false }}
       style={{ touchAction: "none", background: "#bcd2e6" }}
       onCreated={({ gl, camera }) => {
         gl.setClearColor("#bcd2e6", 1);
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         // The ground carries its own shading now, so less exposure is needed
         // to keep the snow from blowing out to flat white.
-        gl.toneMappingExposure = mobile ? 1.1 : 0.98;
-        gl.shadowMap.enabled = !mobile;
+        gl.toneMappingExposure = tier.exposure;
+        gl.shadowMap.enabled = tier.shadows;
         gl.shadowMap.type = THREE.PCFSoftShadowMap;
         camera.lookAt(-4, 12, 38);
       }}
