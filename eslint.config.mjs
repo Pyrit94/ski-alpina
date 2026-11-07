@@ -32,6 +32,15 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // eslint-plugin-react-hooks 7 bringt die React-Compiler-Regeln ins
+      // recommended-Preset. Das Projekt nutzt den React Compiler nicht, und die
+      // R3F-Szene mutiert in useFrame bewusst Scratch-Objekte. Bis der Code
+      // gezielt umgebaut ist: sichtbar als Warnung, aber kein CI-Blocker.
+      "react-hooks/immutability": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/use-memo": "warn",
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },
