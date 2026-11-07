@@ -135,6 +135,19 @@ export const FLOW = {
   linkRadius: 2,
   /** Guests must ride at least one lift before they count as served. */
   requireLift: true,
+  /**
+   * Valley stations the village reaches on its own — on foot or by ski bus —
+   * without a road: within this many hexes of the village…
+   */
+  villageAccessRadius: 9,
+  /** …and no more than this many metres above it. */
+  villageAccessRise: 260,
+  /**
+   * Extra laps guests ride, as a share of everyone served, on lifts whose runs
+   * lead back to their own valley station. Shown on the map and in the lift's
+   * panel; takings and queues still follow the guests who came in.
+   */
+  lapShare: 0.5,
   /** Ceiling on how much wait a saturated edge can add, in minutes. */
   maxWaitMinutes: 28,
   /** Wait added when the busiest edge on the mountain is fully saturated. */

@@ -6,7 +6,7 @@ import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { QuestState, ResortState } from "../types.ts";
 import { GRADE_LABEL, pisteDifficulty } from "./level.ts";
-import { entityCost, findEntity } from "./state.ts";
+import { entityCost, findEntity, TUTORIAL_STEPS } from "./state.ts";
 import { surveyPiste } from "./validate.ts";
 import { applyEditPiste } from "./piste-edit.ts";
 import { inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
@@ -220,7 +220,7 @@ function applyOne(
         coins: state.coins - cost,
         xp: state.xp + item.xp * segs,
       },
-      title: item.id === "road" ? "Zufahrt gebaut" : "Piste angelegt",
+      title: item.id === "road" ? "Strasse gebaut" : "Piste angelegt",
       body: survey
         ? `${name ? `«${name}»: ` : ""}${GRADE_LABEL[survey.grade]} Piste, ${segs} Segmente.`
         : `${item.name} ist bereit.`,
@@ -353,10 +353,10 @@ function applyOne(
   }
 
   if (intent.type === "next_tutorial") {
-    // Four steps, 0..3; moving past the last one closes it.
+    // Moving past the last step closes it.
     const step = state.tutorialStep + 1;
     return {
-      state: { ...state, tutorialStep: Math.min(3, step), tutorialOpen: step < 4 },
+      state: { ...state, tutorialStep: Math.min(TUTORIAL_STEPS - 1, step), tutorialOpen: step < TUTORIAL_STEPS },
       title: "Hinweis",
       body: "Weiter im Tutorial.",
       kind: "info",

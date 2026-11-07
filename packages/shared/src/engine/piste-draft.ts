@@ -92,8 +92,9 @@ export function pisteAnchors(state: ResortState, dem: Dem): Anchor[] {
   }
   for (const p of state.pistes) {
     if (p.difficulty === "road" || p.hexes.length < 2) continue;
-    out.push({ hex: p.hexes[0]!, kind: "piste", id: p.id });
-    out.push({ hex: p.hexes[p.hexes.length - 1]!, kind: "piste", id: p.id });
+    // Anywhere along a run, not only its ends: runs meet, branch and merge,
+    // and the graph splits a run wherever another one joins it.
+    for (const hex of p.hexes) out.push({ hex, kind: "piste", id: p.id });
   }
   out.push({ hex: VILLAGE_HEX, kind: "village" });
   for (const b of state.buildings) {
@@ -147,11 +148,18 @@ export interface PisteLinks {
  * flow graph uses to merge ports. A run whose top no lift reaches, or whose
  * bottom leads nowhere, carries nobody.
  */
-export function pisteLinks(state: ResortState, dem: Dem, hexes: readonly Axial[]): PisteLinks {
+export function pisteLinks(
+  state: ResortState,
+  dem: Dem,
+  hexes: readonly Axial[],
+  /** Runs that lead nowhere themselves; ending on one joins nothing. */
+  deadEnds: ReadonlySet<string> = new Set(),
+): PisteLinks {
   if (hexes.length === 0) return { start: null, end: null };
   const anchors = pisteAnchors(state, dem);
+  const ends = anchors.filter((a) => !(a.kind === "piste" && a.id && deadEnds.has(a.id)));
   return {
     start: nearest(anchors, hexes[0]!, START_KINDS),
-    end: hexes.length < 2 ? null : nearest(anchors, hexes[hexes.length - 1]!, END_KINDS),
+    end: hexes.length < 2 ? null : nearest(ends, hexes[hexes.length - 1]!, END_KINDS),
   };
 }

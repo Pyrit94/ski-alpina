@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { getHeightmap, surfaceY, type Heightmap } from "@/lib/game/alpine";
 import { HEX_SIZE, hexToWorld } from "@/lib/game/hex";
 import { GRADE_COLOR, isSkiRun, pisteStartAt, usePisteEditor } from "@/lib/game/piste-editor";
+import { useResortLinks } from "@/lib/game/links";
 import { useGame } from "@/lib/game/store";
 import { getDem, pisteLinks, type Axial, type PlacedPiste } from "@ski/shared";
 import { draftColors } from "./piste-draft";
@@ -13,7 +14,8 @@ import { useStableGame } from "./use-stable-game";
 const COLOR_BLOCKED = new THREE.Color("#E24B4A");
 const COLOR_SNAP = new THREE.Color("#34A853");
 const COLOR_LINKED = new THREE.Color("#34A853");
-const COLOR_LOOSE = new THREE.Color("#F29A2E");
+/** Open end: grey, not alarming — the run is simply not joined there yet. */
+const COLOR_LOOSE = new THREE.Color("#9AA5B1");
 const TMP = new THREE.Object3D();
 const TMP_COLOR = new THREE.Color();
 /** Draft hexes, the blocked hex and the snap preview share one instanced mesh. */
@@ -55,10 +57,12 @@ export function PisteDraftMarks() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawing, draft.length, hover, buildItem, lifts, pistes]);
 
+  const joined = useResortLinks();
   const links = useMemo(() => {
     if (!drawing || draft.length === 0 || !isSkiRun(buildItem)) return null;
-    return pisteLinks({ ...useGame.getState(), lifts, pistes, buildings }, getDem(), draft);
-  }, [drawing, draft, buildItem, lifts, pistes, buildings]);
+    const deadEnds = new Set([...joined].filter(([, v]) => v === "dead-end").map(([k]) => k));
+    return pisteLinks({ ...useGame.getState(), lifts, pistes, buildings }, getDem(), draft, deadEnds);
+  }, [drawing, draft, buildItem, lifts, pistes, buildings, joined]);
 
   useLayoutEffect(() => {
     const inst = cells.current;
@@ -79,10 +83,13 @@ export function PisteDraftMarks() {
     draft.forEach((h, i) => put(h, colors[i]!, 0.11));
     if (blocked && drawing) put(blocked.hex, COLOR_BLOCKED, 0.13, 0.92);
     if (snap) put(snap, COLOR_SNAP, 0.13, 1.04);
+    // Where the end joins: the station, village or run it will count as
+    // reaching, lit green so the player sees the join before tapping «Bauen».
+    if (links?.end && draft.length > 1) put(links.end.hex, COLOR_SNAP, 0.14, 1.08);
     inst.count = n;
     inst.instanceMatrix.needsUpdate = true;
     if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-  }, [draft, blocked, snap, hm, buildItem, drawing]);
+  }, [draft, blocked, snap, hm, buildItem, drawing, links]);
 
   useLayoutEffect(() => {
     const inst = pins.current;

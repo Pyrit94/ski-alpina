@@ -5,7 +5,7 @@ import { BY_ID } from "../../../config/src/items.ts";
 import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { FlowEdgeViz, PlacedPiste, ResortState, RoundModifiers, SimStats } from "../types.ts";
-import { buildResortGraph, VILLAGE_HEX, type DemandSource } from "./graph.ts";
+import { buildResortGraph, pisteUse, VILLAGE_HEX, type DemandSource } from "./graph.ts";
 import { pisteUpkeep } from "./level.ts";
 import { pisteWidthDraw } from "./piste-width.ts";
 import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
@@ -171,25 +171,33 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const unserved = Math.max(0, graph.offered - served);
 
   const liftFlow = graph.lifts.map((l) => ({ edge: l, used: graph.net.flowOn(l.uphill) }));
-  const pisteFlow = graph.pistes.map((p) => ({ edge: p, used: graph.net.flowOn(p.edge) }));
+  const pisteFlow = graph.pistes.map((p) => ({ edge: p, used: pisteUse(graph.net, p) }));
+  // Then the laps guests ride on top. They show where people actually are —
+  // a lift fed by another lift's run is busy, not idle — but takings, queues
+  // and the bottleneck stay with the guests who came in.
+  graph.addLaps(Math.round(served * FLOW.lapShare));
+  const liftShown = graph.lifts.map((l) => graph.net.flowOn(l.uphill));
+  const pisteShown = graph.pistes.map((p) => pisteUse(graph.net, p));
 
   const flow: FlowEdgeViz[] = [
-    ...liftFlow.map(({ edge, used }) => ({
+    ...liftFlow.map(({ edge }, i) => ({
       id: edge.lift.id,
       kind: "lift" as const,
       from: edge.base,
       to: edge.top,
-      flow: used,
+      flow: Math.round(liftShown[i]!),
       capacity: edge.capacity,
+      link: edge.link,
     })),
-    ...pisteFlow.map(({ edge, used }) => ({
+    ...pisteFlow.map(({ edge }, i) => ({
       id: edge.piste.id,
       kind: "piste" as const,
       from: edge.top,
       to: edge.bottom,
-      flow: used,
+      flow: Math.round(pisteShown[i]!),
       capacity: edge.capacity,
       path: edge.piste.hexes,
+      link: edge.link,
     })),
   ];
 
@@ -215,8 +223,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
 
   const liftCapacity = graph.lifts.reduce((n, l) => n + l.capacity, 0);
   const verticalPerHour = liftFlow.reduce((n, { edge, used }) => n + used * Math.max(0, edge.rise), 0);
-  const idleLifts = liftFlow.filter(({ used }) => used <= 0).length;
-  const idlePistes = pisteFlow.filter(({ used }) => used <= 0).length;
+  const idleLifts = liftShown.filter((used) => used <= 0).length;
+  const idlePistes = pisteShown.filter((used) => used <= 0).length;
 
   // Queueing comes from either a saturated edge or demand with nowhere to go.
   // With no lift running there is nothing to queue at: an empty valley is not

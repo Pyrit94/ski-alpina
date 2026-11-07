@@ -138,6 +138,11 @@ export interface FlowEdgeViz {
   flow: number;
   capacity: number;
   path?: Axial[];
+  /**
+   * How the layout joins this edge, regardless of today's traffic: a lift
+   * with no run from its top, a run that ends nowhere. Absent on old saves.
+   */
+  link?: "ok" | "no-descent" | "no-access" | "dead-end" | "unreached";
 }
 
 export interface PlayerPresence {

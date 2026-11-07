@@ -16,6 +16,25 @@ export interface DemandSource {
   perHour: number;
 }
 
+/**
+ * Whether a lift is joined into the resort, by the layout alone.
+ *
+ * - "ok": guests can reach its valley station, and from its top station a run
+ *   leads to a valley station or the village.
+ * - "no-descent": nothing leads down from its top station yet.
+ * - "no-access": its top is fine, but no guest can get to its valley station.
+ */
+export type LiftLink = "ok" | "no-descent" | "no-access";
+
+/**
+ * Whether a run is joined into the resort, by the layout alone.
+ *
+ * - "ok": a lift (or another run) brings guests onto it, and its end leads on.
+ * - "dead-end": its end lands nowhere guests can go on from.
+ * - "unreached": nothing brings guests onto it.
+ */
+export type PisteLink = "ok" | "dead-end" | "unreached";
+
 export interface LiftEdge {
   lift: PlacedLift;
   /** Metered edge for the ride up. */
@@ -30,15 +49,21 @@ export interface LiftEdge {
   top: Axial;
   /** Vertical gained, in metres. */
   rise: number;
+  link: LiftLink;
 }
 
 export interface PisteEdge {
   piste: PlacedPiste;
-  edge: number;
+  /**
+   * Metered edges, top to bottom, one per stretch between junctions. A run
+   * that nothing joins mid-way is a single stretch.
+   */
+  segments: number[];
   capacity: number;
   top: Axial;
   bottom: Axial;
   km: number;
+  link: PisteLink;
 }
 
 export interface ResortGraph {
@@ -59,6 +84,22 @@ export interface ResortGraph {
    * you can, ride down if you must — and costs one extra solve on a tiny graph.
    */
   openDescents: () => void;
+  /**
+   * After the solves: let guests already on the mountain ride extra laps, up
+   * to `perLift` people per hour on each lift, where a run leads back to that
+   * lift's own valley station. Max-flow alone ends every guest's day at the
+   * first valley station they reach, which would leave a lift whose runs
+   * feed it from another lift standing empty. Laps are cycles, so the guests
+   * served stay exactly what they were.
+   */
+  addLaps: (perLift: number) => void;
+}
+
+/** Guests on a run after a solve: its busiest stretch. */
+export function pisteUse(net: FlowNetwork, piste: PisteEdge): number {
+  let used = 0;
+  for (const seg of piste.segments) used = Math.max(used, net.flowOn(seg));
+  return used;
 }
 
 export interface GraphInput {
@@ -133,17 +174,57 @@ export function clusterPorts(ports: Axial[], radius: number): number[] {
 }
 
 /**
+ * Where along a run other things join it, as indices into its hexes (top to
+ * bottom), interior only. A place within the link radius of the run's own
+ * ends already joins it there and needs no split.
+ */
+export function junctionsOn(hexes: readonly Axial[], anchors: readonly Axial[], radius = FLOW.linkRadius): number[] {
+  if (hexes.length < 3) return [];
+  const top = hexes[0]!;
+  const bottom = hexes[hexes.length - 1]!;
+  const out = new Set<number>();
+  for (const a of anchors) {
+    if (hexDistance(a, top) <= radius || hexDistance(a, bottom) <= radius) continue;
+    let best = -1;
+    let bestD = radius + 1;
+    for (let k = 1; k < hexes.length - 1; k++) {
+      const d = hexDistance(hexes[k]!, a);
+      if (d < bestD) {
+        bestD = d;
+        best = k;
+      }
+    }
+    if (best < 0) continue;
+    // A split right beside the run's own end would only make a stretch of
+    // nothing; the end already joins whatever is that close.
+    if (hexDistance(hexes[best]!, top) <= radius || hexDistance(hexes[best]!, bottom) <= radius) continue;
+    out.add(best);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+
+/** Whether the village reaches a valley station by itself, without a road. */
+export function villageReaches(dem: Dem, base: Axial): boolean {
+  if (hexDistance(base, VILLAGE_HEX) > FLOW.villageAccessRadius) return false;
+  return elevationAt(dem, base) - elevationAt(dem, VILLAGE_HEX) <= FLOW.villageAccessRise;
+}
+
+/**
  * Build the people-per-hour network for a resort.
  *
- * Two layers per place: `ground` is a guest who has not ridden anything yet,
- * `ski` is one who is already on the mountain. Lifts are the only way across,
- * which is what makes a served guest one who actually used the resort — a
- * parking lot wired straight to the exit would otherwise book phantom visitors.
+ * Three layers per place: `ground` is a guest who has not ridden anything yet,
+ * `up` one who has ridden a lift but not skied, and `down` one who has skied
+ * at least one run. Lifts lead from ground or down to up; runs lead from up or
+ * down to down. A guest's day can end in the village, at a door (car park,
+ * bus, hotel) or at any valley station — but only in the down layer, so a
+ * served guest is one who rode up and skied down.
  *
- * Consequences that fall out of the topology rather than a special case: a lift
- * with nothing at its top carries nothing, a piste that lands nowhere near a
- * station or the village carries nothing, and a resort with no way back down to
- * an exit serves nobody.
+ * Consequences that fall out of the topology rather than a special case:
+ * a lift with no run from its top carries nobody; a run that lands nowhere
+ * carries nobody; a lift whose valley station no guest can reach — not from
+ * the village, a door, a road or another run — carries nobody. A run ending
+ * on another run, or on any valley station, is joined: not every lift needs
+ * its own way back to the village.
  */
 export function buildResortGraph(input: GraphInput): ResortGraph {
   const { lifts, pistes, demands, exits, dem, pisteCapacityScale, liftCapacityScale } = input;
@@ -158,11 +239,6 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
   });
   const runs = pistes.filter((p) => p.difficulty !== "road");
   const roads = pistes.filter((p) => p.difficulty === "road");
-  const pistePorts = runs.map((piste) => {
-    const ends = [piste.hexes[0]!, piste.hexes[piste.hexes.length - 1]!] as const;
-    const [bottom, top] = byElevation(dem, ends[0], ends[1]);
-    return { piste, top, bottom, topPort: addPort(top), bottomPort: addPort(bottom) };
-  });
   const roadPorts = roads.map((road) => ({
     a: addPort(road.hexes[0]!),
     b: addPort(road.hexes[road.hexes.length - 1]!),
@@ -171,18 +247,54 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
   const demandPorts = demands.map((d) => ({ demand: d, port: addPort(d.hex) }));
   const exitPorts = exits.map((hex) => addPort(hex));
 
+  // Every run, top first, with the places along it where something joins.
+  const oriented = runs.map((piste) => {
+    const first = piste.hexes[0]!;
+    const last = piste.hexes[piste.hexes.length - 1]!;
+    const [, top] = byElevation(dem, first, last);
+    const hexes = top === first ? piste.hexes : [...piste.hexes].reverse();
+    return { piste, hexes };
+  });
+  const runEnds = oriented.flatMap((o) => [o.hexes[0]!, o.hexes[o.hexes.length - 1]!]);
+  const fixed = [
+    VILLAGE_HEX,
+    ...liftPorts.flatMap((p) => [p.base, p.top]),
+    ...runEnds,
+    ...demands.map((d) => d.hex),
+    ...exits,
+  ];
+  const pistePorts = oriented.map(({ piste, hexes }) => {
+    const anchors = fixed.filter((h) => h !== hexes[0] && h !== hexes[hexes.length - 1]);
+    const cuts = [0, ...junctionsOn(hexes, anchors), hexes.length - 1];
+    return {
+      piste,
+      top: hexes[0]!,
+      bottom: hexes[hexes.length - 1]!,
+      nodes: cuts.map((k) => addPort(hexes[k]!)),
+    };
+  });
+
   const cluster = clusterPorts(ports, FLOW.linkRadius);
   const clusterCount = cluster.length === 0 ? 0 : Math.max(...cluster) + 1;
 
   const SOURCE = 0;
   const SINK = 1;
-  const ground = (c: number) => 2 + c * 2;
-  const ski = (c: number) => 3 + c * 2;
-  const liftBase = 2 + clusterCount * 2;
-  const liftIn = (i: number) => liftBase + i * 2;
-  const liftOut = (i: number) => liftBase + i * 2 + 1;
+  const ground = (c: number) => 2 + c * 3;
+  const up = (c: number) => 3 + c * 3;
+  const down = (c: number) => 4 + c * 3;
+  // Metered edges sit between a private pair of nodes, so a guest arriving in
+  // either layer shares one capacity instead of each layer getting its own.
+  let nodes = 2 + clusterCount * 3;
+  const gadget = () => {
+    const at = nodes;
+    nodes += 2;
+    return { into: at, out: at + 1 };
+  };
+  const liftGadgets = liftPorts.map(() => gadget());
+  const descentGadgets = liftPorts.map(() => gadget());
+  const segmentGadgets = pistePorts.map((p) => p.nodes.slice(1).map(() => gadget()));
 
-  const net = new FlowNetwork(liftBase + lifts.length * 2);
+  const net = new FlowNetwork(nodes);
 
   let offered = 0;
   for (const { demand, port } of demandPorts) {
@@ -192,23 +304,35 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
     offered += perHour;
   }
 
-  // The village is always a way out; anything else is a place guests can leave.
-  for (const port of [villagePort, ...exitPorts]) {
-    net.addEdge(ski(cluster[port]!), SINK, UNCAPPED);
+  // A guest's day ends in the village, at a door, or at any valley station —
+  // having skied at least once.
+  const homes = new Set<number>([villagePort, ...exitPorts].map((p) => cluster[p]!));
+  for (const p of liftPorts) homes.add(cluster[p.basePort]!);
+  for (const c of homes) net.addEdge(down(c), SINK, UNCAPPED);
+
+  // Valley stations near the village need no road: guests walk or take the bus.
+  const villageCluster = cluster[villagePort]!;
+  const served = new Set<number>([villageCluster]);
+  for (const p of liftPorts) {
+    const c = cluster[p.basePort]!;
+    if (served.has(c) || !villageReaches(dem, p.base)) continue;
+    served.add(c);
+    net.addEdge(ground(villageCluster), ground(c), UNCAPPED);
   }
 
-  const pendingDescents: { edge: LiftEdge; from: number; to: number; capacity: number }[] = [];
+  const pendingDescents: { edge: LiftEdge; gadget: { into: number; out: number }; capacity: number }[] = [];
   const liftEdges: LiftEdge[] = liftPorts.map((p, i) => {
     const item = BY_ID[p.lift.itemId];
     const capacity = Math.round(liftThroughput(item, p.lift.upgrades) * (liftCapacityScale?.(p.lift) ?? 1));
     const baseCluster = cluster[p.basePort]!;
     const topCluster = cluster[p.topPort]!;
-    // Both queues feed one gadget edge, so arriving and lapping guests share
-    // the same hourly capacity rather than each getting their own.
-    net.addEdge(ground(baseCluster), liftIn(i), UNCAPPED);
-    net.addEdge(ski(baseCluster), liftIn(i), UNCAPPED);
-    const uphill = net.addEdge(liftIn(i), liftOut(i), capacity);
-    net.addEdge(liftOut(i), ski(topCluster), UNCAPPED);
+    const g = liftGadgets[i]!;
+    // Arriving and lapping guests share the same hourly capacity.
+    net.addEdge(ground(baseCluster), g.into, UNCAPPED);
+    net.addEdge(up(baseCluster), g.into, UNCAPPED);
+    net.addEdge(down(baseCluster), g.into, UNCAPPED);
+    const uphill = net.addEdge(g.into, g.out, capacity);
+    net.addEdge(g.out, up(topCluster), UNCAPPED);
     const edge: LiftEdge = {
       lift: p.lift,
       uphill,
@@ -217,52 +341,111 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
       base: p.base,
       top: p.top,
       rise: Math.round(elevationAt(dem, p.top) - elevationAt(dem, p.base)),
+      link: "ok",
     };
     const share = item.downhillShare ?? 0;
     if (share > 0) {
-      pendingDescents.push({
-        edge,
-        from: ski(topCluster),
-        to: ski(baseCluster),
-        capacity: Math.round(capacity * share),
-      });
+      const d = descentGadgets[i]!;
+      net.addEdge(up(topCluster), d.into, UNCAPPED);
+      net.addEdge(down(topCluster), d.into, UNCAPPED);
+      net.addEdge(d.out, down(baseCluster), UNCAPPED);
+      pendingDescents.push({ edge, gadget: d, capacity: Math.round(capacity * share) });
     }
     return edge;
   });
 
-  const pisteEdges: PisteEdge[] = pistePorts.map((p) => {
+  const pisteEdges: PisteEdge[] = pistePorts.map((p, i) => {
     // Capacity follows the grade the ground gave this run, not the catalogue
     // entry: a steep black carries far fewer people than a gentle blue, and
     // both are the same item now.
     const base = pisteCapacity(p.piste);
     const scale = pisteCapacityScale?.(p.piste, { top: p.top, bottom: p.bottom }) ?? 1;
     const capacity = Math.max(0, Math.round(base * scale));
+    const segments = segmentGadgets[i]!.map((g, k) => {
+      const from = cluster[p.nodes[k]!]!;
+      const to = cluster[p.nodes[k + 1]!]!;
+      net.addEdge(up(from), g.into, UNCAPPED);
+      net.addEdge(down(from), g.into, UNCAPPED);
+      const metered = net.addEdge(g.into, g.out, capacity);
+      net.addEdge(g.out, down(to), UNCAPPED);
+      return metered;
+    });
     return {
       piste: p.piste,
-      edge: net.addEdge(ski(cluster[p.topPort]!), ski(cluster[p.bottomPort]!), capacity),
+      segments,
       capacity,
       top: p.top,
       bottom: p.bottom,
       km: Math.max(0, p.piste.hexes.length - 1) * FLOW.kmPerSegment,
+      link: "ok",
     };
   });
 
-  // Roads carry people, not skiers: they link places in both layers and both
-  // directions, which is how a car park reaches a valley station at all.
+  // Roads carry people, not skiers: they link places in every layer and both
+  // directions, which is how a car park reaches a far valley station.
   for (const road of roadPorts) {
     const a = cluster[road.a]!;
     const b = cluster[road.b]!;
-    for (const layer of [ground, ski]) {
+    for (const layer of [ground, up, down]) {
       net.addEdge(layer(a), layer(b), road.capacity);
       net.addEdge(layer(b), layer(a), road.capacity);
     }
   }
 
+  // How the layout is joined, before any guest is placed. Cabin descents are
+  // not edges yet, so a gondola with no run counts as having no way down —
+  // which is the point: skiers want a run.
+  const fromSource = net.reach([SOURCE]);
+  const toSink = net.reach([SINK], true);
+  liftEdges.forEach((edge, i) => {
+    const g = liftGadgets[i]!;
+    if (!toSink[g.out]) edge.link = "no-descent";
+    else if (!fromSource[g.into]) edge.link = "no-access";
+  });
+  pisteEdges.forEach((edge, i) => {
+    const gs = segmentGadgets[i]!;
+    if (gs.length === 0) return;
+    if (!toSink[gs[gs.length - 1]!.into]) edge.link = "dead-end";
+    else if (!gs.some((g) => fromSource[g.into])) edge.link = "unreached";
+  });
+
   const openDescents = () => {
     for (const d of pendingDescents) {
       if (d.edge.downhill !== null) continue;
-      d.edge.downhill = net.addEdge(d.from, d.to, d.capacity);
+      d.edge.downhill = net.addEdge(d.gadget.into, d.gadget.out, d.capacity);
     }
+  };
+
+  const addLaps = (perLift: number) => {
+    if (perLift <= 0) return;
+    // Empty lifts first: they are the ones a player would otherwise read as
+    // broken.
+    const order = liftEdges
+      .map((edge, i) => ({ edge, i, used: net.flowOn(edge.uphill) }))
+      .sort((a, b) => a.used - b.used);
+    for (const { edge, i } of order) {
+      if (edge.link !== "ok") continue;
+      const room = edge.capacity - net.flowOn(edge.uphill);
+      if (room <= 0) continue;
+      const g = liftGadgets[i]!;
+      const lapped = net.maxFlow(g.out, g.into, Math.min(room, perLift), edge.uphill);
+      if (lapped > 0) net.addFlow(edge.uphill, lapped);
+    }
+    // Max-flow also fills one run before it touches the next, so a second run
+    // into the first would stand empty beside it. Guests spread out: every
+    // joined run that is still empty gets its own laps.
+    pisteEdges.forEach((edge, i) => {
+      if (edge.link !== "ok" || pisteUse(net, edge) > 0) return;
+      for (const [k, seg] of edge.segments.entries()) {
+        const room = edge.capacity - net.flowOn(seg);
+        if (room <= 0) continue;
+        const g = segmentGadgets[i]![k]!;
+        const lapped = net.maxFlow(g.out, g.into, Math.min(room, perLift), seg);
+        if (lapped <= 0) continue;
+        net.addFlow(seg, lapped);
+        break;
+      }
+    });
   };
 
   return {
@@ -273,5 +456,6 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
     pistes: pisteEdges,
     offered,
     openDescents,
+    addLaps,
   };
 }
