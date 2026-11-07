@@ -117,7 +117,7 @@ function MiniStat({ label, value, tone }: { label: string; value: string; tone?:
  */
 function ElevationProfile({ draft, snowLineM, compact }: { draft: readonly Axial[]; snowLineM: number; compact: boolean }) {
   const W = 260;
-  const H = compact ? 38 : 58;
+  const H = compact ? 30 : 58;
   const pad = 4;
   const elev = draft.map(elevAt);
   const grades = segmentGrades(draft, slopeAt);
@@ -207,7 +207,6 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
   const mode = usePisteEditor((s) => s.mode);
   const name = usePisteEditor((s) => s.name);
   const blocked = usePisteEditor((s) => s.blocked);
-  const strokes = usePisteEditor((s) => s.strokes);
   const setWidth = usePisteEditor((s) => s.setWidth);
   const setTarget = usePisteEditor((s) => s.setTarget);
   const setMode = usePisteEditor((s) => s.setMode);
@@ -279,9 +278,9 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
       onClick={finishPisteDraft}
       disabled={!!blocker}
       title={blocker ?? "Piste bauen (Enter)"}
-      className="flex h-11 flex-1 items-center justify-center gap-1 rounded-full bg-success px-3 text-[13px] font-semibold text-panel disabled:bg-muted/40 disabled:text-panel/90"
+      className="flex h-11 min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-full bg-success px-2.5 text-[13px] font-semibold text-panel disabled:bg-muted/40 disabled:text-panel/90"
     >
-      <Check className="size-4" /> Fertig{stats && !blocker ? ` · ${fmt(stats.price)}` : ""}
+      <Check className="size-4 shrink-0" /> Fertig
     </button>
   );
   const zurueck = (
@@ -290,10 +289,9 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
       onClick={undoPisteStep}
       disabled={draft.length === 0}
       title="Letzten Strich zurücknehmen (Rücktaste)"
-      className="flex h-11 items-center justify-center gap-1 rounded-full bg-ice px-3 text-[12px] font-semibold text-navy disabled:opacity-40"
+      className="flex h-11 shrink-0 items-center justify-center gap-1 self-center rounded-full bg-ice px-3 text-[12px] font-semibold text-navy disabled:opacity-40"
     >
       <Undo2 className="size-4" /> Zurück
-      {strokes.length > 1 && <span className="text-[10px] text-muted">({strokes.length})</span>}
     </button>
   );
 
@@ -333,7 +331,12 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
       {isPiste && (
         <div className="mt-2">
           {!compact && <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Breite</div>}
-          <Segmented label="Breite" value={width} options={WIDTH_OPTIONS} onChange={setWidth} />
+          <div className="flex gap-1.5">
+            <div className="min-w-0 flex-1">
+              <Segmented label="Breite" value={width} options={WIDTH_OPTIONS} onChange={setWidth} />
+            </div>
+            {compact && zurueck}
+          </div>
         </div>
       )}
 
@@ -357,15 +360,26 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
             ) : (
               <span className="shrink-0 text-[11px] font-semibold text-navy">{item.name}</span>
             )}
-            <span className="value text-[11px] text-muted">
-              {stats.km.toFixed(2)} km · {fmt(stats.drop)} m Gefälle
-            </span>
+            {compact ? (
+              // One line on a phone, so the tray stays below the reticle.
+              <span className="value min-w-0 truncate text-[11px] text-muted">
+                {stats.km.toFixed(2)} km · {fmt(stats.drop)} m · {fmt(stats.capacity)}/h ·{" "}
+                <span className={`font-bold ${coins < stats.price ? "text-danger" : "text-navy"}`}>{fmt(stats.price)}</span> · −
+                {fmt(stats.upkeep)}/Tag
+              </span>
+            ) : (
+              <span className="value text-[11px] text-muted">
+                {stats.km.toFixed(2)} km · {fmt(stats.drop)} m Gefälle
+              </span>
+            )}
           </div>
-          <div className="mt-1.5 grid grid-cols-3 gap-1">
-            <MiniStat label="Kapazität" value={`${fmt(stats.capacity)}/h`} />
-            <MiniStat label="Preis" value={fmt(stats.price)} tone={coins < stats.price ? "bad" : undefined} />
-            <MiniStat label="Unterhalt/Tag" value={`−${fmt(stats.upkeep)}`} />
-          </div>
+          {!compact && (
+            <div className="mt-1.5 grid grid-cols-3 gap-1">
+              <MiniStat label="Kapazität" value={`${fmt(stats.capacity)}/h`} />
+              <MiniStat label="Preis" value={fmt(stats.price)} tone={coins < stats.price ? "bad" : undefined} />
+              <MiniStat label="Unterhalt/Tag" value={`−${fmt(stats.upkeep)}`} />
+            </div>
+          )}
           {draft.length >= 2 && (
             <div className="mt-1.5">
               <ElevationProfile draft={draft} snowLineM={snowLineM} compact={compact} />
@@ -374,17 +388,25 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
         </>
       )}
 
-      {links && (
+      {links && compact && (
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+          <LinkLine ok={links.start !== null} okText="Start verbunden" badText="Start ohne Bergstation" />
+          {draft.length >= 2 && (
+            <LinkLine ok={links.end !== null} okText="Ende verbunden" badText="Ende ohne Talstation" />
+          )}
+        </div>
+      )}
+      {links && !compact && (
         <div className="mt-1.5 space-y-0.5">
           <LinkLine
             ok={links.start !== null}
-            okText={`Start bei ${links.start ? ANCHOR_LABEL[links.start.kind] : ""}`}
+            okText={`Start verbunden: ${links.start ? ANCHOR_LABEL[links.start.kind] : ""}`}
             badText="Start liegt bei keiner Bergstation – hier kommen keine Gäste an"
           />
           {draft.length >= 2 && (
             <LinkLine
               ok={links.end !== null}
-              okText={`Ende bei ${links.end ? ANCHOR_LABEL[links.end.kind] : ""}`}
+              okText={`Ende verbunden: ${links.end ? ANCHOR_LABEL[links.end.kind] : ""}`}
               badText="Ende liegt nicht bei einer Talstation – Gäste kommen hier nicht weg"
             />
           )}
@@ -408,7 +430,7 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
       )}
 
       {compact ? (
-        <div className="mt-1.5 flex gap-1.5">{zurueck}</div>
+        !isPiste && <div className="mt-1.5 flex gap-1.5">{zurueck}</div>
       ) : (
         <>
           <div className="mt-2 flex gap-1.5">
@@ -426,7 +448,6 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
           {blocker && draft.length > 0 && (
             <div className="mt-1 text-center text-[10px] text-muted">Fertig nicht möglich: {blocker}</div>
           )}
-          <div className="mt-1 text-center text-[10px] text-subtle">Enter fertig · Esc abbrechen · Rücktaste zurück</div>
         </>
       )}
     </div>
