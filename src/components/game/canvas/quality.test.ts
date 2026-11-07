@@ -14,6 +14,7 @@ test("the mobile tier never costs more than the desktop one", () => {
   assert.ok(low.dpr[1] < high.dpr[1], "pixel ratio ceiling");
   assert.ok(low.fogFar < high.fogFar, "how much distance is drawn");
   assert.ok(low.terrain.octaves <= high.terrain.octaves, "noise octaves");
+  assert.ok(low.treesPerClump * low.trees < high.treesPerClump * high.trees, "trees drawn");
 });
 
 test("the expensive effects are desktop only", () => {
@@ -43,8 +44,13 @@ test("mobile lights brighter, and that inversion is on purpose", () => {
 });
 
 test("a phone opens closer, with a wider lens", () => {
-  const dist = (p: readonly [number, number, number]) => Math.hypot(p[0], p[1], p[2]);
-  assert.ok(dist(low.cameraAt) < dist(high.cameraAt), "opening distance");
+  const dist = (t: typeof low) =>
+    Math.hypot(
+      t.cameraAt[0] - t.cameraTarget[0],
+      t.cameraAt[1] - t.cameraTarget[1],
+      t.cameraAt[2] - t.cameraTarget[2],
+    );
+  assert.ok(dist(low) < dist(high), "opening distance");
   assert.ok(low.fov > high.fov, "field of view");
   assert.equal(low.compactLabels, true);
 });
@@ -57,5 +63,29 @@ test("every tier is fully specified", () => {
       assert.notEqual(value, undefined, `${name}.${key}`);
       if (typeof value === "number") assert.ok(Number.isFinite(value), `${name}.${key}`);
     }
+  }
+});
+
+test("the opening view is oblique, not a map and not a horizon shot", () => {
+  // Top-down flattened the range into a grey sheet; too shallow and the
+  // village drops out of frame behind the first ridge. Steeper than about 45
+  // and the summit leaves the top of the frame (see quality.ts).
+  for (const [name, t] of Object.entries(QUALITY)) {
+    const dx = t.cameraAt[0] - t.cameraTarget[0];
+    const dy = t.cameraAt[1] - t.cameraTarget[1];
+    const dz = t.cameraAt[2] - t.cameraTarget[2];
+    const pitch = (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI;
+    assert.ok(pitch > 28 && pitch < 45, `${name} pitch ${pitch.toFixed(1)}`);
+    // Looking south (toward -z), where the high peaks are.
+    assert.ok(dz > 0, `${name} faces the peaks`);
+  }
+});
+
+test("adaptive resolution steps down before the frame rate floor", () => {
+  // The budget's floor is 40 fps on a mid-range phone, i.e. 25 ms. Stepping
+  // down only once that is already missed is too late.
+  for (const [name, t] of Object.entries(QUALITY)) {
+    assert.ok(t.slowFrameMs > 16.7 && t.slowFrameMs <= 25, `${name}.slowFrameMs`);
+    assert.ok(t.dpr[0] <= t.dpr[1], `${name}.dpr`);
   }
 });

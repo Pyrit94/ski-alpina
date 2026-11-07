@@ -82,13 +82,13 @@ export function groundAlbedo(
 
   // Snow holds on anything a skier could stand on and slides off the rest.
   const cover = smoothstep(snowLineM - SNOW_FEATHER, snowLineM + SNOW_FEATHER, elevM);
-  const holds = 1 - smoothstep(0.62, 0.95, slope);
+  const holds = 1 - smoothstep(0.75, 1.05, slope);
   mixInto(out, PALETTE.snow, cover * holds);
   mixInto(out, PALETTE.glacier, smoothstep(3400, 3900, elevM) * (1 - smoothstep(0.3, 0.55, slope)));
 
   // Steep ground: scree, then rock, darker the higher and steeper it gets.
-  mixInto(out, PALETTE.scree, smoothstep(0.5, 0.8, slope) * 0.8);
-  mixInto(out, PALETTE.rock, smoothstep(0.75, 1.1, slope));
+  mixInto(out, PALETTE.scree, smoothstep(0.72, 0.95, slope) * 0.7);
+  mixInto(out, PALETTE.rock, smoothstep(0.9, 1.25, slope));
   mixInto(out, PALETTE.darkRock, smoothstep(1.1, 1.7, slope) * smoothstep(2600, 3600, elevM));
 
   // Settled ground around the village.

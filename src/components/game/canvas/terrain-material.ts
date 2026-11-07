@@ -166,12 +166,12 @@ ${NOISE_GLSL}`,
   diffuseColor.rgb *= 1.0 + (skiN - 0.5) * uDetailAlbedo;
 #if SKI_ROCK
   // Steepness from the interpolated normal. The DEM's vertical scale is about
-  // twice its horizontal, so 0.45 here is roughly a 37 degree real slope —
+  // twice its horizontal, so 0.5 here is roughly a 41 degree real slope —
   // where snow stops holding. The noise shifts the threshold so the edge is
   // ragged crag rather than a contour line.
   float skiSteep = 1.0 - clamp(normalize(vSkiUp).y, 0.0, 1.0);
   float skiJag = (skiN - 0.5) * 0.32;
-  float skiRock = smoothstep(0.4 + skiJag, 0.56 + skiJag, skiSteep) * uRock;
+  float skiRock = smoothstep(0.5 + skiJag, 0.58 + skiJag, skiSteep) * uRock;
   // Warm grey-brown gneiss, banded by the same noise so it is not one flat tone.
   vec3 skiStone = mix(vec3(0.12, 0.10, 0.085), vec3(0.27, 0.235, 0.2), skiN);
   diffuseColor.rgb = mix(diffuseColor.rgb, skiStone, skiRock);

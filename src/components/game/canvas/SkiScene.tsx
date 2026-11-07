@@ -1,10 +1,10 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, MapControls } from "@react-three/drei";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   getHeightmap,
-  terrainColor,
   LAKE,
   metersToWorldY,
   PEAKS,
@@ -19,138 +19,56 @@ import { HEX_SIZE, hexToWorld, worldToHex } from "@/lib/game/hex";
 import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
-import type { MapLayer, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game/types";
+import type { ItemId, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game/types";
+import { atmosphereAt, createAtmosphere } from "./atmosphere";
+import { BuildingInstances, type Placement } from "./baked-buildings";
 import { BuildingModel } from "./models";
 import { ribbonGeometry } from "./geometry";
+import {
+  buildFarLand,
+  clumpTrees,
+  groundBase,
+  makeBoulderGeometry,
+  makeConiferGeometry,
+  paintGround,
+} from "./landscape";
 import { useTerrainMaterial } from "./terrain-material";
 import { QUALITY, type QualityTier } from "./quality";
+import { useStableGame } from "./use-stable-game";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
 
-function buildTerrain(
-  hm: Heightmap,
-  layer: MapLayer,
-  heat: Map<string, number>,
-  snowLineM: number,
-) {
-  const geo = new THREE.PlaneGeometry(hm.world, hm.world, hm.n - 1, hm.n - 1);
-  geo.rotateX(-Math.PI / 2);
-  const pos = geo.attributes.position!;
-  const colors = new Float32Array(pos.count * 3);
-  const dummy = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getZ(i);
-    const y = surfaceY(hm, x, z);
-    pos.setY(i, y);
-    const m = hm.sample(x, z);
-    let c = terrainColor(hm, x, z, snowLineM);
-    if (layer === "height") {
-      const t = Math.min(1, Math.max(0, (m - 1580) / 2800));
-      dummy.setHSL(0.58 - t * 0.45, 0.45, 0.35 + t * 0.45);
-      c = [dummy.r, dummy.g, dummy.b];
-    } else if (layer === "heat") {
-      const h = heat.get(`${Math.round(x / 5)},${Math.round(z / 5)}`) ?? 0;
-      dummy.setRGB(0.2 + h, 0.35 - h * 0.2, 0.85 - h * 0.6);
-      c = [dummy.r, dummy.g, dummy.b];
-    }
-    colors[i * 3] = c[0]!;
-    colors[i * 3 + 1] = c[1]!;
-    colors[i * 3 + 2] = c[2]!;
-  }
-  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  geo.computeVertexNormals();
-  return geo;
-}
-
 /**
- * The rock wall that closes the map's edge.
+ * The playable ground.
  *
- * The ground is a single plane, so from any low angle — and the controls allow
- * nearly horizontal — you see its underside and the whole range reads as a
- * disc floating in the sky. A skirt dropped from the perimeter turns it into a
- * block sitting on something, which is also how a diorama is built: the base
- * is part of the object.
+ * Shape, normals and occlusion are built once per heightmap (landscape.ts);
+ * what changes with the game — snow line, overlay, piste heat — only rewrites
+ * the colour buffer. Snapshots that change none of those touch nothing.
  */
-function buildSkirt(hm: Heightmap, depth: number) {
-  const half = hm.world / 2;
-  const step = hm.world / (hm.n - 1);
-  const ring: Array<[number, number]> = [];
-  for (let i = 0; i < hm.n; i++) ring.push([-half + i * step, -half]);
-  for (let i = 1; i < hm.n; i++) ring.push([half, -half + i * step]);
-  for (let i = 1; i < hm.n; i++) ring.push([half - i * step, half]);
-  for (let i = 1; i < hm.n; i++) ring.push([-half, half - i * step]);
-
-  let floor = Infinity;
-  for (const [x, z] of ring) floor = Math.min(floor, surfaceY(hm, x, z));
-  floor -= depth;
-
-  const verts: number[] = [];
-  const idx: number[] = [];
-  for (let i = 0; i < ring.length; i++) {
-    const [x, z] = ring[i]!;
-    verts.push(x, surfaceY(hm, x, z), z, x, floor, z);
-  }
-  for (let i = 0; i < ring.length - 1; i++) {
-    const a = i * 2;
-    idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
-}
-
-function Skirt() {
-  const hm = getHeightmap();
-  const geo = useMemo(() => buildSkirt(hm, 14), [hm]);
-  useEffect(() => () => geo.dispose(), [geo]);
-  return (
-    <mesh geometry={geo} frustumCulled={false}>
-      {/*
-        Outward faces only. The camera orbits out to 250 units on a 196-unit
-        map, so it spends real time outside the perimeter — with both sides
-        drawn, the near wall stands between the viewer and the resort and the
-        screen goes black. Culled this way the wall is a cliff base seen from
-        outside and invisible from within, where the ground hides it anyway.
-
-        The emissive floor matters for the same reason: the sun comes from one
-        side, so two of the four walls are always near-grazing and a purely
-        lit material renders them as a black slab rather than rock in shade.
-      */}
-      <meshStandardMaterial
-        color="#6b6560"
-        emissive="#2b3138"
-        emissiveIntensity={0.55}
-        roughness={0.95}
-        side={THREE.BackSide}
-      />
-    </mesh>
-  );
-}
-
 function Terrain() {
   const hm = getHeightmap();
   const layer = useGame((s) => s.layer);
-  const pistes = useGame((s) => s.pistes);
+  const pistes = useStableGame((s) => s.pistes);
+  // Quantised: the raw snow line moves a metre at a time as weather and
+  // snowmaking shift. 25 m steps are below what the eye catches on a 130 m
+  // blend.
+  const snowLineM = useGame((s) => Math.round(s.stats.snowLineM / 25) * 25);
+  const base = useMemo(() => groundBase(hm), [hm]);
+  // Only the heat layer reads this, so only the heat layer pays for it.
   const heat = useMemo(() => {
+    if (layer !== "heat") return null;
     const m = new Map<string, number>();
     for (const p of pistes) {
       for (const h of p.hexes) {
-        const k = `${Math.round(h.q / 1)},${Math.round(h.r / 1)}`;
+        const k = `${h.q},${h.r}`;
         m.set(k, Math.min(1, (m.get(k) ?? 0) + 0.25));
       }
     }
     return m;
-  }, [pistes]);
-  // Quantised: the raw snow line moves a metre at a time as weather and
-  // snowmaking shift, and every change here rebuilds the whole ground mesh.
-  // 25 m steps are below what the eye catches on a 130 m blend.
-  const snowLineM = useGame((s) => Math.round(s.stats.snowLineM / 25) * 25);
-  const geo = useMemo(
-    () => buildTerrain(hm, layer, heat, snowLineM),
-    [hm, layer, heat, snowLineM],
-  );
+  }, [pistes, layer]);
+  useLayoutEffect(() => {
+    paintGround(base, layer, snowLineM, heat);
+  }, [base, layer, snowLineM, heat]);
+
   const click = useGame((s) => s.clickHex);
   const hover = useGame((s) => s.hoverHex);
   const stampMode = useGame((s) => s.stampMode);
@@ -158,90 +76,152 @@ function Terrain() {
   const quality = useGame((s) => s.quality);
   const down = useRef<THREE.Vector2 | null>(null);
   const stamp = stampMode && phase !== "idle";
-  // The height and heat overlays are read as data, so leave them alone —
-  // noise on a legend is just noise.
-  const material = useTerrainMaterial(layer === "3d" ? quality : "low");
-
-  useEffect(() => () => geo.dispose(), [geo]);
+  const material = useTerrainMaterial(layer === "3d" || layer === "pistes" ? quality : "overlay");
+  const shadows = QUALITY[quality].shadows;
 
   return (
-    <mesh
-      geometry={geo}
-      material={material}
-      receiveShadow
-      onPointerDown={(e) => {
-        down.current = new THREE.Vector2(e.clientX, e.clientY);
-      }}
-      onPointerMove={(e) => {
-        if (stamp) return;
-        e.stopPropagation();
-        const { q, r } = worldToHex(e.point.x, e.point.z);
-        hover(q, r);
-      }}
-      onPointerUp={(e) => {
-        if (!down.current) return;
-        const d = Math.hypot(e.clientX - down.current.x, e.clientY - down.current.y);
-        down.current = null;
-        if (d > 8) return;
-        if (stamp) return;
-        e.stopPropagation();
-        const { q, r } = worldToHex(e.point.x, e.point.z);
-        click(q, r);
-      }}
-    >
-    </mesh>
+    <>
+      <mesh
+        geometry={base.geometry}
+        material={material}
+        receiveShadow={shadows}
+        onPointerDown={(e) => {
+          down.current = new THREE.Vector2(e.clientX, e.clientY);
+        }}
+        onPointerMove={(e) => {
+          if (stamp) return;
+          e.stopPropagation();
+          const { q, r } = worldToHex(e.point.x, e.point.z);
+          hover(q, r);
+        }}
+        onPointerUp={(e) => {
+          if (!down.current) return;
+          const d = Math.hypot(e.clientX - down.current.x, e.clientY - down.current.y);
+          down.current = null;
+          if (d > 8) return;
+          if (stamp) return;
+          e.stopPropagation();
+          const { q, r } = worldToHex(e.point.x, e.point.z);
+          click(q, r);
+        }}
+      />
+      <FarLand material={material} snowLineM={snowLineM} />
+    </>
   );
 }
 
+/**
+ * The world past the edge of the map: see `buildFarLand`. Shares the ground's
+ * material, so it costs one draw call and no extra shader program. It takes no
+ * pointer events — a click out there has nothing to build on.
+ */
+function FarLand({ material, snowLineM }: { material: THREE.Material; snowLineM: number }) {
+  const hm = getHeightmap();
+  // Distant snow follows the season in coarse steps; nobody counts metres at 300 units.
+  const coarse = Math.round(snowLineM / 200) * 200;
+  const geo = useMemo(() => buildFarLand(hm, coarse), [hm, coarse]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  return <mesh geometry={geo} material={material} raycast={noRaycast} />;
+}
+
+function noRaycast() {
+  /* decoration: never a pick target */
+}
+
+/** Conifer stands and boulders: two instanced meshes for the whole map. */
 function Forest({ quality }: { quality: "low" | "high" }) {
   const hm = getHeightmap();
   const tier = QUALITY[quality];
   const trees = useMemo(() => {
     const rng = mulberry32(seedFromString("trees-alpina"));
-    return scatterTrees(hm, tier.trees, rng);
-  }, [hm, tier.trees]);
+    return clumpTrees(hm, scatterTrees(hm, tier.trees, rng), tier.treesPerClump);
+  }, [hm, tier.trees, tier.treesPerClump]);
   const rocks = useMemo(() => {
     const rng = mulberry32(seedFromString("rocks-alpina"));
     return scatterRocks(hm, tier.rocks, rng);
   }, [hm, tier.rocks]);
+  const parts = useMemo(
+    () => ({
+      tree: makeConiferGeometry(),
+      boulder: makeBoulderGeometry(),
+      treeMat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
+      rockMat: new THREE.MeshStandardMaterial({ color: "#a39484", roughness: 0.95, flatShading: true }),
+    }),
+    [],
+  );
+  useEffect(
+    () => () => {
+      parts.tree.dispose();
+      parts.boulder.dispose();
+      parts.treeMat.dispose();
+      parts.rockMat.dispose();
+    },
+    [parts],
+  );
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const rockRef = useRef<THREE.InstancedMesh>(null);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
 
-  useEffect(() => {
-    if (!meshRef.current) return;
+  useLayoutEffect(() => {
+    const inst = meshRef.current;
+    if (!inst) return;
+    const dummy = new THREE.Object3D();
+    const c = new THREE.Color();
+    const rng = mulberry32(seedFromString("tree-tint"));
     trees.forEach((t, i) => {
       dummy.position.set(t.x, t.y, t.z);
       dummy.rotation.set(0, t.r, 0);
-      dummy.scale.setScalar(t.s);
+      // Slightly taller than wide, varied, so stands do not look stamped.
+      dummy.scale.set(t.s, t.s * (0.95 + rng() * 0.3), t.s);
       dummy.updateMatrix();
-      meshRef.current!.setMatrixAt(i, dummy.matrix);
+      inst.setMatrixAt(i, dummy.matrix);
+      // Per-tree tint: some bluer spruce, some warmer larch-dark.
+      const v = 0.82 + rng() * 0.36;
+      c.setRGB(v * (0.94 + rng() * 0.1), v, v * (0.9 + rng() * 0.14));
+      inst.setColorAt(i, c);
     });
-    meshRef.current.instanceMatrix.needsUpdate = true;
-  }, [trees, dummy]);
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    inst.computeBoundingSphere();
+  }, [trees]);
 
-  useEffect(() => {
-    if (!rockRef.current) return;
+  useLayoutEffect(() => {
+    const inst = rockRef.current;
+    if (!inst) return;
+    const dummy = new THREE.Object3D();
+    const c = new THREE.Color();
+    const rng = mulberry32(seedFromString("rock-tint"));
     rocks.forEach((t, i) => {
-      dummy.position.set(t.x, t.y + 0.1, t.z);
+      dummy.position.set(t.x, t.y + 0.05, t.z);
       dummy.rotation.set(0.2, t.r, 0.1);
       dummy.scale.setScalar(t.s);
       dummy.updateMatrix();
-      rockRef.current!.setMatrixAt(i, dummy.matrix);
+      inst.setMatrixAt(i, dummy.matrix);
+      const v = 0.8 + rng() * 0.3;
+      c.setRGB(v, v * 0.97, v * (0.9 + rng() * 0.08));
+      inst.setColorAt(i, c);
     });
-    rockRef.current.instanceMatrix.needsUpdate = true;
-  }, [rocks, dummy]);
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    inst.computeBoundingSphere();
+  }, [rocks]);
 
   return (
     <group>
-      <instancedMesh ref={meshRef} args={[undefined, undefined, trees.length]} castShadow>
-        <coneGeometry args={[0.48, 1.7, 6]} />
-        <meshStandardMaterial color="#1d3c2c" />
-      </instancedMesh>
-      <instancedMesh ref={rockRef} args={[undefined, undefined, rocks.length]}>
-        <dodecahedronGeometry args={[0.55, 0]} />
-        <meshStandardMaterial color="#6a6762" roughness={0.95} />
-      </instancedMesh>
+      <instancedMesh
+        key={`t${trees.length}`}
+        ref={meshRef}
+        args={[parts.tree, parts.treeMat, trees.length]}
+        castShadow={tier.shadows}
+        raycast={noRaycast}
+      />
+      <instancedMesh
+        key={`r${rocks.length}`}
+        ref={rockRef}
+        args={[parts.boulder, parts.rockMat, rocks.length]}
+        castShadow={tier.shadows}
+        receiveShadow={tier.shadows}
+        raycast={noRaycast}
+      />
     </group>
   );
 }
@@ -256,6 +236,15 @@ function Lake() {
   );
 }
 
+/**
+ * Stacking range for every in-scene HTML label.
+ *
+ * drei's default is up to 16 777 271, which put peak names on top of the HUD's
+ * side panels and top bar. The HUD root sits at z-10, so scene labels stay
+ * under it and slide beneath the panels like the rest of the world does.
+ */
+const LABEL_Z: [number, number] = [5, 0];
+
 function PeakLabels() {
   const hm = getHeightmap();
   const layer = useGame((s) => s.layer);
@@ -268,13 +257,13 @@ function PeakLabels() {
   return (
     <>
       {PEAKS.map((p) => (
-        <Html key={p.id} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center distanceFactor={compact ? 120 : 90}>
+        <Html key={p.id} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center distanceFactor={compact ? 120 : 90} zIndexRange={LABEL_Z}>
           <div className="pointer-events-none whitespace-nowrap rounded-full bg-navy/70 px-2 py-0.5 text-[10px] font-medium text-snow backdrop-blur-sm">
             {compact ? p.name : `${p.name} · ${p.elev.toLocaleString("de-CH")} m`}
           </div>
         </Html>
       ))}
-      <Html position={[VILLAGE.x, surfaceY(hm, VILLAGE.x, VILLAGE.z) + 2.4, VILLAGE.z]} center distanceFactor={compact ? 110 : 80}>
+      <Html position={[VILLAGE.x, surfaceY(hm, VILLAGE.x, VILLAGE.z) + 2.4, VILLAGE.z]} center distanceFactor={compact ? 110 : 80} zIndexRange={LABEL_Z}>
         <div className="pointer-events-none rounded-full bg-panel/90 px-2 py-0.5 text-[10px] font-semibold text-navy">
           {VILLAGE.name}
         </div>
@@ -321,8 +310,7 @@ function contactTexture(): THREE.Texture | null {
  * fake it: one instanced quad per building carrying an alpha falloff. Whole
  * village, one draw call, no shader.
  */
-function GroundContact() {
-  const buildings = useGame((s) => s.buildings);
+function GroundContact({ buildings }: { buildings: PlacedBuilding[] }) {
   const hm = getHeightmap();
   const mesh = useRef<THREE.InstancedMesh>(null);
   const texture = useMemo(contactTexture, []);
@@ -378,15 +366,103 @@ function GroundContact() {
   );
 }
 
+/** How long a new building animates in before it can join its instanced kind. */
+const DROP_MS = 700;
+/** Longest a timer is set for; `readyAt` can be MAX_SAFE_INTEGER during a match's planning round. */
+const MAX_WAIT_MS = 60_000;
+
+/** The decoration the village starts with: never selectable, always finished. */
+const SEED_HUTS: Array<[number, number]> = [
+  [-6, 12],
+  [0, 12],
+  [3, 11],
+  [-4, 13],
+  [2, 13],
+];
+
+/**
+ * Every building on the map.
+ *
+ * Finished ones are drawn as instances per kind (baked-buildings.tsx); those
+ * still dropping in or under construction keep their own meshes, which is
+ * what animates and goes translucent. A timer moves a building across when
+ * it finishes, so nothing here depends on a snapshot arriving to notice.
+ */
 function Structures() {
-  const buildings = useGame((s) => s.buildings);
+  const buildings = useStableGame((s) => s.buildings);
+  const selectEntity = useGame((s) => s.selectEntity);
+  const quality = useGame((s) => s.quality);
+  const lit = useLampsOn();
+  const hm = getHeightmap();
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = Date.now();
+    let next = Infinity;
+    for (const b of buildings) {
+      if (b.readyAt > t) next = Math.min(next, b.readyAt);
+      else if (b.builtAt + DROP_MS > t) next = Math.min(next, b.builtAt + DROP_MS);
+    }
+    if (next === Infinity) return;
+    const id = window.setTimeout(() => setNow(Date.now()), Math.min(MAX_WAIT_MS, next - t + 30));
+    return () => window.clearTimeout(id);
+  }, [buildings, now]);
+
+  const { live, kinds } = useMemo(() => {
+    const live: PlacedBuilding[] = [];
+    const kinds = new Map<ItemId, Placement[]>();
+    const add = (itemId: ItemId, pl: Placement) => {
+      const list = kinds.get(itemId);
+      if (list) list.push(pl);
+      else kinds.set(itemId, [pl]);
+    };
+    SEED_HUTS.forEach(([q, r], i) => {
+      const { x, z } = hexToWorld(q, r);
+      add("hut", { id: null, x, y: surfaceY(hm, x, z), z, yaw: i * 0.7 });
+    });
+    for (const b of buildings) {
+      if (b.readyAt > now || b.builtAt + DROP_MS > now) {
+        live.push(b);
+        continue;
+      }
+      const { x, z } = hexToWorld(b.q, b.r);
+      add(b.itemId, { id: b.id, x, y: surfaceY(hm, x, z), z, yaw: 0 });
+    }
+    return { live, kinds: [...kinds.entries()] };
+  }, [buildings, now, hm]);
+
   return (
     <group>
-      <GroundContact />
-      {buildings.map((b) => (
+      <GroundContact buildings={buildings} />
+      {kinds.map(([itemId, placements]) => (
+        <BuildingInstances
+          key={`${itemId}|${lit}`}
+          itemId={itemId}
+          lit={lit}
+          placements={placements}
+          shadows={QUALITY[quality].shadows}
+          onPick={selectEntity}
+        />
+      ))}
+      {live.map((b) => (
         <PlacedStructure key={b.id} building={b} />
       ))}
+      <SelectionRing buildings={buildings} />
     </group>
+  );
+}
+
+function SelectionRing({ buildings }: { buildings: PlacedBuilding[] }) {
+  const selectedId = useGame((s) => s.selectedId);
+  const hm = getHeightmap();
+  const b = selectedId ? buildings.find((x) => x.id === selectedId) : undefined;
+  if (!b) return null;
+  const { x, z } = hexToWorld(b.q, b.r);
+  return (
+    <mesh position={[x, surfaceY(hm, x, z) + 0.05, z]} rotation={[-Math.PI / 2, 0, 0]}>
+      <ringGeometry args={[1.4, 1.7, 24]} />
+      <meshBasicMaterial color="#1a73e8" transparent opacity={0.7} />
+    </mesh>
   );
 }
 
@@ -402,7 +478,6 @@ function useLampsOn(): boolean {
 }
 
 function PlacedStructure({ building: b }: { building: PlacedBuilding }) {
-  const selectedId = useGame((s) => s.selectedId);
   const selectEntity = useGame((s) => s.selectEntity);
   const lit = useLampsOn();
   const hm = getHeightmap();
@@ -437,12 +512,6 @@ function PlacedStructure({ building: b }: { building: PlacedBuilding }) {
         <BuildingModel itemId={b.itemId} constructing={constructing} lit={lit} />
         {constructing && <Scaffold />}
       </group>
-      {selectedId === b.id && (
-        <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[1.4, 1.7, 24]} />
-          <meshBasicMaterial color="#1a73e8" transparent opacity={0.7} />
-        </mesh>
-      )}
     </group>
   );
 }
@@ -607,7 +676,7 @@ interface Rider {
 }
 
 function Lifts() {
-  const lifts = useGame((s) => s.lifts);
+  const lifts = useStableGame((s) => s.lifts);
   const hm = getHeightmap();
   const selectEntity = useGame((s) => s.selectEntity);
   const budget = carrierBudget(lifts.length);
@@ -931,25 +1000,44 @@ const PISTE_COLOR: Record<string, string> = {
  * Roads keep a single grey strip: they are not pistes and should not pretend.
  */
 function Pistes() {
-  const pistes = useGame((s) => s.pistes);
+  const pistes = useStableGame((s) => s.pistes);
   const draft = useGame((s) => s.pisteDraft);
   const layer = useGame((s) => s.layer);
   const hm = getHeightmap();
   const hide = layer === "height";
 
-  const geos = useMemo(
-    () =>
-      pistes.map((p) => {
-        const pts = pistePoints(p, hm);
-        const w = p.difficulty === "park" ? 1.7 : p.difficulty === "road" ? 1.0 : 1.25;
-        return {
-          p,
-          edge: ribbonGeometry(pts, w + 0.34, 0.07),
-          snow: p.difficulty === "road" ? null : ribbonGeometry(pts, w, 0.1),
-        };
-      }),
-    [pistes, hm],
-  );
+  // Every run in two draw calls: all coloured edges in one vertex-coloured
+  // mesh, all groomed centres in another. One mesh pair per run used to cost
+  // two calls (and two more transparent sorts) for every piste built.
+  const geos = useMemo(() => {
+    const edges: THREE.BufferGeometry[] = [];
+    const snows: THREE.BufferGeometry[] = [];
+    const tint = new THREE.Color();
+    for (const p of pistes) {
+      if (p.hexes.length < 2) continue;
+      const pts = pistePoints(p, hm);
+      const w = p.difficulty === "park" ? 1.7 : p.difficulty === "road" ? 1.0 : 1.25;
+      const edge = ribbonGeometry(pts, w + 0.34, 0.07);
+      tint.set(PISTE_COLOR[p.difficulty] ?? "#2b7de9");
+      const n = edge.attributes.position!.count;
+      const colours = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        colours[i * 3] = tint.r;
+        colours[i * 3 + 1] = tint.g;
+        colours[i * 3 + 2] = tint.b;
+      }
+      edge.setAttribute("color", new THREE.BufferAttribute(colours, 3));
+      edges.push(edge);
+      if (p.difficulty !== "road") snows.push(ribbonGeometry(pts, w, 0.1));
+    }
+    const merge = (parts: THREE.BufferGeometry[]) => {
+      if (parts.length === 0) return null;
+      const g = mergeGeometries(parts);
+      for (const part of parts) part.dispose();
+      return g;
+    };
+    return { edge: merge(edges), snow: merge(snows) };
+  }, [pistes, hm]);
 
   const draftGeo = useMemo(
     () => (draft.length < 2 ? null : ribbonGeometry(pistePoints({ hexes: draft }, hm), 1.2, 0.12)),
@@ -958,10 +1046,8 @@ function Pistes() {
 
   useEffect(
     () => () => {
-      for (const g of geos) {
-        g.edge.dispose();
-        g.snow?.dispose();
-      }
+      geos.edge?.dispose();
+      geos.snow?.dispose();
     },
     [geos],
   );
@@ -971,30 +1057,28 @@ function Pistes() {
   const emphasis = layer === "pistes";
   return (
     <group>
-      {geos.map(({ p, edge, snow }) => (
-        <group key={p.id}>
-          <mesh geometry={edge}>
-            <meshStandardMaterial
-              color={PISTE_COLOR[p.difficulty]}
-              roughness={0.72}
-              transparent
-              opacity={emphasis ? 0.98 : 0.9}
-            />
-          </mesh>
-          {snow && (
-            <mesh geometry={snow} receiveShadow>
-              <meshStandardMaterial
-                // Slightly blue-white and smoother than the terrain: groomed
-                // snow catches the light differently from the open mountain.
-                color="#eef5fd"
-                roughness={0.5}
-                transparent
-                opacity={emphasis ? 0.55 : 0.95}
-              />
-            </mesh>
-          )}
-        </group>
-      ))}
+      {geos.edge && (
+        <mesh geometry={geos.edge} raycast={noRaycast}>
+          <meshStandardMaterial
+            vertexColors
+            roughness={0.72}
+            transparent
+            opacity={emphasis ? 0.98 : 0.9}
+          />
+        </mesh>
+      )}
+      {geos.snow && (
+        <mesh geometry={geos.snow} receiveShadow raycast={noRaycast}>
+          <meshStandardMaterial
+            // Slightly blue-white and smoother than the terrain: groomed
+            // snow catches the light differently from the open mountain.
+            color="#eef5fd"
+            roughness={0.5}
+            transparent
+            opacity={emphasis ? 0.55 : 0.95}
+          />
+        </mesh>
+      )}
       {draftGeo && (
         <mesh geometry={draftGeo}>
           <meshStandardMaterial color="#7ec8ff" transparent opacity={0.75} />
@@ -1005,7 +1089,7 @@ function Pistes() {
 }
 
 function Skiers() {
-  const pistes = useGame((s) => s.pistes);
+  const pistes = useStableGame((s) => s.pistes);
   const hm = getHeightmap();
   const paths = useMemo(() => pistes.filter((p) => p.hexes.length >= 2).map((p) => pistePoints(p, hm)), [pistes, hm]);
   const count = Math.min(56, Math.max(8, paths.length * 6));
@@ -1142,7 +1226,7 @@ function PeerFocus() {
                 side={THREE.DoubleSide}
               />
             </mesh>
-            <Html center distanceFactor={110} position={[0, 2.6, 0]} zIndexRange={[20, 0]}>
+            <Html center distanceFactor={110} position={[0, 2.6, 0]} zIndexRange={LABEL_Z}>
               <div
                 style={{
                   background: color,
@@ -1166,97 +1250,153 @@ function PeerFocus() {
   );
 }
 
+/** Sky dome radius; the camera's far plane is set past it. */
+const SKY_RADIUS = 900;
+
 /**
- * A gradient sky instead of a flat clear colour.
+ * A gradient sky with the sun's glow in it.
  *
  * The range had nothing to stand against: sky, haze and distant snow were all
  * the same tone, so the peaks dissolved rather than reading as peaks. A
- * horizon behind them is what gives the mountain its silhouette.
+ * horizon behind them is what gives the mountain its silhouette. Colours and
+ * the glow are driven per frame from `atmosphereAt` by `Daylight`.
  */
-function SkyDome() {
-  const geo = useMemo(() => new THREE.SphereGeometry(400, 32, 20), []);
-  const mat = useMemo(
-    () =>
-      new THREE.ShaderMaterial({
-        side: THREE.BackSide,
-        depthWrite: false,
-        // Never fogged: the sky is the thing the fog fades everything else into.
-        fog: false,
-        uniforms: {
-          zenith: { value: new THREE.Color("#3f74b4") },
-          // Deepened from #d5e4f0. Snow no longer sits at full white, and a
-          // near-white horizon put ground and sky at the same value — the
-          // skyline read as one continuous pale field. This keeps the horizon
-          // light enough to feel like distance and dark enough to be an edge.
-          horizon: { value: new THREE.Color("#bcd3e8") },
-        },
-        vertexShader: `
-          varying float vHeight;
-          void main() {
-            vHeight = normalize(position).y;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }`,
-        fragmentShader: `
-          uniform vec3 zenith;
-          uniform vec3 horizon;
-          varying float vHeight;
-          void main() {
-            float t = clamp(vHeight * 1.25 + 0.1, 0.0, 1.0);
-            gl_FragColor = vec4(mix(horizon, zenith, pow(t, 0.8)), 1.0);
-          }`,
-      }),
-    [],
-  );
-  useEffect(
-    () => () => {
-      geo.dispose();
-      mat.dispose();
+function makeSkyMaterial() {
+  return new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    // Never fogged: the sky is the thing the fog fades everything else into.
+    fog: false,
+    uniforms: {
+      zenith: { value: new THREE.Color("#3a6fb5") },
+      horizon: { value: new THREE.Color("#c4d8ec") },
+      haze: { value: new THREE.Color("#a4c0dc") },
+      sunDir: { value: new THREE.Vector3(0, 1, 0) },
+      sunColor: { value: new THREE.Color("#fff1dc") },
     },
-    [geo, mat],
-  );
-  return <mesh geometry={geo} material={mat} renderOrder={-1} frustumCulled={false} />;
+    vertexShader: `
+      varying vec3 vDir;
+      void main() {
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform vec3 zenith;
+      uniform vec3 horizon;
+      uniform vec3 haze;
+      uniform vec3 sunDir;
+      uniform vec3 sunColor;
+      varying vec3 vDir;
+      void main() {
+        vec3 d = normalize(vDir);
+        float up = clamp(d.y * 1.6 + 0.04, 0.0, 1.0);
+        vec3 col = mix(horizon, zenith, pow(up, 0.7));
+        // Below the skyline the dome shows only through gaps in the far
+        // ranges; there it should be the fog, so the land fades into it.
+        col = mix(col, haze, smoothstep(0.02, -0.08, d.y));
+        float s = max(dot(d, normalize(sunDir)), 0.0);
+        col += sunColor * (pow(s, 6.0) * 0.22 + pow(s, 180.0) * 0.9) * (1.0 - up * 0.5);
+        gl_FragColor = vec4(col, 1.0);
+        // No tone mapping, on purpose: three applies fog after tone mapping,
+        // so an untoned sky is what matches the fogged land at the horizon.
+        #include <colorspace_fragment>
+      }`,
+  });
 }
 
 /** How far up the sun sits from whatever it is aimed at. */
 const SUN_DISTANCE = 150;
 /** Shadow map edge, desktop. The box below is sized against this. */
 const SHADOW_MAP = 2048;
+/** Peak sun intensity at noon on the desktop tier. */
+const SUN_NOON = 2.4;
 
 /**
- * The sun, with a shadow box that follows the view.
+ * The sun, sky, fill light and haze, driven by the time of day.
  *
- * One static box used to cover the whole 196-unit map on a 1024 map: 0.16
- * world units per texel, so a chalet some 1.5 units wide got about ten texels
- * of shadow and read as a grey smudge. The box now tracks the orbit target and
- * scales with zoom — tight enough for a crisp contact edge up close, wide
- * enough to hold the range when pulled back — which buys roughly five times
- * the resolution where the player is actually looking.
+ * Everything is set imperatively in one frame callback from scratch objects:
+ * the clock changes every frame, and routing it through React would re-render
+ * the lights sixty times a second. The server only sends the clock once a
+ * second, so between snapshots it is advanced locally at the game's own rate
+ * — a 90-second day moves the sun four degrees per snapshot, which jerked the
+ * shadows when it was applied raw.
+ *
+ * The shadow box tracks the orbit target and scales with zoom, tight enough
+ * for a crisp contact edge up close and wide enough to hold the range when
+ * pulled back.
  */
-function SunLight({ tier, elev }: { tier: QualityTier; elev: number }) {
+function Daylight({ tier }: { tier: QualityTier }) {
   const light = useRef<THREE.DirectionalLight>(null);
+  const hemi = useRef<THREE.HemisphereLight>(null);
+  const sky = useMemo(
+    () => ({ geo: new THREE.SphereGeometry(SKY_RADIUS, 32, 16), mat: makeSkyMaterial() }),
+    [],
+  );
+  useEffect(
+    () => () => {
+      sky.geo.dispose();
+      sky.mat.dispose();
+    },
+    [sky],
+  );
+  const scene = useThree((s) => s.scene);
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as { target?: THREE.Vector3 } | null;
-  const at = useMemo(() => new THREE.Vector3(), []);
-  const dir = useMemo(() => new THREE.Vector3(), []);
-  const fallback = useMemo(() => new THREE.Vector3(-4, 12, 38), []);
+  const scratch = useMemo(
+    () => ({
+      at: new THREE.Vector3(),
+      dir: new THREE.Vector3(),
+      fallback: new THREE.Vector3(-25, 10, -8),
+      air: createAtmosphere(),
+      clock: { raw: -1, at: 0 },
+    }),
+    [],
+  );
 
   useFrame(() => {
+    const { at, dir, fallback, air, clock } = scratch;
+    // Local clock: hold the last snapshot's time and run it forward, capped
+    // so a dropped connection does not spin the sun round.
+    const raw = useGame.getState().timeOfDay;
+    const nowMs = performance.now();
+    if (raw !== clock.raw) {
+      clock.raw = raw;
+      clock.at = nowMs;
+    }
+    const ahead = Math.min(2.5, (nowMs - clock.at) / 1000) / ECONOMY.daySecondsReal;
+    atmosphereAt(raw + ahead, air);
+
+    const fog = scene.fog as THREE.Fog | null;
+    if (fog) fog.color.setRGB(air.fog[0], air.fog[1], air.fog[2], THREE.SRGBColorSpace);
+    const u = sky.mat.uniforms;
+    (u.zenith!.value as THREE.Color).setRGB(air.zenith[0], air.zenith[1], air.zenith[2], THREE.SRGBColorSpace);
+    (u.horizon!.value as THREE.Color).setRGB(air.horizon[0], air.horizon[1], air.horizon[2], THREE.SRGBColorSpace);
+    (u.haze!.value as THREE.Color).setRGB(air.fog[0], air.fog[1], air.fog[2], THREE.SRGBColorSpace);
+    (u.sunColor!.value as THREE.Color).setRGB(air.sunColor[0], air.sunColor[1], air.sunColor[2], THREE.SRGBColorSpace);
+    (u.sunDir!.value as THREE.Vector3).set(air.sunDir[0], air.sunDir[1], air.sunDir[2]);
+
+    const h = hemi.current;
+    if (h) {
+      h.color.setRGB(air.hemiSky[0], air.hemiSky[1], air.hemiSky[2], THREE.SRGBColorSpace);
+      h.groundColor.setRGB(air.hemiGround[0], air.hemiGround[1], air.hemiGround[2], THREE.SRGBColorSpace);
+      h.intensity = tier.hemisphere * 2.2 * air.hemiIntensity;
+    }
+
     const l = light.current;
     if (!l) return;
+    l.color.setRGB(air.sunColor[0], air.sunColor[1], air.sunColor[2], THREE.SRGBColorSpace);
+    l.intensity = SUN_NOON * air.sunIntensity * tier.sunBoost;
+
     at.copy(controls?.target ?? fallback);
-
-    // Radius from zoom: MapControls runs 16 to 250 units out.
     const span = camera.position.distanceTo(at);
-    const radius = THREE.MathUtils.clamp(span * 0.44, 22, 104);
-
+    const radius = THREE.MathUtils.clamp(span * 0.5, 22, 110);
     // Snap the centre to the shadow map's own texel grid. Without this the
-    // whole map crawls with shimmer whenever the camera drifts, because every
-    // depth sample lands on a slightly different texel than the frame before.
+    // whole map crawls with shimmer whenever the camera drifts.
     const texel = (radius * 2) / SHADOW_MAP;
     at.x = Math.round(at.x / texel) * texel;
     at.z = Math.round(at.z / texel) * texel;
 
-    dir.set(48, 36 + elev * 28, 18).normalize();
+    dir.set(air.sunDir[0], air.sunDir[1], air.sunDir[2]);
     l.position.copy(at).addScaledVector(dir, SUN_DISTANCE);
     // `target` is not in the scene graph, so three only reads its world
     // matrix — updating it by hand is enough and saves adding a node.
@@ -1274,85 +1414,54 @@ function SunLight({ tier, elev }: { tier: QualityTier; elev: number }) {
   });
 
   return (
-    <directionalLight
-      ref={light}
-      position={[48, 36 + elev * 28, 18]}
-      // Strong enough to sculpt, not so strong that the mid-tones blow out
-      // to white — which is what a 2.35 sun through ACES was doing to snow.
-      intensity={1.55 * (0.55 + elev * 0.5) * tier.sunBoost}
-      color="#fff2d8"
-      castShadow={tier.shadows}
-      shadow-mapSize-width={SHADOW_MAP}
-      shadow-mapSize-height={SHADOW_MAP}
-      shadow-camera-near={SUN_DISTANCE * 0.25}
-      shadow-camera-far={SUN_DISTANCE * 2.2}
-      // normalBias offsets along the surface normal, which is what cures the
-      // shadow acne a tight box brings on; a plain depth bias at this
-      // resolution detaches shadows from their feet instead.
-      shadow-normalBias={0.035}
-      shadow-bias={-0.0002}
-    />
-  );
-}
-
-function LightsAndSky() {
-  const tod = useGame((s) => s.timeOfDay);
-  const quality = useGame((s) => s.quality);
-  const hour = tod * 24;
-  const sunT = (hour - 6) / 12;
-  const elev = Math.sin(Math.max(0.08, Math.min(1, sunT)) * Math.PI);
-  const tier = QUALITY[quality];
-  return (
     <>
-      <SkyDome />
+      <mesh geometry={sky.geo} material={sky.mat} renderOrder={-1} frustumCulled={false} raycast={noRaycast} />
       {/*
-        Fill light used to total more than the sun (hemisphere 1.05 + ambient
-        0.42 against a 1.35 directional), which flattened the mountain into a
-        sheet. The sun now dominates and the fill only keeps shadowed faces
-        from going black — sky blue from above, bounced snow-light from below.
+        Cool sky from above, a bluish snow bounce from below: shaded snow is
+        lit by the sky, so it goes blue rather than grey, and the warm sun
+        against it is what gives the slopes their form.
       */}
+      <hemisphereLight ref={hemi} args={["#9cc4f2", "#b8c8da", tier.hemisphere * 2.2]} />
+      <ambientLight intensity={tier.ambient * 0.5} />
+      <directionalLight
+        ref={light}
+        position={[48, 60, 18]}
+        intensity={SUN_NOON * tier.sunBoost}
+        color="#fff1dc"
+        castShadow={tier.shadows}
+        shadow-mapSize-width={SHADOW_MAP}
+        shadow-mapSize-height={SHADOW_MAP}
+        shadow-camera-near={SUN_DISTANCE * 0.25}
+        shadow-camera-far={SUN_DISTANCE * 2.2}
+        // normalBias offsets along the surface normal, which is what cures the
+        // shadow acne a tight box brings on.
+        shadow-normalBias={0.04}
+        shadow-bias={-0.0003}
+      />
       {/*
-        The ground half used to be a neutral grey, which is right for a rock
-        valley and wrong for this one: snow bounces most of what hits it, and
-        with the fill this low a slope facing away from the sun fell to near
-        black. A brighter, bluer bounce is what puts shadowed snow in the
-        blue it actually is — and blue reads as snow in shade, where dark grey
-        just reads as a hole.
+        Aerial perspective, not a fog bank: a long shallow ramp that lays far
+        ridges behind near ones and fades the far ranges into the horizon.
+        Its colour follows the sky through the day.
       */}
-      <hemisphereLight args={["#bcd8f5", "#a3bcd4", tier.hemisphere]} />
-      <ambientLight intensity={tier.ambient} />
-      <SunLight tier={tier} elev={elev} />
-      {/*
-        Aerial perspective, not a fog bank.
-
-        Haze first started at 120 units and ate the Matterhorn, which stands
-        some 100 to 150 away. Pushing it out to 250 fixed that by removing it
-        from the game: nothing at normal play distance is 250 units off, so
-        there was no depth cue at all, and distant snow met a near-white
-        horizon as one flat field of white.
-
-        A long shallow ramp is what actually happens in mountains. At 150 units
-        this tints a far ridge by about a sixth — enough to lay it behind the
-        near one — and still has somewhere to go at 400. It is deliberately
-        BLUER than the sky it sits against: fading snow to the horizon's own
-        colour makes peak and sky the same tone and the skyline vanishes a
-        second time. Real distance tints things blue, not white.
-      */}
-      <fog attach="fog" args={["#9dbcd8", tier.fogNear, tier.fogFar]} />
+      <fog attach="fog" args={["#a4c0dc", tier.fogNear, tier.fogFar]} />
     </>
   );
 }
 
+function LightsAndSky() {
+  const quality = useGame((s) => s.quality);
+  return <Daylight tier={QUALITY[quality]} />;
+}
+
 /**
- * Keeps the camera inside the world.
+ * Keeps the camera over the world.
  *
- * Two things were reachable before and both looked broken. Orbiting past the
- * perimeter — easy, since the controls allow 250 units on a 196-unit map —
- * showed the ground plane's underside, so the range read as a disc floating in
- * the sky. Dropping the camera low put it under the terrain and inside the
- * mountain. The rock skirt fixes the first from outside but cannot fix being
- * outside: no solid world can be seen into from below its own edge, which is
- * why city builders keep the camera in bounds rather than walling it out.
+ * The orbit target stays inside the map. The camera itself may stand back
+ * past the edge — that is where the establishing shot of the village and the
+ * peaks beyond it is taken from — because the far land now continues the
+ * ground to the horizon: outside the square there is terrain under you, not
+ * the underside of a floating tile. It may not go further than that, and
+ * never below the ground it is over.
  *
  * Applied after `MapControls` has had its say, so damping and inertia still
  * feel free right up to the limit instead of fighting a hard stop.
@@ -1360,19 +1469,23 @@ function LightsAndSky() {
 function keepCameraInWorld(camera: THREE.Camera, target: THREE.Vector3) {
   const hm = getHeightmap();
   const edge = (hm.world / 2) * 0.94;
+  const outer = (hm.world / 2) * 1.4;
 
   target.x = THREE.MathUtils.clamp(target.x, -edge, edge);
   target.z = THREE.MathUtils.clamp(target.z, -edge, edge);
-  camera.position.x = THREE.MathUtils.clamp(camera.position.x, -edge, edge);
-  camera.position.z = THREE.MathUtils.clamp(camera.position.z, -edge, edge);
+  camera.position.x = THREE.MathUtils.clamp(camera.position.x, -outer, outer);
+  camera.position.z = THREE.MathUtils.clamp(camera.position.z, -outer, outer);
 
-  // And above the ground it is standing over, with enough clearance that a
-  // ridge between camera and target does not fill the frame.
+  // Above the ground it is standing over (the map's edge height when outside
+  // it, which is what the far land meets), with enough clearance that a ridge
+  // between camera and target does not fill the frame.
   const floor = surfaceY(hm, camera.position.x, camera.position.z) + 6;
   if (camera.position.y < floor) camera.position.y = floor;
 }
 
 function Controls() {
+  const quality = useGame((s) => s.quality);
+  const home = QUALITY[quality].cameraTarget;
   const tool = useGame((s) => s.tool);
   const phase = useGame((s) => s.phase);
   const stampMode = useGame((s) => s.stampMode);
@@ -1389,7 +1502,9 @@ function Controls() {
 
   useEffect(() => {
     camera.up.set(0, 1, 0);
-    camera.lookAt(-4, 12, 38);
+    camera.lookAt(home[0], home[1], home[2]);
+    // Only on mount: the opening framing, not a leash.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera]);
 
   useEffect(() => {
@@ -1437,12 +1552,12 @@ function Controls() {
       dampingFactor={raster ? 0.2 : 0.12}
       minDistance={raster ? 14 : 16}
       // Far enough back to take in the whole range; the map is 196 across.
-      maxDistance={raster ? 64 : 250}
+      maxDistance={raster ? 64 : 230}
       maxPolarAngle={raster ? 0.58 : Math.PI / 2.12}
       minPolarAngle={raster ? 0.34 : stampMode ? 0.36 : 0.28}
       enableRotate={!raster && tool !== "pan"}
       screenSpacePanning
-      target={[-4, 12, 38]}
+      target={home}
     />
   );
 }
@@ -1491,28 +1606,47 @@ function RenderProbe() {
   return null;
 }
 
-function VillageSeed() {
-  const hm = getHeightmap();
-  const lit = useLampsOn();
-  const spots = [
-    [-6, 12],
-    [0, 12],
-    [3, 11],
-    [-4, 13],
-    [2, 13],
-  ];
-  return (
-    <group>
-      {spots.map(([q, r], i) => {
-        const { x, z } = hexToWorld(q!, r!);
-        return (
-          <group key={i} position={[x, surfaceY(hm, x, z), z]} rotation={[0, i * 0.7, 0]}>
-            <BuildingModel itemId="hut" lit={lit} />
-          </group>
-        );
-      })}
-    </group>
-  );
+/**
+ * Pixel ratio that follows the frame rate.
+ *
+ * The tier sets a ceiling; this walks the actual ratio down a step when the
+ * average frame over a window runs slower than the tier allows, and back up
+ * when there is plenty of headroom. Fill rate is what a phone runs out of
+ * first on a full-screen mountain, and pixel ratio is the cheapest lever on
+ * it — 1.25 to 1.0 is a third fewer fragments. Hysteresis (step up only well
+ * under budget, and only after several calm windows) keeps it from hunting.
+ */
+function AdaptiveResolution({ tier }: { tier: QualityTier }) {
+  const setDpr = useThree((s) => s.setDpr);
+  const gl = useThree((s) => s.gl);
+  const acc = useRef({ sum: 0, frames: 0, calm: 0 });
+  useFrame((_, dt) => {
+    const a = acc.current;
+    // Ignore hitches (tab switches, shader compiles): they are not load.
+    if (dt > 0.25) return;
+    a.sum += dt * 1000;
+    a.frames += 1;
+    if (a.frames < 90) return;
+    const avg = a.sum / a.frames;
+    a.sum = 0;
+    a.frames = 0;
+    const [lo, hi] = tier.dpr;
+    const ceiling = Math.min(hi, typeof window === "undefined" ? hi : window.devicePixelRatio || 1);
+    const now = gl.getPixelRatio();
+    if (avg > tier.slowFrameMs && now > lo) {
+      a.calm = 0;
+      setDpr(Math.max(lo, Math.round((now - 0.25) * 4) / 4));
+    } else if (avg < tier.slowFrameMs * 0.6 && now < ceiling) {
+      a.calm += 1;
+      if (a.calm >= 4) {
+        a.calm = 0;
+        setDpr(Math.min(ceiling, now + 0.25));
+      }
+    } else {
+      a.calm = 0;
+    }
+  });
+  return null;
 }
 
 export function SkiScene() {
@@ -1522,13 +1656,13 @@ export function SkiScene() {
   return (
     <Canvas
       camera={{
-        // Pulled back and pitched lower than before, so the establishing shot
-        // includes the skyline rather than only the valley floor the resort
-        // starts on.
+        // Oblique, from behind the village looking up-valley at the peaks:
+        // the village in the lower third, the Matterhorn against the sky.
         position: tier.cameraAt,
         fov: tier.fov,
-        near: 0.4,
-        far: 460,
+        near: 0.5,
+        // Past the sky dome from anywhere the camera may stand.
+        far: SKY_RADIUS + 260,
       }}
       dpr={tier.dpr}
       shadows={tier.shadows}
@@ -1541,19 +1675,19 @@ export function SkiScene() {
         // to keep the snow from blowing out to flat white.
         gl.toneMappingExposure = tier.exposure;
         gl.shadowMap.enabled = tier.shadows;
-        gl.shadowMap.type = THREE.PCFSoftShadowMap;
-        camera.lookAt(-4, 12, 38);
+        // PCFSoft is gone in r18x and falls back to this anyway, with a warning.
+        gl.shadowMap.type = THREE.PCFShadowMap;
+        camera.lookAt(tier.cameraTarget[0], tier.cameraTarget[1], tier.cameraTarget[2]);
       }}
     >
       <RenderProbe />
+      <AdaptiveResolution tier={tier} />
       <LightsAndSky />
       <Controls />
       <Loop />
       <Terrain />
-      <Skirt />
       <Lake />
       <Forest quality={quality} />
-      <VillageSeed />
       <Structures />
       <Lifts />
       <Pistes />
