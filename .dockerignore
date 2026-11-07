@@ -11,3 +11,4 @@ artifacts
 .vercel
 .output
 .tanstack
+.claude/worktrees

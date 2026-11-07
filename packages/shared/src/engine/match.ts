@@ -9,7 +9,6 @@ import type {
   MatchState,
   PendingEvent,
   ResortState,
-  RoundModifiers,
   RoundReport,
   SeasonGoal,
   WeatherKind,
