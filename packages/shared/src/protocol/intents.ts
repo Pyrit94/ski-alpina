@@ -97,6 +97,12 @@ export const IntentSchema = z.discriminatedUnion("type", [
     type: z.literal("choose_role"),
     role: z.enum(["berg", "tal"]),
   }),
+  // Separate purses: hand money to the other role or player.
+  z.object({
+    type: z.literal("transfer_coins"),
+    to: z.string().min(2).max(64),
+    amount: z.number().int().min(1).max(10_000_000),
+  }),
   // Research: start (or queue), cancel, and pledge support for an alliance node.
   z.object({
     type: z.literal("start_research"),

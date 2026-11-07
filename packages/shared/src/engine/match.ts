@@ -1,7 +1,7 @@
 import { SEASON } from "../../../config/src/economy.ts";
 import { isLift } from "../../../config/src/ids.ts";
 import { BY_ID } from "../../../config/src/items.ts";
-import { EVENTS, MATCH, type EventDef, type MatchPresetId } from "../../../config/src/match.ts";
+import { EVENTS, MATCH, RULES, type EventDef, type MatchPresetId } from "../../../config/src/match.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type {
   MatchOptions,
@@ -18,6 +18,7 @@ import { tickFlow } from "./flow.ts";
 import { syncQuestProgress } from "./quests.ts";
 import { seasonPhase } from "./season.ts";
 import { DEFAULT_MATCH_OPTIONS, emptyResearch, emptyResort, NO_MODS, sandboxMatch } from "./state.ts";
+import { applyEventWeights, creditAll, drawVip, ensureSecretGoals, openWallet, secretGoalResults, settleVip, settleVotes, shareIncome, walletMode } from "./rules.ts";
 import { weatherForDay } from "./weather.ts";
 
 /**
@@ -125,10 +126,22 @@ export function startMatch(
     roundBuilders: [],
     options: { ...DEFAULT_MATCH_OPTIONS, ...options },
     roles: {},
-    wallets: {},
+    // Roles start with the starting money split as agreed; duel purses open
+    // per player as they join (see ensureMatchPlayers).
+    wallets:
+      options.economy === "roles"
+        ? (() => {
+            const split = options.roleSplit ?? DEFAULT_MATCH_OPTIONS.roleSplit;
+            return {
+              berg: Math.round((preset.startingCoins * split) / 100),
+              tal: preset.startingCoins - Math.round((preset.startingCoins * split) / 100),
+            };
+          })()
+        : {},
     secret: {},
     vip: null,
     vipHistory: [],
+    duelGuests: {},
   };
   const next: ResortState = {
     ...base,
@@ -181,30 +194,25 @@ export function withPreview(state: ResortState, dem: Dem): ResortState {
   };
 }
 
-/** Fold an event option's effect into the state. */
+/** Fold one event option's full effect into the state (kept for callers and tests). */
 export function applyEventChoice(state: ResortState, option: number, actorId: string): ResortState {
-  const match = state.match;
-  const pending = match.event;
-  if (!pending || pending.chosen !== null) return state;
-  const def = eventDef(pending.id);
-  const effect = def?.options[option]?.effect ?? {};
-  const target: RoundModifiers = effect.lasting ? { ...match.perks } : { ...match.mods };
-  target.demand *= effect.demand ?? 1;
-  target.snow += effect.snow ?? 0;
-  target.wait *= effect.wait ?? 1;
-  target.upkeep *= effect.upkeep ?? 1;
-  target.ticket *= effect.ticket ?? 1;
-  target.closed = [...target.closed, ...(effect.closed ?? [])];
-  return {
-    ...state,
-    coins: Math.max(0, state.coins + (effect.coins ?? 0)),
-    stars: state.stars + (effect.stars ?? 0),
-    match: {
-      ...match,
-      event: { ...pending, chosen: option, chosenBy: actorId },
-      ...(effect.lasting ? { perks: target } : { mods: target }),
-    },
-  };
+  const weights = [0, 0];
+  weights[option] = 1;
+  return applyEventWeights(state, weights, actorId);
+}
+
+/**
+ * Players who joined a match after it started: a duel purse with the
+ * starting money, and a secret goal if that rule is on.
+ */
+export function ensureMatchPlayers(state: ResortState, playerIds: string[]): ResortState {
+  if (state.match?.mode !== "match") return state;
+  let next = state;
+  if (next.match.options.economy === "duel") {
+    const preset = MATCH.presets.find((p) => p.id === next.match.preset) ?? MATCH.presets[1]!;
+    for (const id of playerIds) next = openWallet(next, id, preset.startingCoins);
+  }
+  return ensureSecretGoals(next, playerIds);
 }
 
 /** What is built, at build price. Stations ride along with their lift. */
@@ -222,7 +230,42 @@ export interface ScoreBreakdown {
   guests: number;
   satisfaction: number;
   medals: number;
+  /** Points from secret goals that were met. */
+  secret: number;
   total: number;
+}
+
+export interface DuelScore {
+  playerId: string;
+  cash: number;
+  assets: number;
+  guests: number;
+  secret: number;
+  total: number;
+}
+
+/** In a duel: each player's own score, best first. */
+export function duelScores(state: ResortState): DuelScore[] {
+  const d = RULES.duel;
+  const players = Object.keys(state.match.wallets);
+  const ownAssets = (p: string) => {
+    let total = 0;
+    for (const l of state.lifts) if (l.builtBy === p) total += BY_ID[l.itemId]?.cost ?? 0;
+    for (const b of state.buildings) if (b.builtBy === p && !isLift(b.itemId)) total += BY_ID[b.itemId]?.cost ?? 0;
+    for (const pi of state.pistes) if (pi.builtBy === p) total += (BY_ID[pi.itemId]?.cost ?? 0) * Math.max(1, pi.hexes.length - 1);
+    return total;
+  };
+  const secrets = secretGoalResults(state);
+  return players
+    .map((p) => {
+      const cash = Math.round(((state.match.wallets[p] ?? 0) / 1000) * d.perThousandChf);
+      const assets = Math.round(((ownAssets(p) * d.assetShare) / 1000) * d.perThousandChf);
+      const guests = Math.round(((state.match.duelGuests[p] ?? 0) / 100) * d.perHundredGuests);
+      const sec = secrets.find((r) => r.playerId === p);
+      const secret = sec?.met && sec.def ? sec.def.points : 0;
+      return { playerId: p, cash, assets, guests, secret, total: cash + assets + guests + secret };
+    })
+    .sort((a, b) => b.total - a.total);
 }
 
 export function scoreBreakdown(state: ResortState): ScoreBreakdown {
@@ -235,13 +278,15 @@ export function scoreBreakdown(state: ResortState): ScoreBreakdown {
   const guestPts = Math.round((guests / 100) * s.perHundredGuests);
   const satPts = Math.round(avgSat * s.perSatisfaction);
   const medals = state.match.goals.reduce((n, g) => n + (g.medal ? s.medal[g.medal] : 0), 0);
+  const secret = secretGoalResults(state).reduce((n, r) => n + (r.met && r.def ? r.def.points : 0), 0);
   return {
     cash,
     assets,
     guests: guestPts,
     satisfaction: satPts,
     medals,
-    total: cash + assets + guestPts + satPts + medals,
+    secret,
+    total: cash + assets + guestPts + satPts + medals + secret,
   };
 }
 
@@ -263,22 +308,24 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
   const match0 = state.match;
   if (match0.mode !== "match" || match0.phase !== "plan") return state;
 
-  // Nobody decided: the cautious option applies.
+  // Nobody decided: with voting, whatever votes there are; otherwise the
+  // cautious option.
   if (match0.event && match0.event.chosen === null) {
-    state = applyEventChoice(state, 1, "");
+    state = settleVotes(state);
   }
   const eventTitle = state.match.event?.title;
   const eventBy = state.match.event?.chosenBy || undefined;
+  const compromise = Boolean(state.match.event?.compromise);
 
   // Everyone had a hand in this round: a small reward, before the days run,
-  // so the coins can already work.
-  const teamwork = new Set(state.match.roundBuilders).size >= 2;
+  // so the coins can already work. Not in a duel — there it is a race.
+  const teamwork =
+    state.match.options.teamwork &&
+    state.match.options.economy !== "duel" &&
+    new Set(state.match.roundBuilders).size >= 2;
   if (teamwork) {
-    state = {
-      ...state,
-      coins: state.coins + MATCH.teamwork.coins,
-      stars: state.stars + MATCH.teamwork.stars,
-    };
+    state = creditAll(state, MATCH.teamwork.coins);
+    state = { ...state, stars: state.stars + MATCH.teamwork.stars };
   }
 
   // Everything planned this round is finished now.
@@ -315,12 +362,28 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     for (let k = 0; k < steps; k++) {
       const probe = { ...state, timeOfDay: (k + 0.5) / steps };
       const flowed = tickFlow(probe, dem, dt, now);
-      state = {
-        ...state,
-        coins: Math.max(0, state.coins + flowed.coinsDelta),
-        stats: flowed.stats,
-        flow: flowed.flow,
-      };
+      if (walletMode(state)) {
+        const shared = shareIncome(state, {
+          revenue: flowed.stats.revenuePerHour * dt,
+          upkeep: flowed.stats.upkeepPerHour * dt,
+          flow: flowed.flow,
+        });
+        state = { ...shared.state, stats: flowed.stats, flow: flowed.flow };
+        if (shared.guestsByPlayer) {
+          const duelGuests = { ...state.match.duelGuests };
+          for (const [p, share] of Object.entries(shared.guestsByPlayer)) {
+            duelGuests[p] = (duelGuests[p] ?? 0) + share * flowed.stats.guestsPerHour * dt;
+          }
+          state = { ...state, match: { ...state.match, duelGuests } };
+        }
+      } else {
+        state = {
+          ...state,
+          coins: Math.max(0, state.coins + flowed.coinsDelta),
+          stats: flowed.stats,
+          flow: flowed.flow,
+        };
+      }
       const g = flowed.stats.guestsPerHour * dt;
       guests += g;
       guestsToday += g;
@@ -351,6 +414,11 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     state = syncQuestProgress({ ...state, day, season, weather: weatherForDay(season, day) });
   }
 
+  // VIP wish: settled against the resort as it stands after the round.
+  const playedRound = state.match.round;
+  const vipOutcome = settleVip(state, playedRound);
+  state = vipOutcome.state;
+
   const samples = state.match.daysPerRound * steps;
   const bottleneck = [...bottlenecks.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
   const report: RoundReport = {
@@ -371,6 +439,9 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     ...(eventTitle ? { event: eventTitle } : {}),
     ...(eventBy ? { eventBy } : {}),
     ...(teamwork ? { teamwork: true } : {}),
+    ...(vipOutcome.settled ? { vip: vipOutcome.settled } : {}),
+    ...(compromise ? { compromise: true } : {}),
+    ...(walletMode(state) ? { wallets: { ...state.match.wallets } } : {}),
   };
 
   const round = state.match.round + 1;
@@ -386,9 +457,12 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     event: null,
     phase: finished ? "finished" : "plan",
   };
-  if (!finished) match = { ...match, event: drawEvent({ round, startedAt: match.startedAt }, state.day) };
+  if (!finished && match.options.events !== "off") {
+    match = { ...match, event: drawEvent({ round, startedAt: match.startedAt }, state.day) };
+  }
 
   state = { ...state, match, timeOfDay: 0.5 };
+  if (!finished) state = drawVip(state, round);
   const score = scoreBreakdown(state).total;
   state = { ...state, match: { ...state.match, score } };
 

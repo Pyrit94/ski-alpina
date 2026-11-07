@@ -95,7 +95,19 @@ export {
   startSandbox,
   withPreview,
 } from "./engine/match.ts";
-export type { ScoreBreakdown } from "./engine/match.ts";
+export type { ScoreBreakdown, DuelScore } from "./engine/match.ts";
+export { duelScores, ensureMatchPlayers } from "./engine/match.ts";
+export {
+  conditionsMet,
+  conditionsProgress,
+  metric,
+  roleAllows,
+  roleForItem,
+  secretGoalResults,
+  spendable,
+  walletKey,
+  walletMode,
+} from "./engine/rules.ts";
 export { activeModifiers, NEUTRAL_MODS } from "./engine/flow.ts";
 export { syncQuestProgress } from "./engine/quests.ts";
 export {

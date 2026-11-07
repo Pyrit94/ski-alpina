@@ -8,6 +8,7 @@ import type { IntentResult, PlayerRole, ResortState } from "../types.ts";
 import { findEntity, occupiedSet } from "./state.ts";
 import { levelFromXp, measurePiste } from "./level.ts";
 import { eventDef } from "./match.ts";
+import { roleAllows, spendable, walletKey, walletMode } from "./rules.ts";
 import { MAX_PISTE_HEXES } from "../protocol/intents.ts";
 
 export function validateHex(
@@ -121,10 +122,34 @@ export function validateIntent(
   intent: Intent,
   role: PlayerRole,
   now: number,
+  /** Who sends it. Needed for separate purses and roles; absent in old callers. */
+  actorId?: string,
 ): IntentResult {
   if (role !== "builder") return { ok: false, code: "rights", reason: "Keine Baurechte" };
 
   const match = state.match;
+  const money = spendable(state, actorId);
+  const purse = walletMode(state) ? "In deiner Kasse fehlt Geld" : "Zu teuer";
+
+  if (intent.type === "set_match_options") {
+    if (match?.mode !== "match" || match.phase !== "plan") return { ok: false, code: "invalid", reason: "Keine laufende Partie" };
+    if (intent.options.economy && intent.options.economy !== match.options.economy) {
+      return { ok: false, code: "locked", reason: "Die Kassen-Regel gilt für die ganze Partie" };
+    }
+    return { ok: true };
+  }
+  if (intent.type === "choose_role") {
+    if (match?.mode !== "match" || match.options.economy !== "roles") return { ok: false, code: "invalid", reason: "Keine Rollen in dieser Partie" };
+    return { ok: true };
+  }
+  if (intent.type === "transfer_coins") {
+    if (!walletMode(state)) return { ok: false, code: "invalid", reason: "Ihr habt eine gemeinsame Kasse" };
+    const from = walletKey(state, actorId);
+    if (!from) return { ok: false, code: "invalid", reason: "Wähle zuerst deine Rolle" };
+    if (from === intent.to || !(intent.to in match.wallets)) return { ok: false, code: "invalid", reason: "Unbekannte Kasse" };
+    if (intent.amount > money) return { ok: false, code: "budget", reason: "So viel ist nicht in deiner Kasse" };
+    return { ok: true };
+  }
   if (intent.type === "start_match") return { ok: true };
   if (intent.type === "end_round") {
     if (match?.mode !== "match" || match.phase !== "plan") {
@@ -138,7 +163,8 @@ export function validateIntent(
     if (pending.chosen !== null) return { ok: false, code: "locked", reason: "Schon entschieden" };
     const option = eventDef(pending.id)?.options[intent.option];
     if (!option) return { ok: false, code: "invalid", reason: "Unbekannte Wahl" };
-    if ((option.cost ?? 0) > state.coins) return { ok: false, code: "budget", reason: "Zu teuer" };
+    if (match.options.events === "vote") return { ok: true };
+    if ((option.cost ?? 0) > money) return { ok: false, code: "budget", reason: purse };
     return { ok: true };
   }
   // A finished match is a result to look at, not a resort to keep building.
@@ -154,7 +180,9 @@ export function validateIntent(
     if (levelFromXp(state.xp) < item.unlockLevel) {
       return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
     }
-    if (state.coins < item.cost) return { ok: false, code: "budget", reason: "Zu teuer" };
+    const allowedB = roleAllows(state, actorId, intent.itemId);
+    if (!allowedB.ok) return { ok: false, code: "rights", reason: allowedB.reason };
+    if (money < item.cost) return { ok: false, code: "budget", reason: purse };
     if ((item.gemCost ?? 0) > state.gems) return { ok: false, code: "budget", reason: "Zu wenig Edelsteine" };
     return validateHex(state, dem, intent.q, intent.r, intent.itemId);
   }
@@ -165,7 +193,9 @@ export function validateIntent(
     if (levelFromXp(state.xp) < item.unlockLevel) {
       return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
     }
-    if (state.coins < item.cost) return { ok: false, code: "budget", reason: "Zu teuer" };
+    const allowedL = roleAllows(state, actorId, intent.itemId);
+    if (!allowedL.ok) return { ok: false, code: "rights", reason: allowedL.reason };
+    if (money < item.cost) return { ok: false, code: "budget", reason: purse };
     if ((item.gemCost ?? 0) > state.gems) return { ok: false, code: "budget", reason: "Zu wenig Edelsteine" };
     const a = validateHex(state, dem, intent.a.q, intent.a.r, intent.itemId);
     if (!a.ok) return a;
@@ -187,7 +217,9 @@ export function validateIntent(
     if (!path.ok) return path;
     // Price after the terrain check, so "too steep" is reported as too steep
     // rather than as an affordability problem on an impossible run.
-    if (state.coins < pisteCost(dem, intent.itemId, intent.hexes)) {
+    const allowedP = roleAllows(state, actorId, intent.itemId);
+    if (!allowedP.ok) return { ok: false, code: "rights", reason: allowedP.reason };
+    if (money < pisteCost(dem, intent.itemId, intent.hexes)) {
       return { ok: false, code: "budget", reason: "Zu teuer" };
     }
     return { ok: true };
@@ -205,7 +237,9 @@ export function validateIntent(
     const cur = target.upgrades[intent.key];
     if (cur >= def.max) return { ok: false, code: "locked", reason: "Maximalstufe" };
     const cost = def.cost[cur] ?? 999999;
-    if (state.coins < cost) return { ok: false, code: "budget", reason: "Zu teuer" };
+    const allowedU = roleAllows(state, actorId, target.itemId);
+    if (!allowedU.ok) return { ok: false, code: "rights", reason: allowedU.reason };
+    if (money < cost) return { ok: false, code: "budget", reason: purse };
     return { ok: true };
   }
 
@@ -225,8 +259,6 @@ export function validateIntent(
 
   if (
     intent.type === "edit_piste" ||
-    intent.type === "set_match_options" ||
-    intent.type === "choose_role" ||
     intent.type === "start_research" ||
     intent.type === "cancel_research" ||
     intent.type === "pledge_research"

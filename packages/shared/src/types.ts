@@ -282,6 +282,12 @@ export interface RoundReport {
   eventBy?: string;
   /** Both (all) players built something this round, and earned the bonus. */
   teamwork?: boolean;
+  /** A VIP wish settled this round. */
+  vip?: { name: string; status: "done" | "failed" };
+  /** The event was settled as a compromise of both options. */
+  compromise?: boolean;
+  /** Duel: each player's purse after the round. */
+  wallets?: Record<string, number>;
 }
 
 /** A decision put to the players at the start of a round. */
@@ -389,6 +395,8 @@ export interface MatchState {
   /** The current VIP wish, if any, and the ones already settled. */
   vip: VipRequest | null;
   vipHistory: VipRequest[];
+  /** Duel: guests each player's lifts carried over the match. */
+  duelGuests: Record<string, number>;
 }
 
 export interface MatchResult {

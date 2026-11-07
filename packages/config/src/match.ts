@@ -224,3 +224,100 @@ export const EVENTS: EventDef[] = [
     ],
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Rules you can switch per match (and most of them per round)
+// ---------------------------------------------------------------------------
+
+/**
+ * Figures a goal or a VIP wish can ask for. The engine knows how to read each
+ * one off the resort (`engine/rules.ts`), so new goals are data, not code.
+ */
+export type RuleMetric =
+  | "blackRuns"
+  | "redRuns"
+  | "blueKm"
+  | "pisteKm"
+  | "lifts"
+  | "cableways"
+  | "beds"
+  | "hotels3"
+  | "foodPlaces"
+  | "snowmakers"
+  | "parks"
+  | "satisfaction"
+  | "cash"
+  | "guestsLastRound"
+  | "verticalPerHour"
+  | "spa";
+
+export interface RuleCondition {
+  metric: RuleMetric;
+  target: number;
+}
+
+export interface SecretGoalDef {
+  id: string;
+  title: string;
+  hint: string;
+  points: number;
+  all: RuleCondition[];
+}
+
+/** One secret goal per player when the rule is on. Checked at the end. */
+export const SECRET_GOALS: SecretGoalDef[] = [
+  { id: "schwarz", title: "Steilhang-Fan", hint: "Mindestens 3 schwarze Pisten", points: 90, all: [{ metric: "blackRuns", target: 3 }] },
+  { id: "familien", title: "Familienparadies", hint: "Mindestens 4 km blaue Pisten", points: 80, all: [{ metric: "blueKm", target: 4 }] },
+  { id: "betten", title: "Bettenkönig:in", hint: "Mindestens 400 Betten", points: 90, all: [{ metric: "beds", target: 400 }] },
+  { id: "schnee", title: "Schneesicher", hint: "Mindestens 4 Beschneiungsanlagen", points: 70, all: [{ metric: "snowmakers", target: 4 }] },
+  { id: "bahnen", title: "Seilbahn-Netz", hint: "Mindestens 6 Bahnen, davon 2 Kabinenbahnen", points: 100, all: [{ metric: "lifts", target: 6 }, { metric: "cableways", target: 2 }] },
+  { id: "kasse", title: "Sparfuchs", hint: "Am Ende mindestens 250'000 CHF in der Kasse", points: 80, all: [{ metric: "cash", target: 250000 }] },
+  { id: "geniesser", title: "Geniesser:in", hint: "5 Restaurants, Hütten oder Après-Ski", points: 70, all: [{ metric: "foodPlaces", target: 5 }] },
+  { id: "park", title: "Freestyle", hint: "2 Snowparks und 3 rote Pisten", points: 90, all: [{ metric: "parks", target: 2 }, { metric: "redRuns", target: 3 }] },
+  { id: "hoehe", title: "Höhenmeter-Jäger:in", hint: "100'000 Höhenmeter pro Stunde", points: 90, all: [{ metric: "verticalPerHour", target: 100000 }] },
+  { id: "zufrieden", title: "Gastgeber:in", hint: "Am Ende mindestens 85 % Zufriedenheit", points: 80, all: [{ metric: "satisfaction", target: 85 }] },
+];
+
+export interface VipDef {
+  id: string;
+  name: string;
+  wish: string;
+  /** Rounds from the one it appears in, including that round. */
+  rounds: number;
+  all: RuleCondition[];
+  rewardCoins: number;
+  rewardStars: number;
+}
+
+/** VIP guests with a wish and a deadline. A miss costs a star. */
+export const VIPS: VipDef[] = [
+  { id: "meier", name: "Familie Meier", wish: "eine Kinderpiste: 2 km blaue Pisten", rounds: 3, all: [{ metric: "blueKm", target: 2 }], rewardCoins: 12000, rewardStars: 2 },
+  { id: "racer", name: "Skiclub Zermatt", wish: "2 schwarze Pisten fürs Training", rounds: 3, all: [{ metric: "blackRuns", target: 2 }], rewardCoins: 15000, rewardStars: 2 },
+  { id: "hotel", name: "Reisebüro Kuoni", wish: "ein Hotel ★★★ für ihre Gruppen", rounds: 3, all: [{ metric: "hotels3", target: 1 }], rewardCoins: 18000, rewardStars: 2 },
+  { id: "gondel", name: "Bergsteiger-Verein", wish: "eine Kabinenbahn auf den Berg", rounds: 4, all: [{ metric: "cableways", target: 1 }], rewardCoins: 20000, rewardStars: 3 },
+  { id: "gourmet", name: "Gault-Millau-Testerin", wish: "3 Restaurants und 80 % Zufriedenheit", rounds: 3, all: [{ metric: "foodPlaces", target: 3 }, { metric: "satisfaction", target: 80 }], rewardCoins: 16000, rewardStars: 3 },
+  { id: "snow", name: "SRF Meteo", wish: "3 Beschneiungsanlagen für die Live-Schaltung", rounds: 3, all: [{ metric: "snowmakers", target: 3 }], rewardCoins: 14000, rewardStars: 2 },
+  { id: "park", name: "Freeski-Crew", wish: "einen Snowpark", rounds: 3, all: [{ metric: "parks", target: 1 }], rewardCoins: 12000, rewardStars: 2 },
+  { id: "masse", name: "Firmenausflug Roche", wish: "1'500 Gäste in einer Runde", rounds: 3, all: [{ metric: "guestsLastRound", target: 1500 }], rewardCoins: 20000, rewardStars: 2 },
+  { id: "wellness", name: "Wellness-Bloggerin", wish: "ein Berg-Spa", rounds: 4, all: [{ metric: "spa", target: 1 }], rewardCoins: 18000, rewardStars: 2 },
+  { id: "betten", name: "Ski-WM-Delegation", wish: "300 Betten im Tal", rounds: 4, all: [{ metric: "beds", target: 300 }], rewardCoins: 25000, rewardStars: 3 },
+];
+
+export const RULES = {
+  /** Chance that a new VIP turns up in a round without one. */
+  vipChance: 0.5,
+  /** Stars lost when a VIP wish is missed. */
+  vipMissStars: 1,
+  /**
+   * Item categories each role may build in "roles" mode. The mountain runs
+   * the skiing, the valley the stay; the money is shared by `roleSplit`.
+   */
+  roleCategories: {
+    berg: ["lifts", "pistes"],
+    tal: ["buildings", "services", "deco"],
+  } as Record<"berg" | "tal", string[]>,
+  /** Items that belong to the mountain even though their category says valley. */
+  bergItems: ["snowmaker", "groomer", "lights", "viewpoint", "clinic"],
+  /** Duel: points per 1'000 CHF of own cash and own assets, per 100 own guests. */
+  duel: { perThousandChf: 1, assetShare: 0.5, perHundredGuests: 2 },
+};

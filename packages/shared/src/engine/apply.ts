@@ -8,7 +8,8 @@ import type { QuestState, ResortState } from "../types.ts";
 import { GRADE_LABEL, pisteDifficulty } from "./level.ts";
 import { entityCost, findEntity } from "./state.ts";
 import { surveyPiste } from "./validate.ts";
-import { applyEventChoice, inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
+import { inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
+import { applyEventWeights, recordVote, settleActorCoins, walletKey } from "./rules.ts";
 import { MATCH } from "../../../config/src/match.ts";
 
 export interface Applied {
@@ -87,7 +88,10 @@ function record(
     match = { ...match, roundBuilders: [...match.roundBuilders, actor.id] };
   }
 
-  return { ...applied, state: { ...next, contributors, activity, match } };
+  let settled: ResortState = { ...next, contributors, activity, match };
+  // Separate purses: whatever the intent cost or paid lands with its actor.
+  if (intent.type !== "start_match") settled = settleActorCoins(before, settled, actor?.id);
+  return { ...applied, state: settled };
 }
 
 /**
@@ -377,10 +381,58 @@ function applyOne(
   if (intent.type === "choose_event") {
     const pending = state.match.event!;
     const option = pending.options[intent.option]!;
+    if (state.match.options.events === "vote") {
+      // A vote; the room settles it once everyone online has voted.
+      return {
+        state: { ...state, match: { ...state.match, event: recordVote(pending, actor?.id ?? "", intent.option) } },
+        title: pending.title,
+        body: `Stimme für «${option.label}».`,
+        kind: "info",
+      };
+    }
+    const weights = [0, 0];
+    weights[intent.option] = 1;
     return {
-      state: applyEventChoice(state, intent.option, actor?.id ?? ""),
+      state: applyEventWeights(state, weights, actor?.id ?? ""),
       title: pending.title,
       body: `Entschieden: ${option.label}.`,
+      kind: "ok",
+    };
+  }
+
+  if (intent.type === "set_match_options") {
+    const { economy: _economy, ...rest } = intent.options;
+    return {
+      state: { ...state, match: { ...state.match, options: { ...state.match.options, ...rest } } },
+      title: "Regeln angepasst",
+      body: "Gilt ab dieser Runde.",
+      kind: "info",
+    };
+  }
+
+  if (intent.type === "choose_role") {
+    const id = actor?.id ?? "";
+    const label = intent.role === "berg" ? "Berg (Bahnen & Pisten)" : "Tal (Hotels, Gastro & Dienste)";
+    return {
+      state: { ...state, match: { ...state.match, roles: { ...state.match.roles, [id]: intent.role } } },
+      title: "Rolle gewählt",
+      body: `${actor?.name ?? "Jemand"} führt jetzt: ${label}.`,
+      kind: "info",
+    };
+  }
+
+  if (intent.type === "transfer_coins") {
+    const from = walletKey(state, actor?.id);
+    if (!from) return { state, title: "Überweisung", body: "Keine eigene Kasse.", kind: "warn" };
+    const wallets = { ...state.match.wallets };
+    wallets[from] = (wallets[from] ?? 0) - intent.amount;
+    wallets[intent.to] = (wallets[intent.to] ?? 0) + intent.amount;
+    const toLabel = intent.to === "berg" ? "Berg" : intent.to === "tal" ? "Tal" : (state.contributors[intent.to]?.name ?? "Mitspieler:in");
+    // Coins in total do not change, so settleActorCoins leaves this alone.
+    return {
+      state: { ...state, match: { ...state.match, wallets } },
+      title: "Überweisung",
+      body: `${fmtChf(intent.amount)} an ${toLabel}.`,
       kind: "ok",
     };
   }

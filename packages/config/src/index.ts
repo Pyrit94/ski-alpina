@@ -18,3 +18,5 @@ export {
 export type { PisteGrade } from "./terrain.ts";
 export { MATCH, EVENTS } from "./match.ts";
 export type { MatchPresetId, MatchPresetDef, EventDef, EventEffect, EventOption } from "./match.ts";
+export { SECRET_GOALS, VIPS, RULES } from "./match.ts";
+export type { RuleMetric, RuleCondition, SecretGoalDef, VipDef } from "./match.ts";

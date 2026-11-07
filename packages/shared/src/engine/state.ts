@@ -86,6 +86,7 @@ export function sandboxMatch(): MatchState {
     secret: {},
     vip: null,
     vipHistory: [],
+    duelGuests: {},
   };
 }
 
@@ -239,6 +240,7 @@ export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): 
       secret: match.secret ?? {},
       vip: match.vip ?? null,
       vipHistory: match.vipHistory ?? [],
+      duelGuests: match.duelGuests ?? {},
     },
     research: { ...emptyResearch(), ...(snapshot.research ?? {}) },
     hallOfFame: snapshot.hallOfFame ?? [],

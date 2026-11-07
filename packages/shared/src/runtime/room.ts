@@ -3,7 +3,8 @@ import { applyIntent } from "../engine/apply.ts";
 import { tickResort } from "../engine/tick.ts";
 import { validateIntent } from "../engine/validate.ts";
 import { emptyResort, migrateResort } from "../engine/state.ts";
-import { inMatch, resolveRound, withPreview } from "../engine/match.ts";
+import { ensureMatchPlayers, inMatch, resolveRound, withPreview } from "../engine/match.ts";
+import { decideVotes } from "../engine/rules.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
@@ -93,6 +94,7 @@ export class GameRoom {
       ...(identity ? { userId: identity.userId } : {}),
     };
     this.players.set(player.id, player);
+    if (inMatch(this.state)) this.state = ensureMatchPlayers(this.state, this.builderIds());
     return player;
   }
 
@@ -147,7 +149,7 @@ export class GameRoom {
     if (!player) return { ok: false, code: "rights", reason: "Nicht verbunden" };
     player.lastSeen = Date.now();
     const now = Date.now();
-    const v = validateIntent(this.state, this.dem, intent, player.role, now);
+    const v = validateIntent(this.state, this.dem, intent, player.role, now, player.id);
     if (!v.ok) return v;
     const applied = applyIntent(
       this.state,
@@ -158,6 +160,13 @@ export class GameRoom {
     );
     this.state = applied.state;
     if (inMatch(this.state)) {
+      // Late joiners and new matches: purses and secret goals for everyone here.
+      this.state = ensureMatchPlayers(this.state, this.builderIds());
+      // With voting on, the event is settled once everyone online has voted.
+      if (intent.type === "choose_event") {
+        const decided = decideVotes(this.state, this.onlineBuilderIds());
+        if (decided) this.state = decided;
+      }
       // Planning has no clock, so show what the change will do right away.
       this.state = withPreview(this.state, this.dem);
       const resolved = this.resolveIfReady(now);
@@ -236,6 +245,15 @@ export class GameRoom {
     this.state = tickResort(this.state, this.dem, dt, now);
     this.seq += 1;
     return true;
+  }
+
+  /** Everyone this room knows as a builder, online or not. */
+  builderIds(): string[] {
+    return [...this.players.values()].filter((p) => p.role === "builder").map((p) => p.id);
+  }
+
+  onlineBuilderIds(): string[] {
+    return [...this.players.values()].filter((p) => p.role === "builder" && p.online).map((p) => p.id);
   }
 
   /**
