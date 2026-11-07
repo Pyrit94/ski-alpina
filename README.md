@@ -18,6 +18,18 @@ Was zählt:
 - **Der Schnee geht.** Gegen Saisonende steigt die Schneegrenze; Beschneiung und höher gelegene Pisten verlängern die Saison.
 - **Ticketpreis** ist der tägliche Hebel: zu teuer vertreibt Gäste, zu billig verschenkt Geld.
 
+**Spielregeln** (beim Start unter «Spielregeln anpassen», fast alles auch zwischen den Runden im Tab «Ziele»):
+
+| Regel | Optionen |
+| --- | --- |
+| Kasse | **Gemeinsam** · **Berg & Tal** (eine:r baut Bahnen/Pisten/Schnee, die andere Person Hotels/Gastro/Dienste; jede Rolle hat eine Kasse, Einnahmen-Aufteilung per Regler, Überweisungen im Tab «Team») · **Duell** (jede:r eigenes Geld, verdient an den eigenen Bahnen, eigene Wertung) – gilt für die ganze Partie |
+| Ereignisse | Aus · Wer zuerst entscheidet · Abstimmen (uneinig = beide Optionen zur Hälfte) |
+| VIP-Gäste | Wünsche mit Frist («Familie Meier will 2 km blaue Pisten») – Geld und Sterne oder ein Stern weniger |
+| Geheime Ziele | Jede:r ein verdecktes Ziel für Bonuspunkte, aufgedeckt am Ende |
+| Forschung | Forschungsbaum inkl. Allianz-Zweig |
+| Teamwork-Bonus | Bauen alle in einer Runde etwas: 4'000 CHF und ein Stern |
+| Fotoalbum | Ein Bild pro Runde (auf dem Gerät gespeichert), am Ende als Zeitraffer |
+
 Zu zweit:
 
 - **Team-Chat** mit Schnell-Reaktionen (Tab «Team», am Handy die Sprechblase); Nachrichten bleiben im Gebiet.
