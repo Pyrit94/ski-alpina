@@ -4,6 +4,19 @@ import { ITEM_IDS } from "../../../config/src/ids.ts";
 /** Longest run one stroke may draw. The client stops the draft here too. */
 export const MAX_PISTE_HEXES = 48;
 
+export const MatchOptionsPatchSchema = z
+  .object({
+    economy: z.enum(["shared", "roles", "duel"]),
+    roleSplit: z.number().int().min(10).max(90),
+    events: z.enum(["off", "first", "vote"]),
+    secretGoals: z.boolean(),
+    vips: z.boolean(),
+    album: z.boolean(),
+    research: z.boolean(),
+    teamwork: z.boolean(),
+  })
+  .partial();
+
 export const AxialSchema = z.object({
   q: z.number().int().min(-80).max(80),
   r: z.number().int().min(-80).max(80),
@@ -30,6 +43,15 @@ export const IntentSchema = z.discriminatedUnion("type", [
     type: z.literal("place_piste"),
     itemId: ItemIdSchema,
     hexes: z.array(AxialSchema).min(2).max(MAX_PISTE_HEXES),
+    width: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+    name: z.string().trim().max(32).optional(),
+  }),
+  // Rename a run, or change its width (rebuilds the grooming, costs the difference).
+  z.object({
+    type: z.literal("edit_piste"),
+    pisteId: z.string().min(2).max(48),
+    name: z.string().trim().max(32).optional(),
+    width: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   }),
   z.object({
     type: z.literal("upgrade"),
@@ -63,6 +85,29 @@ export const IntentSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("start_match"),
     preset: z.enum(["kurz", "normal", "lang", "sandbox"]),
+    options: MatchOptionsPatchSchema.optional(),
+  }),
+  // Change the rules between rounds; applies from the next round on.
+  z.object({
+    type: z.literal("set_match_options"),
+    options: MatchOptionsPatchSchema,
+  }),
+  // In "roles" mode: take the mountain or the valley.
+  z.object({
+    type: z.literal("choose_role"),
+    role: z.enum(["berg", "tal"]),
+  }),
+  // Research: start (or queue), cancel, and pledge support for an alliance node.
+  z.object({
+    type: z.literal("start_research"),
+    nodeId: z.string().min(1).max(48),
+  }),
+  z.object({
+    type: z.literal("cancel_research"),
+  }),
+  z.object({
+    type: z.literal("pledge_research"),
+    nodeId: z.string().min(1).max(48),
   }),
   // "I'm done with this round" — or, with ready false, "wait, not yet".
   z.object({

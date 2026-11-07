@@ -356,7 +356,7 @@ function applyOne(
     }
     const preset = MATCH.presets.find((p) => p.id === intent.preset)!;
     return {
-      state: dem ? startMatch(state, intent.preset, now, dem) : state,
+      state: dem ? startMatch(state, intent.preset, now, dem, intent.options) : state,
       title: "Neue Partie",
       body: `${preset.label}: ${preset.hint}. Viel Glück!`,
       kind: "ok",
@@ -385,12 +385,17 @@ function applyOne(
     };
   }
 
-  return {
-    state: { ...state, tutorialOpen: false },
-    title: "Tutorial",
-    body: "Geschlossen.",
-    kind: "info",
-  };
+  if (intent.type === "dismiss_tutorial") {
+    return {
+      state: { ...state, tutorialOpen: false },
+      title: "Tutorial",
+      body: "Geschlossen.",
+      kind: "info",
+    };
+  }
+
+  // Implemented in their own modules as they land; until then, nothing changes.
+  return { state, title: "Hinweis", body: "Diese Funktion kommt gleich.", kind: "info" };
 }
 
 /** Real seconds in free play; finished when the round is played in a match. */

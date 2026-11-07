@@ -41,6 +41,7 @@ import { exportSave } from "@/lib/game/save";
 import { useCardImages } from "@/lib/game/card-images";
 import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
 import { ChatPanel, MarkButtons, MarkHint, UnreadBadge } from "./TeamHUD";
+import { ResearchPanel } from "./ResearchHUD";
 import { useUnreadChat } from "@/lib/game/team";
 import { Celebration, EventCard, FinalScreen, MatchGoalsPanel, MatchSetupModal, RoundBar, RoundReportModal, Toasts } from "./MatchHUD";
 import { useGame } from "@/lib/game/store";
@@ -620,18 +621,19 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
 
 function RightColumn() {
   const selectedId = useGame((s) => s.selectedId);
-  const [tab, setTab] = useState<"ops" | "goals" | "team">("ops");
+  const [tab, setTab] = useState<"ops" | "goals" | "research" | "team">("ops");
   const unread = useUnreadChat();
   const tabs = [
     { id: "ops" as const, label: "Betrieb" },
     { id: "goals" as const, label: "Ziele" },
+    { id: "research" as const, label: "Forschung" },
     { id: "team" as const, label: "Team" },
   ];
   return (
     <aside className="hidden w-[300px] shrink-0 flex-col gap-2 overflow-y-auto p-3 pl-1 lg:flex">
       {selectedId && <InfoPanel />}
       <Panel className="p-1">
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-4 gap-1">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -659,6 +661,11 @@ function RightColumn() {
           </Panel>
           <Quests />
         </>
+      )}
+      {tab === "research" && (
+        <Panel className="p-3">
+          <ResearchPanel />
+        </Panel>
       )}
       {tab === "team" && (
         <>
@@ -1696,7 +1703,17 @@ function MobileSheets() {
   const setSheet = useGame((s) => s.setSheet);
   if (sheet === "none") return null;
   const title =
-    sheet === "build" ? "Bauen" : sheet === "quests" ? "Ziele & Partie" : sheet === "info" ? "Gebiet" : sheet === "chat" ? "Team-Chat" : "Menü";
+    sheet === "build"
+      ? "Bauen"
+      : sheet === "quests"
+        ? "Ziele & Partie"
+        : sheet === "info"
+          ? "Gebiet"
+          : sheet === "chat"
+            ? "Team-Chat"
+            : sheet === "research"
+              ? "Forschung"
+              : "Menü";
   return (
     <div className="pointer-events-none absolute inset-0 z-30 lg:hidden">
       <button
@@ -1727,6 +1744,13 @@ function MobileSheets() {
           {sheet === "build" && <MobileBuildGrid />}
           {sheet === "quests" && (
             <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => useGame.getState().setSheet("research")}
+                className="flex min-h-11 items-center justify-between rounded-[14px] bg-accent-soft/40 px-3 text-[13px] font-semibold text-navy"
+              >
+                Forschung öffnen <ChevronRight className="size-4" />
+              </button>
               <MatchGoalsPanel />
               <Quests />
             </div>
@@ -1742,6 +1766,7 @@ function MobileSheets() {
           )}
           {sheet === "menu" && <MobileMenuBody />}
           {sheet === "chat" && <ChatPanel compact />}
+          {sheet === "research" && <ResearchPanel compact />}
         </div>
       </div>
     </div>

@@ -223,6 +223,17 @@ export function validateIntent(
     return { ok: true };
   }
 
+  if (
+    intent.type === "edit_piste" ||
+    intent.type === "set_match_options" ||
+    intent.type === "choose_role" ||
+    intent.type === "start_research" ||
+    intent.type === "cancel_research" ||
+    intent.type === "pledge_research"
+  ) {
+    return { ok: false, code: "invalid", reason: "Diese Funktion kommt gleich" };
+  }
+
   if (intent.type === "set_ticket_price") {
     if (intent.chf < ECONOMY.ticketMin || intent.chf > ECONOMY.ticketMax) {
       return { ok: false, code: "invalid", reason: "Preis ausserhalb" };

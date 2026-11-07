@@ -4,6 +4,7 @@ import { BY_ID } from "../../../config/src/items.ts";
 import { EVENTS, MATCH, type EventDef, type MatchPresetId } from "../../../config/src/match.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type {
+  MatchOptions,
   Medal,
   MatchState,
   PendingEvent,
@@ -16,7 +17,7 @@ import type {
 import { tickFlow } from "./flow.ts";
 import { syncQuestProgress } from "./quests.ts";
 import { seasonPhase } from "./season.ts";
-import { emptyResort, NO_MODS, sandboxMatch } from "./state.ts";
+import { DEFAULT_MATCH_OPTIONS, emptyResearch, emptyResort, NO_MODS, sandboxMatch } from "./state.ts";
 import { weatherForDay } from "./weather.ts";
 
 /**
@@ -97,7 +98,13 @@ function goalsFor(seasons: number): SeasonGoal[] {
  * seen; everything built is cleared, because a score only means something if
  * every match starts from the same empty valley.
  */
-export function startMatch(state: ResortState, presetId: MatchPresetId, now: number, dem: Dem): ResortState {
+export function startMatch(
+  state: ResortState,
+  presetId: MatchPresetId,
+  now: number,
+  dem: Dem,
+  options: Partial<MatchOptions> = {},
+): ResortState {
   const preset = MATCH.presets.find((p) => p.id === presetId) ?? MATCH.presets[1]!;
   const base = emptyResort(state.roomId);
   const match: MatchState = {
@@ -116,12 +123,19 @@ export function startMatch(state: ResortState, presetId: MatchPresetId, now: num
     score: 0,
     startedAt: now,
     roundBuilders: [],
+    options: { ...DEFAULT_MATCH_OPTIONS, ...options },
+    roles: {},
+    wallets: {},
+    secret: {},
+    vip: null,
+    vipHistory: [],
   };
   const next: ResortState = {
     ...base,
     resortName: state.resortName,
     hallOfFame: state.hallOfFame,
     chat: state.chat,
+    research: emptyResearch(),
     tutorialOpen: state.tutorialOpen,
     tutorialStep: state.tutorialStep,
     coins: preset.startingCoins,

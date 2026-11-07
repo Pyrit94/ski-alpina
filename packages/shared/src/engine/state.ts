@@ -2,6 +2,8 @@ import { ECONOMY } from "../../../config/src/economy.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import type {
+  MatchOptions,
+  ResearchState,
   MatchState,
   RoundModifiers,
   Upgrades,
@@ -44,6 +46,22 @@ export const DEFAULT_STATS: SimStats = {
 
 export const NO_MODS: RoundModifiers = { demand: 1, snow: 0, wait: 1, upkeep: 1, ticket: 1, closed: [] };
 
+/** The rules a match starts with unless the players pick others. */
+export const DEFAULT_MATCH_OPTIONS: MatchOptions = {
+  economy: "shared",
+  roleSplit: 50,
+  events: "first",
+  secretGoals: false,
+  vips: true,
+  album: true,
+  research: true,
+  teamwork: true,
+};
+
+export function emptyResearch(): ResearchState {
+  return { done: [], active: null, points: 0, pledges: {} };
+}
+
 /** Free play: no rounds, no end, the clock runs while someone is here. */
 export function sandboxMatch(): MatchState {
   return {
@@ -62,6 +80,12 @@ export function sandboxMatch(): MatchState {
     score: 0,
     startedAt: 0,
     roundBuilders: [],
+    options: { ...DEFAULT_MATCH_OPTIONS },
+    roles: {},
+    wallets: {},
+    secret: {},
+    vip: null,
+    vipHistory: [],
   };
 }
 
@@ -115,6 +139,7 @@ export function emptyResort(roomId = "zermatt"): ResortState {
     match: sandboxMatch(),
     hallOfFame: [],
     chat: [],
+    research: emptyResearch(),
   };
 }
 
@@ -205,7 +230,17 @@ export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): 
     unlocked: snapshot.unlocked ?? [],
     contributors: snapshot.contributors ?? {},
     activity: snapshot.activity ?? [],
-    match: { ...match, roundBuilders: match.roundBuilders ?? [] },
+    match: {
+      ...match,
+      roundBuilders: match.roundBuilders ?? [],
+      options: { ...DEFAULT_MATCH_OPTIONS, ...(match.options ?? {}) },
+      roles: match.roles ?? {},
+      wallets: match.wallets ?? {},
+      secret: match.secret ?? {},
+      vip: match.vip ?? null,
+      vipHistory: match.vipHistory ?? [],
+    },
+    research: { ...emptyResearch(), ...(snapshot.research ?? {}) },
     hallOfFame: snapshot.hallOfFame ?? [],
     chat: snapshot.chat ?? [],
   };

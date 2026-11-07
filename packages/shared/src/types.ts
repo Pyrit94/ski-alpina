@@ -6,7 +6,7 @@ export type Tool = "select" | "pan" | "orbit";
 export type WeatherKind = "sun" | "cloud" | "snow" | "fog" | "storm";
 export type PisteDifficulty = "blue" | "red" | "black" | "park" | "road";
 export type BuildPhase = "idle" | "place" | "lift-a" | "lift-b" | "piste";
-export type HudSheet = "none" | "build" | "info" | "quests" | "menu" | "chat";
+export type HudSheet = "none" | "build" | "info" | "quests" | "menu" | "chat" | "research";
 export type PlayerRole = "builder" | "visitor";
 
 export interface Upgrades {
@@ -42,6 +42,9 @@ export interface PlacedLift {
   builtBy?: string;
 }
 
+/** 1 schmal, 2 normal, 3 breit. Older saves have none, which means 2. */
+export type PisteWidth = 1 | 2 | 3;
+
 export interface PlacedPiste {
   id: string;
   itemId: ItemId;
@@ -50,6 +53,10 @@ export interface PlacedPiste {
   builtAt: number;
   readyAt: number;
   builtBy?: string;
+  /** Width class of the run; see PISTE_WIDTHS in config. Absent = 2. */
+  width?: PisteWidth;
+  /** A name the players gave the run, e.g. "Matterhorn-Abfahrt". */
+  name?: string;
 }
 
 export interface QuestState {
@@ -231,6 +238,7 @@ export interface ResortState {
   hallOfFame: MatchResult[];
   /** Team chat, oldest first, bounded. */
   chat: ChatEntry[];
+  research: ResearchState;
 }
 
 /**
@@ -286,6 +294,58 @@ export interface PendingEvent {
   chosen: number | null;
   /** Who decided it. */
   chosenBy?: string;
+  /** With voting on: each player's choice so far. */
+  votes?: Record<string, number>;
+  /** The players disagreed, so both options apply at half strength. */
+  compromise?: boolean;
+}
+
+/** How money is held in a match. */
+export type EconomyMode = "shared" | "roles" | "duel";
+/** How round events are decided. */
+export type EventMode = "off" | "first" | "vote";
+/** In "roles": the mountain (lifts, pistes, snow) or the valley (hotels, food, services). */
+export type TeamRole = "berg" | "tal";
+
+/**
+ * The rules of a match. Chosen when it starts; everything except `economy`
+ * can be changed between rounds and applies from the next round on.
+ */
+export interface MatchOptions {
+  economy: EconomyMode;
+  /** With "roles": percent of the income that goes to the mountain role. */
+  roleSplit: number;
+  events: EventMode;
+  secretGoals: boolean;
+  vips: boolean;
+  album: boolean;
+  research: boolean;
+  teamwork: boolean;
+}
+
+/** A VIP guest's wish: fulfil it by a round for a reward. */
+export interface VipRequest {
+  id: string;
+  name: string;
+  wish: string;
+  /** Last round in which it can be fulfilled. */
+  dueRound: number;
+  rewardCoins: number;
+  rewardStars: number;
+  /** Set when the round resolution checked it. */
+  status: "open" | "done" | "failed";
+}
+
+/** Research: what is finished, what runs, and the points to pay for it. */
+export interface ResearchState {
+  /** Finished node ids. */
+  done: string[];
+  /** The node being researched and the points already in it. */
+  active: { id: string; progress: number } | null;
+  /** Points banked and not yet spent. */
+  points: number;
+  /** Alliance nodes need every player's pledge before they can start. */
+  pledges: Record<string, string[]>;
 }
 
 export interface SeasonGoal {
@@ -319,6 +379,16 @@ export interface MatchState {
   startedAt: number;
   /** Player ids who built something in the current round. */
   roundBuilders: string[];
+  options: MatchOptions;
+  /** Roles in "roles" mode, by player id. */
+  roles: Record<string, TeamRole>;
+  /** Separate purses in "roles" and "duel" mode, by player id. */
+  wallets: Record<string, number>;
+  /** One secret goal id per player, when secret goals are on. */
+  secret: Record<string, string>;
+  /** The current VIP wish, if any, and the ones already settled. */
+  vip: VipRequest | null;
+  vipHistory: VipRequest[];
 }
 
 export interface MatchResult {

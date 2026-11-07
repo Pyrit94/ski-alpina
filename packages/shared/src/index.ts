@@ -31,6 +31,13 @@ export type {
   ChatEntry,
   MapMark,
   MarkKind,
+  PisteWidth,
+  EconomyMode,
+  EventMode,
+  TeamRole,
+  MatchOptions,
+  VipRequest,
+  ResearchState,
 } from "./types.ts";
 export { MAX_PISTE_HEXES, IntentSchema, ClientMessageSchema, ServerMessageSchema, ItemIdSchema, AxialSchema } from "./protocol/intents.ts";
 export type { Intent, ClientMessage, ServerMessage } from "./protocol/intents.ts";
@@ -51,6 +58,8 @@ export {
 export {
   DEFAULT_STATS,
   DEFAULT_WEATHER,
+  DEFAULT_MATCH_OPTIONS,
+  emptyResearch,
   emptyResort,
   entityCost,
   findEntity,
