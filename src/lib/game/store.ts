@@ -1,8 +1,9 @@
 import { create } from "zustand";
-import { BY_ID, isLift, isPiste } from "@ski/config";
+import { BY_ID, CATALOG, isLift, isPiste } from "@ski/config";
 import {
   hexDistance,
   hexLine,
+  MAX_PISTE_HEXES,
   validateHex,
   validatePistePath,
   getDem,
@@ -42,9 +43,17 @@ export interface UiState {
   playerId: string | null;
   playerName: string;
   roomId: string;
+  /** Whether a snapshot has arrived since joining. */
+  connectedOnce: boolean;
   stampMode: boolean;
   lastStampAt: number;
   lastStampHex: { q: number; r: number } | null;
+  /** Rounds whose report the player has already seen. */
+  seenReportRound: number;
+  /** The match setup dialog. */
+  matchSetupOpen: boolean;
+  /** Bumped when something deserves a celebration; the value says what. */
+  celebrate: { id: number; title: string; body: string } | null;
 }
 
 export interface GameStore extends ResortState, UiState {
@@ -73,6 +82,12 @@ export interface GameStore extends ResortState, UiState {
   setTicketPrice: (chf: number) => void;
   confirmHover: () => void;
   occupied: () => Set<string>;
+  startMatch: (preset: "kurz" | "normal" | "lang" | "sandbox") => void;
+  endRound: (ready: boolean) => void;
+  chooseEvent: (option: number) => void;
+  setMatchSetupOpen: (open: boolean) => void;
+  markReportSeen: (round: number) => void;
+  clearCelebration: () => void;
 }
 
 let net: Net | null = null;
@@ -102,6 +117,8 @@ function flatten(s: ResortState): Partial<ResortState> {
     unlocked: s.unlocked,
     contributors: s.contributors,
     activity: s.activity,
+    match: s.match,
+    hallOfFame: s.hallOfFame,
   };
 }
 
@@ -122,15 +139,7 @@ export const useGame = create<GameStore>((set, get) => ({
   hover: null,
   layer: "3d",
   tool: "select",
-  notifications: [
-    {
-      id: "n0",
-      title: "Willkommen",
-      body: "Gemeinsam bauen: Intents gehen an den Server. Skifahrer sind nur Visualisierung.",
-      kind: "info",
-      at: Date.now(),
-    },
-  ],
+  notifications: [],
   sheet: "none",
   started: false,
   quality: isPhone() ? "low" : "high",
@@ -139,9 +148,13 @@ export const useGame = create<GameStore>((set, get) => ({
   playerId: null,
   playerName: "Gast",
   roomId: "zermatt",
+  connectedOnce: false,
   stampMode: isPhone(),
   lastStampAt: 0,
   lastStampHex: null,
+  seenReportRound: -1,
+  matchSetupOpen: false,
+  celebrate: null,
 
   occupied: () => {
     const s = get();
@@ -174,12 +187,37 @@ export const useGame = create<GameStore>((set, get) => ({
       tool: phone ? "pan" : "select",
       stampMode: phone,
       connected: false,
+      connectedOnce: false,
       lastStampAt: 0,
       lastStampHex: null,
     });
     net = connectGame(room, playerName, {
       onWelcome: (playerId, _token, rid) => set({ playerId, roomId: rid }),
-      onSnapshot: (state, players) => set({ ...flatten(state), players }),
+      onSnapshot: (state, players) => {
+        const prev = get();
+        const before = levelFromXp(prev.xp);
+        const after = levelFromXp(state.xp);
+        // The first snapshot after joining only sets the baseline: a report
+        // or level-up from before you arrived is not news.
+        const first = !prev.connectedOnce;
+        const reports = state.match?.history.length ?? 0;
+        set({
+          ...flatten(state),
+          players,
+          connectedOnce: true,
+          ...(first ? { seenReportRound: reports } : {}),
+        });
+        if (!first && after > before) {
+          const unlocked = CATALOG.filter((i) => i.unlockLevel === after).map((i) => i.name);
+          set({
+            celebrate: {
+              id: Date.now(),
+              title: `Level ${after}`,
+              body: unlocked.length ? `Neu freigeschaltet: ${unlocked.join(", ")}` : "Weiter so!",
+            },
+          });
+        }
+      },
       onEvent: (title, body, kind, actorId, actorName) => {
         // Name the other builder; own actions need no attribution.
         const mine = !actorId || actorId === get().playerId;
@@ -191,6 +229,15 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   setStarted: (v) => set({ started: v }),
+  startMatch: (preset) => {
+    net?.sendIntent({ type: "start_match", preset });
+    set({ matchSetupOpen: false, selectedId: null, sheet: "none" });
+  },
+  endRound: (ready) => net?.sendIntent({ type: "end_round", ready }),
+  chooseEvent: (option) => net?.sendIntent({ type: "choose_event", option }),
+  setMatchSetupOpen: (open) => set({ matchSetupOpen: open }),
+  markReportSeen: (round) => set({ seenReportRound: round }),
+  clearCelebration: () => set({ celebrate: null }),
   setSheet: (v) => set({ sheet: v }),
   rename: (name) => {
     set({ resortName: name.slice(0, 28) });
@@ -345,6 +392,10 @@ export const useGame = create<GameStore>((set, get) => ({
       const last = draft[draft.length - 1]!;
       const line = hexLine(last, { q, r }).slice(1);
       const candidate = [...draft, ...line];
+      if (candidate.length > MAX_PISTE_HEXES) {
+        get().pushNote("Zu lang", `Eine Piste hat höchstens ${MAX_PISTE_HEXES - 1} Felder. Tippe «Fertig» und zeichne weiter.`, "warn");
+        return;
+      }
       // Exactly the rule the server will apply to the finished run, so the
       // draft can never grow into something that gets rejected on submit.
       const path = validatePistePath(s, getDem(), s.buildItem, candidate);

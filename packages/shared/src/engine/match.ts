@@ -67,7 +67,7 @@ function toPending(def: EventDef): PendingEvent {
     id: def.id,
     title: def.title,
     body: def.body,
-    options: def.options.map((o) => ({ label: o.label, detail: o.detail })),
+    options: def.options.map((o) => ({ label: o.label, detail: o.detail, ...(o.cost ? { cost: o.cost } : {}) })),
     chosen: null,
   };
 }
@@ -278,6 +278,10 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
 
   for (let d = 0; d < state.match.daysPerRound; d++) {
     weather.push(state.weather.kind);
+    // Reset at the start of the day rather than the end, so after the round
+    // "guests today" still holds the last day — which is what the daily
+    // contract reads.
+    state = { ...state, stats: { ...state.stats, visitorsToday: 0 } };
     let guestsToday = 0;
     for (let k = 0; k < steps; k++) {
       const probe = { ...state, timeOfDay: (k + 0.5) / steps };
@@ -315,13 +319,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
       day = 1;
       season += 1;
     }
-    state = syncQuestProgress({
-      ...state,
-      day,
-      season,
-      weather: weatherForDay(season, day),
-      stats: { ...state.stats, visitorsToday: 0 },
-    });
+    state = syncQuestProgress({ ...state, day, season, weather: weatherForDay(season, day) });
   }
 
   const samples = state.match.daysPerRound * steps;

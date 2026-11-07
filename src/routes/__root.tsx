@@ -3,7 +3,7 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "Ski Builder";
+const APP_NAME = "Ski Alpina";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -16,7 +16,7 @@ export const Route = createRootRoute({
       { title: APP_NAME },
       {
         name: "description",
-        content: "Mehrspieler-Skigebiet-Simulator. Copernicus DEM, Echtzeit-Koop, flussbasierte Wirtschaft.",
+        content: "Baut zu zweit ein Skigebiet am Matterhorn – in Runden, mit Ereignissen und Medaillen.",
       },
       { name: "theme-color", content: "#16305C" },
     ],

@@ -50,7 +50,7 @@ export function StartScreen() {
             <path d="M12 10 L18 18 L8 22 Z" fill="#2F6FED" />
           </svg>
           <div>
-            <div className="text-base font-bold tracking-wide lg:text-lg">SKI BUILDER</div>
+            <div className="text-base font-bold tracking-wide lg:text-lg">SKI ALPINA</div>
             <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-ice">Wallis · Zermatt</div>
           </div>
         </div>

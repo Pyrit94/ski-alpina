@@ -255,7 +255,7 @@ export interface PendingEvent {
   id: string;
   title: string;
   body: string;
-  options: { label: string; detail: string }[];
+  options: { label: string; detail: string; cost?: number }[];
   /** Index of the chosen option, null while undecided. */
   chosen: number | null;
   /** Who decided it. */
