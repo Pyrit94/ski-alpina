@@ -1,14 +1,31 @@
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { TERRAIN } from "@ski/config";
+import { authEnabled, signIn, signOut } from "@/lib/auth/client";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { loadName } from "@/lib/game/net";
 import { useGame } from "@/lib/game/store";
 
-const FEATURES = ["Copernicus DEM", "Echtzeit-Koop", "Fluss-Simulation"];
+const FEATURES = ["Zu zweit", "Echtes Matterhorn-Gelände", "Lifte · Pisten · Hotels"];
+
+/** Better Auth sends refused sign-ins back with `?error=…`. */
+function signInError(): string | null {
+  if (typeof window === "undefined") return null;
+  const code = new URLSearchParams(window.location.search).get("error");
+  if (!code) return null;
+  return "Dieses Konto ist für dieses Skigebiet nicht freigeschaltet.";
+}
 
 export function StartScreen() {
   const start = useGame((s) => s.startGame);
   const [name, setName] = useState(() => (typeof window === "undefined" ? "Gast" : loadName()));
+  const { user, isPending } = useCurrentUserState();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(signInError);
+  // With sign-in on, the account decides who you are; the name field is only
+  // for local play without a server roster.
+  const needsSignIn = authEnabled && !user;
+  const playerName = user && !user.isDevFallback ? (user.displayName ?? name) : name;
   return (
     <main className="relative isolate min-h-dvh w-full overflow-hidden bg-navy" style={{ color: "#F5FAFE" }}>
       <img
@@ -43,7 +60,7 @@ export function StartScreen() {
             Gemeinsam ein Skigebiet bauen
           </h1>
           <p className="mt-3 max-w-md text-[15px] leading-relaxed text-ice lg:mt-4">
-            Autoritative Simulation, flussbasierte Wirtschaft, echtes Alpengelände. Lifte, Pisten, Hotellerie, Quests.
+            Lifte spannen, Pisten ziehen, das Dorf wachsen lassen — zu zweit auf echtem Alpengelände rund ums Matterhorn.
           </p>
           <div className="mt-4 flex flex-wrap gap-1.5">
             {FEATURES.map((f) => (
@@ -55,32 +72,65 @@ export function StartScreen() {
               </span>
             ))}
           </div>
-          <label className="mt-6 block text-[11px] font-semibold uppercase tracking-wide text-ice">
-            Dein Name
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={24}
-              className="mt-1.5 flex h-12 min-h-12 w-full max-w-md items-center rounded-full bg-panel/15 px-4 text-[15px] text-snow outline-none ring-1 ring-snow/25"
-              placeholder="Name"
-            />
-          </label>
-          <div className="mt-4 flex w-full flex-col gap-3 sm:max-w-md sm:flex-row">
-            <button
-              type="button"
-              onClick={() => start(false, name, "zermatt")}
-              className="flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-full bg-accent px-6 text-[15px] font-semibold text-panel sm:w-auto"
-            >
-              Gemeinsam bauen <ChevronRight className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => start(true, name)}
-              className="flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-full bg-panel/15 px-6 text-[15px] font-semibold text-snow ring-1 ring-snow/30 sm:w-auto"
-            >
-              Eigenes Gebiet
-            </button>
-          </div>
+          {needsSignIn ? (
+            <div className="mt-6 flex w-full flex-col gap-3 sm:max-w-md">
+              <button
+                type="button"
+                disabled={isPending || busy}
+                onClick={() => {
+                  setBusy(true);
+                  setError(null);
+                  signIn("grok-google").catch((err: unknown) => {
+                    setBusy(false);
+                    setError(err instanceof Error ? err.message : "Anmeldung fehlgeschlagen");
+                  });
+                }}
+                className="flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-full bg-accent px-6 text-[15px] font-semibold text-panel disabled:opacity-60 sm:w-auto"
+              >
+                {isPending ? "Einen Moment…" : busy ? "Weiter zu Google…" : "Mit Google anmelden"}
+                {!isPending && !busy && <ChevronRight className="size-4" />}
+              </button>
+              {error && <p className="text-[13px] font-medium text-[#ffd18a]">{error}</p>}
+            </div>
+          ) : (
+            <>
+              {user && !user.isDevFallback ? (
+                <p className="mt-6 text-[13px] text-ice">
+                  Angemeldet als <span className="font-semibold text-snow">{playerName}</span> ·{" "}
+                  <button type="button" className="underline underline-offset-2" onClick={() => void signOut()}>
+                    Abmelden
+                  </button>
+                </p>
+              ) : (
+                <label className="mt-6 block text-[11px] font-semibold uppercase tracking-wide text-ice">
+                  Dein Name
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={24}
+                    className="mt-1.5 flex h-12 min-h-12 w-full max-w-md items-center rounded-full bg-panel/15 px-4 text-[15px] text-snow outline-none ring-1 ring-snow/25"
+                    placeholder="Name"
+                  />
+                </label>
+              )}
+              <div className="mt-4 flex w-full flex-col gap-3 sm:max-w-md sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => start(false, playerName, "zermatt")}
+                  className="flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-full bg-accent px-6 text-[15px] font-semibold text-panel sm:w-auto"
+                >
+                  Gemeinsam bauen <ChevronRight className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => start(true, playerName)}
+                  className="flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-full bg-panel/15 px-6 text-[15px] font-semibold text-snow ring-1 ring-snow/30 sm:w-auto"
+                >
+                  Eigenes Gebiet
+                </button>
+              </div>
+            </>
+          )}
           <p className="mt-4 text-[11px] leading-snug text-ice/80">{TERRAIN.attribution}</p>
         </div>
       </div>

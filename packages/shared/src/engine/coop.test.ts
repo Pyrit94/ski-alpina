@@ -258,3 +258,25 @@ test("someone still online is never forgotten to make room", () => {
   assert.ok(room.players.size <= MAX_REMEMBERED_PLAYERS);
   assert.equal(room.presence().length, 1);
 });
+
+test("an account keeps its player id across a server restart", () => {
+  // A restart starts from the saved resort with no players in memory. The
+  // returning account must still own what it built before.
+  const before = new GameRoom("coop", undefined, dem);
+  const first = before.join("Michael", undefined, { userId: "u1", name: "Michael" });
+  const after = new GameRoom("coop", before.snapshot(), dem);
+  const again = after.join("Michael", undefined, { userId: "u1", name: "Michael" });
+  assert.equal(again.id, first.id);
+});
+
+test("the resort stands still while nobody is in it", () => {
+  const room = new GameRoom("coop", undefined, dem);
+  const day = room.state.day;
+  const time = room.state.timeOfDay;
+  assert.equal(room.tick(Date.now() + 1000), false);
+  assert.equal(room.state.timeOfDay, time);
+  assert.equal(room.state.day, day);
+  room.join("Michael", undefined, { userId: "u1", name: "Michael" });
+  assert.equal(room.tick(Date.now() + 2000), true);
+  assert.notEqual(room.state.timeOfDay, time);
+});

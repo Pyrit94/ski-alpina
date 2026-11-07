@@ -26,6 +26,10 @@ const APP_PORT = Number(process.env.PORT || 8080);
 const DATABASE_URL = process.env.DATABASE_URL?.trim();
 
 const rooms = new Map();
+/** `seq` of each room at its last save, so an idle resort is not rewritten every few seconds. */
+const savedSeq = new Map();
+/** Saved resorts that failed to load. Never served and never overwritten. */
+const quarantined = new Set();
 /** Sockets currently in a room, so a snapshot reaches everyone in it. */
 const bindings = new Set();
 const pool = DATABASE_URL ? new pg.Pool({ connectionString: DATABASE_URL }) : null;
@@ -35,6 +39,7 @@ if (!pool) {
 }
 
 function getRoom(id) {
+  if (quarantined.has(id)) throw new Error(`resort ${id} is quarantined`);
   let room = rooms.get(id);
   if (!room) {
     room = new GameRoom(id);
@@ -43,30 +48,53 @@ function getRoom(id) {
   return room;
 }
 
+/**
+ * Load every saved resort before the socket opens.
+ *
+ * A failed read must stop the process, not be shrugged off: carrying on meant
+ * the next join created an empty resort under the same id, and the periodic
+ * save then overwrote the real one with it. Exiting lets the container restart
+ * and try again once the database is back. A single unreadable row is skipped
+ * and left untouched in the table, rather than taking every other resort down.
+ */
 async function hydrate() {
   if (!pool) return;
+  let rows;
   try {
-    const { rows } = await pool.query("select id, snapshot from resorts");
-    for (const row of rows) {
-      const snap = typeof row.snapshot === "string" ? JSON.parse(row.snapshot) : row.snapshot;
-      rooms.set(row.id, new GameRoom(row.id, snap));
-    }
-    console.info(`[ws] restored ${rows.length} resort(s)`);
+    ({ rows } = await pool.query("select id, snapshot from resorts"));
   } catch (err) {
-    console.warn("[ws] hydrate skipped", err);
+    console.error("[ws] could not load saved resorts — refusing to start with an empty world", err);
+    process.exit(1);
   }
+  for (const row of rows) {
+    try {
+      const snap = typeof row.snapshot === "string" ? JSON.parse(row.snapshot) : row.snapshot;
+      const room = new GameRoom(row.id, snap);
+      rooms.set(row.id, room);
+      savedSeq.set(row.id, room.seq);
+    } catch (err) {
+      quarantined.add(row.id);
+      console.error(`[ws] resort ${row.id} could not be loaded and stays untouched`, err);
+    }
+  }
+  console.info(`[ws] restored ${rooms.size} resort(s)`);
 }
 
+/** Write the resorts that changed since their last save. */
 async function persist() {
   if (!pool) return;
   for (const room of rooms.values()) {
+    const id = room.state.roomId;
+    if (quarantined.has(id) || savedSeq.get(id) === room.seq) continue;
+    const seq = room.seq;
     await pool.query(
       `insert into resorts (id, name, snapshot, updated_at)
        values ($1, $2, $3::jsonb, now())
        on conflict (id) do update
          set name = excluded.name, snapshot = excluded.snapshot, updated_at = now()`,
-      [room.state.roomId, room.state.resortName, JSON.stringify(room.snapshot())],
+      [id, room.state.resortName, JSON.stringify(room.snapshot())],
     );
+    savedSeq.set(id, seq);
   }
 }
 
@@ -188,6 +216,10 @@ wss.on("connection", (ws, _req, identity) => {
     }
 
     if (msg.type === "join") {
+      if (quarantined.has(msg.roomId)) {
+        send(ws, { type: "error", reason: "Dieser Spielstand konnte nicht geladen werden", code: "invalid" });
+        return;
+      }
       const room = getRoom(msg.roomId);
       // An authenticated socket takes its identity from the account, never
       // from the name and token the client supplied.
@@ -234,9 +266,14 @@ wss.on("connection", (ws, _req, identity) => {
 
 setInterval(() => {
   for (const room of rooms.values()) {
-    room.tick();
-    room.prunePlayers();
-    broadcast(room.state.roomId, snapshotOf(room));
+    // One resort throwing must not stop the others, nor kill the process into
+    // a restart loop that reloads the same state and throws again.
+    try {
+      room.prunePlayers();
+      if (room.tick()) broadcast(room.state.roomId, snapshotOf(room));
+    } catch (err) {
+      console.error(`[ws] tick failed for ${room.state.roomId}`, err);
+    }
   }
 }, TICK_MS);
 
@@ -244,6 +281,31 @@ let persisting = Promise.resolve();
 setInterval(() => {
   persisting = persisting.then(persist).catch((err) => console.warn("[ws] persist", err));
 }, PERSIST_MS);
+
+/**
+ * Write the resort once more before going.
+ *
+ * Every deploy stops this process; without a final save whatever happened
+ * since the last interval — up to a few seconds of building — was lost.
+ */
+let stopping = false;
+async function shutdown(signal) {
+  if (stopping) return;
+  stopping = true;
+  console.info(`[ws] ${signal} — saving and shutting down`);
+  wss.close();
+  try {
+    await persisting;
+    await persist();
+  } catch (err) {
+    console.warn("[ws] final save failed", err);
+  }
+  await pool?.end().catch(() => {});
+  process.exit(0);
+}
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => void shutdown(signal));
+}
 
 http.listen(WS_PORT, "127.0.0.1", () => {
   const gate = rosterGate(process.env);

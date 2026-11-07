@@ -174,6 +174,28 @@ function authPopupPlugin(): Plugin {
   };
 }
 
+/**
+ * Hostnames the preview server answers to, beyond localhost.
+ *
+ * The public URL (`BETTER_AUTH_URL`) already names the host, so a deployment
+ * needs no extra variable; `ALLOWED_HOSTS` (comma separated) adds aliases.
+ */
+function previewAllowedHosts(env: NodeJS.ProcessEnv): string[] {
+  const hosts = new Set<string>();
+  const publicUrl = env.BETTER_AUTH_URL?.trim();
+  if (publicUrl) {
+    try {
+      hosts.add(new URL(publicUrl).hostname);
+    } catch {
+      console.warn(`[preview] BETTER_AUTH_URL is not a URL: ${publicUrl}`);
+    }
+  }
+  for (const part of (env.ALLOWED_HOSTS ?? "").split(/[,;\s]+/)) {
+    if (part) hosts.add(part.toLowerCase());
+  }
+  return [...hosts];
+}
+
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
@@ -187,6 +209,11 @@ export default defineConfig(({ command, isPreview }) => ({
     host: process.env.DOCKER_PREVIEW === "1" ? "0.0.0.0" : "127.0.0.1",
     port: process.env.DOCKER_PREVIEW === "1" ? Number(process.env.PORT || 8080) : 8081,
     strictPort: true,
+    // Behind Traefik and the Cloudflare tunnel the request carries the public
+    // hostname. Vite refuses unknown hosts by default, which answered every
+    // real visitor with 403 "Blocked request" while the healthcheck on
+    // 127.0.0.1 stayed green.
+    allowedHosts: previewAllowedHosts(process.env),
     // The game socket runs as its own process in production (see
     // `scripts/ws-server.mjs`); this is what puts it on the same origin, so the
     // browser sends the session cookie with the upgrade.

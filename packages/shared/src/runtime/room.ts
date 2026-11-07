@@ -78,7 +78,10 @@ export class GameRoom {
       return known;
     }
     const player: RoomPlayer = {
-      id: createId("pl"),
+      // An account keeps the same player id across server restarts. A random
+      // id here gave every person a fresh identity after each deploy, so their
+      // earlier builds and their row in the contributor list stopped being theirs.
+      id: identity ? accountPlayerId(identity.userId) : createId("pl"),
       token: identity ? createId("tok") : token && token.length >= 8 ? token : createId("tok"),
       name: (identity ? identity.name : name.slice(0, 24)) || "Gast",
       role: "builder",
@@ -176,17 +179,30 @@ export class GameRoom {
     player.focus = hex;
   }
 
-  tick(): void {
-    const now = Date.now();
+  /**
+   * Advance the resort by the real time since the last tick.
+   *
+   * Only while someone is here: a resort left alone used to run on for days —
+   * a weekend away was some 25 seasons — so coming back meant finding the game
+   * played without you. Returns whether anything moved.
+   */
+  tick(now = Date.now()): boolean {
     const dt = Math.min(2.5, (now - this.lastTick) / 1000);
     this.lastTick = now;
+    if (![...this.players.values()].some((p) => p.online)) return false;
     this.state = tickResort(this.state, this.dem, dt, now);
     this.seq += 1;
+    return true;
   }
 
   snapshot(): ResortState {
     return this.state;
   }
+}
+
+/** Stable player id for a signed-in account. */
+export function accountPlayerId(userId: string): string {
+  return `pl_${userId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40)}`;
 }
 
 export const TICK_MS = ECONOMY.simTickMs;

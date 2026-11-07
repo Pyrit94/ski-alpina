@@ -17,21 +17,17 @@ npm run typecheck
 npm run terrain:build
 ```
 
-## Docker / Coolify
+## Deploy (rasselbande.work)
 
-Ein Container (Dockerfile, Port **8080**):
+Läuft als Coolify-Ressource (Docker Compose, `docker-compose.coolify.yml`) unter
+**https://ski.rasselbande.work**. Push auf `main` → GitHub Actions prüft, Coolify
+deployt. Einrichtung, Variablen und Checks: [`docs/deploy-coolify.md`](docs/deploy-coolify.md).
 
-```bash
-docker compose up --build
-```
-
-Oder der volle Stack:
+Lokal wie in Produktion (Variablen siehe `.env.example`):
 
 ```bash
-docker compose -f infra/docker-compose.yml up --build
+docker compose -f docker-compose.coolify.yml --env-file .env up --build
 ```
-
-Coolify: Build Pack Dockerfile, Port 8080. Host-Ports nur am Proxy via `$PORT`.
 
 ## Architektur
 
