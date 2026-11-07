@@ -2,10 +2,7 @@ import { create } from "zustand";
 import { BY_ID, CATALOG, isLift, isPiste } from "@ski/config";
 import {
   hexDistance,
-  hexLine,
-  MAX_PISTE_HEXES,
   validateHex,
-  validatePistePath,
   getDem,
   levelFromXp,
   worldToHex,
@@ -20,6 +17,7 @@ import {
 import type { Category, ItemId } from "../../../packages/config/src/ids.ts";
 import { connectGame, loadName, saveName } from "./net";
 import { play } from "./sound";
+import { finishPisteDraft, pisteClick } from "./piste-editor";
 import { emptyResort } from "@ski/shared";
 import type { NotificationItem } from "./types";
 
@@ -75,6 +73,8 @@ export interface GameStore extends ResortState, UiState {
   selectEntity: (id: string | null) => void;
   cancelBuild: () => void;
   finishPiste: () => void;
+  /** Send an intent as-is; for editors that build their own (see piste-editor.ts). */
+  sendIntent: (intent: Intent) => void;
   upgrade: (id: string, key: "speed" | "cabins" | "capacity") => void;
   demolish: (id: string) => void;
   claimQuest: (id: string) => void;
@@ -449,39 +449,13 @@ export const useGame = create<GameStore>((set, get) => ({
     }
 
     if (s.phase === "piste") {
-      const draft = s.pisteDraft;
-      if (draft.length === 0) {
-        if (!v.ok && v.reason !== "Belegt") {
-          get().pushNote("Start unmöglich", v.reason, "warn");
-          return;
-        }
-        set({ pisteDraft: [{ q, r }], lastStampAt: Date.now(), lastStampHex: { q, r } });
-        return;
-      }
-      const last = draft[draft.length - 1]!;
-      const line = hexLine(last, { q, r }).slice(1);
-      const candidate = [...draft, ...line];
-      if (candidate.length > MAX_PISTE_HEXES) {
-        get().pushNote("Zu lang", `Eine Piste hat höchstens ${MAX_PISTE_HEXES - 1} Felder. Tippe «Fertig» und zeichne weiter.`, "warn");
-        return;
-      }
-      // Exactly the rule the server will apply to the finished run, so the
-      // draft can never grow into something that gets rejected on submit.
-      const path = validatePistePath(s, getDem(), s.buildItem, candidate);
-      if (!path.ok) {
-        get().pushNote("Nicht möglich", path.reason, "warn");
-        return;
-      }
-      set({ pisteDraft: candidate, lastStampAt: Date.now(), lastStampHex: { q, r } });
+      // Drawing, snapping and suggested routes live in the piste editor.
+      pisteClick(q, r);
     }
   },
 
-  finishPiste: () => {
-    const s = get();
-    if (s.pisteDraft.length < 2 || !s.buildItem) return;
-    net?.sendIntent({ type: "place_piste", itemId: s.buildItem, hexes: s.pisteDraft });
-    set({ pisteDraft: [], phase: "piste" });
-  },
+  finishPiste: () => finishPisteDraft(),
+  sendIntent: (intent) => net?.sendIntent(intent),
 
   upgrade: (id, key) => net?.sendIntent({ type: "upgrade", entityId: id, key }),
   demolish: (id) => {

@@ -8,6 +8,7 @@ import { useGame } from "@/lib/game/store";
 import { isPiste } from "@ski/config";
 import { getDem, validateHex } from "@ski/shared";
 import { BuildingModel } from "./models";
+import { PisteDraftMarks } from "./PisteDraftLayer";
 import { makeHexGeometry } from "./geometry";
 import { useStableGame } from "./use-stable-game";
 
@@ -254,20 +255,13 @@ export function HexCursor() {
 }
 
 export function HexGhost() {
-  const draft = useGame((s) => s.pisteDraft);
   const liftStart = useGame((s) => s.liftStart);
   const hm = getHeightmap();
   const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.9), []);
   return (
     <group>
-      {draft.map((h) => {
-        const { x, z } = hexToWorld(h.q, h.r);
-        return (
-          <mesh key={`${h.q}:${h.r}`} geometry={geo} position={[x, surfaceY(hm, x, z) + 0.1, z]}>
-            <meshBasicMaterial color="#7ec8ff" transparent opacity={0.42} side={THREE.DoubleSide} depthWrite={false} />
-          </mesh>
-        );
-      })}
+      {/* The piste draft: grade colours, blocked hex, snap and end markers, in two draw calls. */}
+      <PisteDraftMarks />
       {liftStart && (
         <mesh
           geometry={geo}

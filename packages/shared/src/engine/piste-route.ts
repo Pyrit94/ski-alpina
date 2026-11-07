@@ -94,6 +94,11 @@ export interface RouteOptions {
   avoid?: ReadonlySet<string>;
   /** Which kind of run; only "piste" is graded. */
   itemId?: ItemId;
+  /**
+   * Most hexes the route may have, start and end included. Defaults to
+   * MAX_PISTE_HEXES; less when the route extends a run already drawn.
+   */
+  maxHexes?: number;
 }
 
 /**
@@ -114,7 +119,7 @@ export function routePiste(
   options: RouteOptions = {},
 ): Axial[] | null {
   const itemId = options.itemId ?? "piste";
-  const maxSteps = MAX_PISTE_HEXES - 1;
+  const maxSteps = Math.min(MAX_PISTE_HEXES, options.maxHexes ?? MAX_PISTE_HEXES) - 1;
   const span = hexDistance(start, end);
   if (span === 0 || span > maxSteps) return null;
 
@@ -219,7 +224,7 @@ export function routePiste(
       if (k === startKey) break;
     }
     path.reverse();
-    if (path.length <= MAX_PISTE_HEXES) return path;
+    if (path.length <= maxSteps + 1) return path;
   }
   return null;
 }
