@@ -22,9 +22,11 @@ Browser ─HTTPS─► Cloudflare ─Tunnel─► Traefik :80 ─► app:8080 �
    - Domain nur beim Service `app`: **`http://ski.rasselbande.work:8080`**
      (mit `http://`, TLS macht Cloudflare; ein automatisch angelegtes `www.` wieder entfernen)
    - Volume `ski-db` steht in der Compose-Datei, nichts von Hand anlegen.
-3. **Variablen** (Developer view), Werte im Passwortmanager — Vorlage `.env.example`:
-   `POSTGRES_PASSWORD`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`,
-   `GOOGLE_CLIENT_SECRET`, optional `ALLOWED_EMAILS`.
+3. **Variablen:** Datenbank-Passwort (`SERVICE_PASSWORD_POSTGRES`) und Auth-Secret
+   (`SERVICE_PASSWORD_64_BETTERAUTH`) erzeugt Coolify selbst. Von Hand nur
+   `GOOGLE_CLIENT_ID` und `GOOGLE_CLIENT_SECRET` (dieselben Werte wie bei der
+   Wissensablage/dem Portal, Client «Rasselbande Web»), optional `NTFY_URL` und
+   `ALLOWED_EMAILS`. `BETTER_AUTH_URL` hat den Standard `https://ski.rasselbande.work`.
 4. **Google:** Client „Rasselbande Web“ (Projekt *Wissensablage*) → Authorized redirect URI
    `https://ski.rasselbande.work/api/auth/oauth2/callback/grok-google` ergänzen.
 5. **Cloudflare:** Networking → Tunnels → `rasselbande-server` → Routes → Add route →
@@ -59,9 +61,9 @@ automatisch erlaubt, weitere über `ALLOWED_HOSTS`.
 
 | Variable | Wert |
 | --- | --- |
-| `POSTGRES_PASSWORD` | zufällig, `openssl rand -hex 24` — daraus baut die Compose-Datei `DATABASE_URL` |
+| `SERVICE_PASSWORD_POSTGRES` | erzeugt Coolify; geht als `PGPASSWORD` an die App (Sonderzeichen sicher) |
 | `BETTER_AUTH_URL` | `https://ski.rasselbande.work` |
-| `BETTER_AUTH_SECRET` | zufällig, min. 32 Byte: `openssl rand -hex 32` |
+| `SERVICE_PASSWORD_64_BETTERAUTH` | erzeugt Coolify; wird zu `BETTER_AUTH_SECRET` |
 | `GOOGLE_CLIENT_ID` | Client „Rasselbande Web“ |
 | `GOOGLE_CLIENT_SECRET` | dito |
 | `ALLOWED_EMAILS` | optional — ohne Angabe gelten die beiden Konten aus `DEFAULT_ROSTER` |
