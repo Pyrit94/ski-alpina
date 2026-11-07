@@ -1,6 +1,42 @@
 import { BY_ID, FLOW, isLift } from "@ski/config";
 import type { ResortState } from "@ski/shared";
+import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { spendable, walletMode } from "@ski/shared";
 import { useGame } from "./store";
+
+/**
+ * The parts of the resort the rule panels read, as one object that only
+ * changes when one of them does. A whole-store subscription would re-render
+ * these panels on every pointer move.
+ */
+export function useResortView(): ResortState {
+  const view = useGame(
+    useShallow((s) => ({
+      coins: s.coins,
+      stars: s.stars,
+      lifts: s.lifts,
+      pistes: s.pistes,
+      buildings: s.buildings,
+      stats: s.stats,
+      match: s.match,
+      contributors: s.contributors,
+    })),
+  );
+  return view as unknown as ResortState;
+}
+
+/** My money: the shared account, or my purse plus the total. */
+export function useMyMoney(): { mine: number; total: number; separate: boolean } {
+  const coins = useGame((s) => s.coins);
+  const match = useGame((s) => s.match);
+  const me = useGame((s) => s.playerId);
+  return useMemo(() => {
+    const view = { coins, match } as unknown as ResortState;
+    const separate = walletMode(view);
+    return { mine: spendable(view, me ?? undefined), total: coins, separate };
+  }, [coins, match, me]);
+}
 
 /** Chat lines from others that this player has not seen yet. */
 export function useUnreadChat(): number {

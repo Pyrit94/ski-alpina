@@ -34,6 +34,7 @@ import {
 } from "./landscape";
 import { useTerrainMaterial } from "./terrain-material";
 import { useTexturePack } from "./texture-pack";
+import { AlbumCapture } from "./AlbumCapture";
 import { QUALITY, type QualityTier } from "./quality";
 import { useStableGame } from "./use-stable-game";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
@@ -1776,6 +1777,7 @@ export function SkiScene() {
       <StampFlash />
       <PeerFocus />
       <MapMarks />
+      <AlbumCapture />
       <PeakLabels />
       <Snowfall on={weather === "snow" || weather === "storm"} />
     </Canvas>

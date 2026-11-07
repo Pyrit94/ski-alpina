@@ -13,6 +13,7 @@ import {
   type HudSheet,
   type Intent,
   type MapLayer,
+  type MatchOptions,
   type PlayerPresence,
   type ResortState,
   type Tool,
@@ -55,6 +56,8 @@ export interface UiState {
   seenReportRound: number;
   /** The match setup dialog. */
   matchSetupOpen: boolean;
+  /** Ask the scene for an album photo of this round. */
+  albumRequest: { roomId: string; matchStartedAt: number; round: number } | null;
   /** Chat lines already read, by count. */
   chatSeen: number;
   /** Next map click places a marker of this kind instead of selecting. */
@@ -89,7 +92,10 @@ export interface GameStore extends ResortState, UiState {
   setTicketPrice: (chf: number) => void;
   confirmHover: () => void;
   occupied: () => Set<string>;
-  startMatch: (preset: "kurz" | "normal" | "lang" | "sandbox") => void;
+  startMatch: (preset: "kurz" | "normal" | "lang" | "sandbox", options?: Partial<MatchOptions>) => void;
+  setMatchOptions: (options: Partial<MatchOptions>) => void;
+  chooseRole: (role: "berg" | "tal") => void;
+  transferCoins: (to: string, amount: number) => void;
   endRound: (ready: boolean) => void;
   chooseEvent: (option: number) => void;
   setMatchSetupOpen: (open: boolean) => void;
@@ -185,6 +191,7 @@ export const useGame = create<GameStore>((set, get) => ({
   seenReportRound: -1,
   chatSeen: 0,
   markMode: null,
+  albumRequest: null,
   matchSetupOpen: false,
   celebrate: null,
 
@@ -234,11 +241,14 @@ export const useGame = create<GameStore>((set, get) => ({
         const first = !prev.connectedOnce;
         const reports = state.match?.history.length ?? 0;
         const chat = state.chat ?? [];
+        // A new match starts its reports from zero; the count seen in the
+        // previous one would otherwise hide the first reports of this one.
+        const newMatch = !first && prev.match.startedAt !== state.match?.startedAt;
         set({
           ...flatten(state),
           players,
           connectedOnce: true,
-          ...(first ? { seenReportRound: reports } : {}),
+          ...(first ? { seenReportRound: reports } : newMatch ? { seenReportRound: 0 } : {}),
         });
         // A new line from someone else: a toast and a soft click, unless the
         // chat is open anyway.
@@ -251,6 +261,10 @@ export const useGame = create<GameStore>((set, get) => ({
           }
         }
         if (first || get().sheet === "chat") set({ chatSeen: chat.length });
+        if (!first && reports > prev.match.history.length && state.match.options?.album) {
+          const report = state.match.history[reports - 1]!;
+          set({ albumRequest: { roomId: state.roomId, matchStartedAt: state.match.startedAt, round: report.round } });
+        }
         if (!first && reports > prev.match.history.length) {
           play(state.match.history[reports - 1]?.medal ? "medal" : "round");
         }
@@ -281,11 +295,14 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   setStarted: (v) => set({ started: v }),
-  startMatch: (preset) => {
-    net?.sendIntent({ type: "start_match", preset });
+  startMatch: (preset, options) => {
+    net?.sendIntent({ type: "start_match", preset, ...(options ? { options } : {}) });
     set({ matchSetupOpen: false, selectedId: null, sheet: "none" });
   },
   endRound: (ready) => net?.sendIntent({ type: "end_round", ready }),
+  setMatchOptions: (options) => net?.sendIntent({ type: "set_match_options", options }),
+  chooseRole: (role) => net?.sendIntent({ type: "choose_role", role }),
+  transferCoins: (to, amount) => net?.sendIntent({ type: "transfer_coins", to, amount: Math.round(amount) }),
   chooseEvent: (option) => net?.sendIntent({ type: "choose_event", option }),
   setMatchSetupOpen: (open) => set({ matchSetupOpen: open }),
   sendChat: (text) => {

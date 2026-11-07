@@ -17,10 +17,13 @@ import {
   X,
 } from "lucide-react";
 import { MATCH } from "@ski/config";
-import { scoreBreakdown, weatherForDay, type Medal, type RoundReport, type WeatherKind } from "@ski/shared";
+import { DEFAULT_MATCH_OPTIONS, duelScores, scoreBreakdown, secretGoalResults, weatherForDay, type MatchOptions, type Medal, type RoundReport, type WeatherKind } from "@ski/shared";
 import { fmt, fmtSigned } from "@/lib/game/format";
 import { peerColor } from "@/lib/game/players";
 import { useGame } from "@/lib/game/store";
+import { useMyMoney, useResortView } from "@/lib/game/team";
+import { RulesEditor, VoteStatus } from "./RulesHUD";
+import { AlbumView } from "./AlbumHUD";
 import { AwardsPanel } from "./TeamHUD";
 
 const WEATHER_ICON: Record<WeatherKind, typeof Sun> = {
@@ -303,8 +306,10 @@ export function EventCard() {
   const event = useGame((s) => s.match.event);
   const phase = useGame((s) => s.match.phase);
   const mode = useGame((s) => s.match.mode);
-  const coins = useGame((s) => s.coins);
   const choose = useGame((s) => s.chooseEvent);
+  const voting = useGame((s) => s.match.options.events === "vote");
+  const me = useGame((s) => s.playerId);
+  const money = useMyMoney();
   const contributors = useGame((s) => s.contributors);
   const [folded, setFolded] = useState(false);
   if (mode !== "match" || phase !== "plan" || !event) return null;
@@ -352,19 +357,24 @@ export function EventCard() {
       </div>
       <div className="grid gap-2 p-3 sm:grid-cols-2">
         {event.options.map((o, i) => {
-          const affordable = coins >= (o.cost ?? 0);
+          const affordable = voting || money.mine >= (o.cost ?? 0);
+          const myVote = voting && me ? event.votes?.[me] === i : false;
           return (
             <button
               key={o.label}
               type="button"
               disabled={!affordable}
               onClick={() => choose(i)}
+              aria-pressed={myVote}
               className={`btn-3d ${i === 0 ? "" : "btn-3d-light"} flex min-h-16 flex-col items-start justify-center rounded-[16px] px-3 py-2 text-left disabled:opacity-50 ${
                 i === 0 ? "bg-accent text-panel" : "bg-ice text-navy"
               }`}
               style={i === 0 ? { ["--lip" as string]: "var(--color-accent-dark)" } : undefined}
             >
-              <span className="text-[13px] font-bold">{o.label}</span>
+              <span className="text-[13px] font-bold">
+                {o.label}
+                {myVote ? " ✓ deine Stimme" : ""}
+              </span>
               <span className={`text-[11px] leading-snug ${i === 0 ? "text-panel/85" : "text-muted"}`}>
                 {affordable ? o.detail : "Zu wenig Geld"}
               </span>
@@ -372,7 +382,24 @@ export function EventCard() {
           );
         })}
       </div>
-      <div className="px-4 pb-3 text-[10px] text-subtle">Ohne Entscheid gilt die zweite Wahl.</div>
+      <VoteStatus />
+      <div className="px-4 pb-3 text-[10px] text-subtle">
+        {voting ? "Ihr stimmt beide ab. Ohne Stimmen gilt die zweite Wahl." : "Ohne Entscheid gilt die zweite Wahl."}
+      </div>
+    </div>
+  );
+}
+
+function ReportWallets({ wallets }: { wallets: Record<string, number> }) {
+  const contributors = useGame((s) => s.contributors);
+  const label = (k: string) => (k === "berg" ? "Berg" : k === "tal" ? "Tal" : (contributors[k]?.name ?? "?"));
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {Object.entries(wallets).map(([k, v]) => (
+        <span key={k} className="rounded-full bg-snow px-2.5 py-1 text-[11px] text-navy">
+          Kasse {label(k)}: <b className="value">{fmt(v)}</b>
+        </span>
+      ))}
     </div>
   );
 }
@@ -424,7 +451,24 @@ function ReportBody({ report, history = [] }: { report: RoundReport; history?: R
           ))}
         </ul>
       )}
-      {report.event && <p className="mt-2 text-[11px] text-muted">Ereignis: {report.event}</p>}
+      {report.vip && (
+        <p
+          className={`mt-2 rounded-[12px] px-3 py-2 text-[12px] font-semibold ${
+            report.vip.status === "done" ? "bg-coin/20 text-navy" : "bg-danger/10 text-danger"
+          }`}
+        >
+          {report.vip.status === "done"
+            ? `👑 ${report.vip.name} ist begeistert – Belohnung kassiert!`
+            : `${report.vip.name} ist enttäuscht abgereist – ein Stern weniger.`}
+        </p>
+      )}
+      {report.event && (
+        <p className="mt-2 text-[11px] text-muted">
+          Ereignis: {report.event}
+          {report.compromise ? " – ihr wart uneinig, beides galt zur Hälfte." : ""}
+        </p>
+      )}
+      {report.wallets && <ReportWallets wallets={report.wallets} />}
       {tips.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1.5">
           {tips.map((t) => (
@@ -484,6 +528,8 @@ export function MatchSetupModal() {
   const builtSomething = useGame((s) => s.lifts.length + s.pistes.length + s.buildings.length > 0);
   const mode = useGame((s) => s.match.mode);
   const [preset, setPreset] = useState<"kurz" | "normal" | "lang">("normal");
+  const [rules, setRules] = useState<MatchOptions>({ ...DEFAULT_MATCH_OPTIONS });
+  const [showRules, setShowRules] = useState(false);
   if (!open) return null;
   return (
     <Modal onClose={() => setOpen(false)} wide>
@@ -520,6 +566,25 @@ export function MatchSetupModal() {
             Pro Saison gibt es Bronze, Silber oder Gold für eure Gäste. Am Ende zählen Kasse, Anlagen, Gäste, Zufriedenheit und Medaillen.
           </li>
         </ul>
+        <div className="mt-4 rounded-[18px] bg-snow/60 p-2">
+          <button
+            type="button"
+            onClick={() => setShowRules(!showRules)}
+            className="flex min-h-10 w-full items-center justify-between px-1 text-[13px] font-bold text-navy"
+          >
+            Spielregeln anpassen
+            <span className="text-[11px] font-medium text-muted">
+              {rules.economy === "shared" ? "Gemeinsame Kasse" : rules.economy === "roles" ? "Berg & Tal" : "Duell"} · Ereignisse{" "}
+              {rules.events === "off" ? "aus" : rules.events === "vote" ? "abstimmen" : "wer zuerst"} {showRules ? "−" : "+"}
+            </span>
+          </button>
+          {showRules && (
+            <div className="mt-1">
+              <RulesEditor value={rules} onChange={(patch) => setRules((r) => ({ ...r, ...patch }))} />
+              <p className="mt-2 text-[10px] text-subtle">Ausser der Kasse lässt sich alles auch während der Partie zwischen den Runden ändern.</p>
+            </div>
+          )}
+        </div>
         {builtSomething && (
           <p className="mt-4 rounded-[14px] bg-warn/12 px-3 py-2 text-[12px] font-medium text-warn">
             Das Tal wird dafür geleert. {mode === "match" ? "Die laufende Partie wird abgebrochen." : "Das freie Spiel geht verloren."}
@@ -531,7 +596,7 @@ export function MatchSetupModal() {
               Abbrechen
             </PrimaryButton>
           </div>
-          <PrimaryButton tone="success" onClick={() => start(preset)}>
+          <PrimaryButton tone="success" onClick={() => start(preset, rules)}>
             <Flag className="size-4" /> Partie starten
           </PrimaryButton>
         </div>
@@ -587,8 +652,11 @@ export function FinalScreen() {
           <BigStat label="Gäste" value={`${fmt(score.guests)}`} />
           <BigStat label="Zufriedenheit" value={`${fmt(score.satisfaction)}`} />
           <BigStat label="Medaillen" value={`${fmt(score.medals)}`} />
+          {score.secret > 0 && <BigStat label="Geheimziele" value={`${fmt(score.secret)}`} />}
           <BigStat label="Total" value={`${fmt(score.total)}`} tone="good" />
         </div>
+        <FinalRules />
+        <AlbumView />
         <AwardsPanel />
         {hallOfFame.length > 0 && (
           <div className="mt-4">
@@ -773,6 +841,52 @@ export function MatchGoalsPanel() {
       <div className="text-[11px] text-muted">
         Punkte bisher: <span className="value font-bold text-navy">{fmt(match.score)}</span>
       </div>
+      <AlbumView />
+    </div>
+  );
+}
+
+/** End of match: reveal secret goals, VIP tally and, in a duel, the winner. */
+function FinalRules() {
+  const state = useResortView();
+  const me = useGame((s) => s.playerId);
+  const secrets = secretGoalResults(state);
+  const duel = state.match.options.economy === "duel" ? duelScores(state) : [];
+  const vips = state.match.vipHistory;
+  if (secrets.length === 0 && duel.length === 0 && vips.length === 0) return null;
+  const name = (id: string) => state.contributors[id]?.name ?? "?";
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      {duel.length > 1 && (
+        <div className="rounded-[18px] bg-gradient-to-br from-coin/30 to-panel p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Duell</div>
+          <div className="mt-0.5 text-[18px] font-bold text-navy">
+            🏆 {name(duel[0]!.playerId)} gewinnt mit {fmt(duel[0]!.total)} zu {fmt(duel[1]!.total)}
+          </div>
+          <div className="mt-1 text-[11px] text-muted">Kasse, halber Anlagewert, Gäste der eigenen Bahnen und das Geheimziel.</div>
+        </div>
+      )}
+      {secrets.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Geheimziele aufgedeckt</div>
+          <div className="flex flex-col gap-1">
+            {secrets.map((r) => (
+              <div key={r.playerId} className="flex items-center gap-2 rounded-[12px] bg-snow px-3 py-2 text-[12px]">
+                <span className="size-2.5 rounded-full" style={{ background: peerColor(r.playerId) }} />
+                <span className="min-w-0 flex-1 text-navy">
+                  <b>{name(r.playerId)}{r.playerId === me ? " (du)" : ""}</b>: {r.def?.title} – {r.def?.hint}
+                </span>
+                <span className={`font-bold ${r.met ? "text-success" : "text-subtle"}`}>{r.met ? `✓ +${r.def?.points}` : "✗"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {vips.length > 0 && (
+        <div className="text-[12px] text-muted">
+          VIP-Gäste: {vips.filter((v) => v.status === "done").length} von {vips.length} glücklich abgereist.
+        </div>
+      )}
     </div>
   );
 }

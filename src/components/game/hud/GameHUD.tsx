@@ -42,6 +42,8 @@ import { useCardImages } from "@/lib/game/card-images";
 import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
 import { ChatPanel, MarkButtons, MarkHint, UnreadBadge } from "./TeamHUD";
 import { ResearchPanel } from "./ResearchHUD";
+import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCard, VipCard, WalletPanel } from "./RulesHUD";
+import { useMyMoney } from "@/lib/game/team";
 import { useUnreadChat } from "@/lib/game/team";
 import { Celebration, EventCard, FinalScreen, MatchGoalsPanel, MatchSetupModal, RoundBar, RoundReportModal, Toasts } from "./MatchHUD";
 import { useGame } from "@/lib/game/store";
@@ -206,6 +208,7 @@ export function GameHUD() {
               <div className="absolute inset-x-0 top-2 z-10 flex flex-col items-center gap-2 px-3">
                 <RoundBar />
                 <MarkHint />
+                <RoleChooser />
                 <EventCard />
                 <BuildHint />
               </div>
@@ -275,7 +278,6 @@ function Panel({ children, className = "" }: { children: ReactNode; className?: 
 }
 
 function TopBar() {
-  const coins = useGame((s) => s.coins);
   const gems = useGame((s) => s.gems);
   const stars = useGame((s) => s.stars);
   const season = useGame((s) => s.season);
@@ -298,7 +300,7 @@ function TopBar() {
         </div>
       </div>
       <div className="flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto lg:justify-center lg:gap-2">
-        <Currency n={coins} icon={<Coin />} label="Kasse in CHF" />
+        <MyPurseChip coin={<Coin />} />
         <Currency n={gems} icon={<Gem className="size-4 text-gem" />} label="Edelsteine" />
         <Currency n={stars} icon={<Star className="size-4 fill-star text-star" />} label="Prestige: jeder Stern +1 % Gäste" />
         <LevelChip />
@@ -456,7 +458,7 @@ function LeftColumn() {
   const cancel = useGame((s) => s.cancelBuild);
   const buildItem = useGame((s) => s.buildItem);
   const xp = useGame((s) => s.xp);
-  const coins = useGame((s) => s.coins);
+  const coins = useMyMoney().mine;
   const lvl = levelFromXp(xp);
   const items = CATEGORIES;
   return (
@@ -658,6 +660,12 @@ function RightColumn() {
           <Panel className="p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Partie</div>
             <MatchGoalsPanel />
+            <div className="mt-3 flex flex-col gap-2">
+              <VipCard />
+              <SecretGoalCard />
+              <DuelStandings />
+              <MatchRulesPanel />
+            </div>
           </Panel>
           <Quests />
         </>
@@ -676,6 +684,9 @@ function RightColumn() {
           <Panel className="p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Team-Chat</div>
             <ChatPanel />
+          </Panel>
+          <Panel className="p-3 empty:hidden">
+            <WalletPanel />
           </Panel>
           <RenamePanel />
           <ActivityPanel />
@@ -727,7 +738,7 @@ function InfoPanel() {
   const stats = useGame((s) => s.stats);
   const flow = useGame((s) => s.flow);
   const upgrade = useGame((s) => s.upgrade);
-  const coins = useGame((s) => s.coins);
+  const coins = useMyMoney().mine;
   // A station stands for its lift: that is what carries guests and what
   // upgrades act on.
   const lift = lifts.find((l) => l.id === selectedId || l.stationA === selectedId || l.stationB === selectedId);
@@ -1244,7 +1255,7 @@ function BuildHint() {
  */
 function PisteSurvey() {
   const draft = useGame((s) => s.pisteDraft);
-  const coins = useGame((s) => s.coins);
+  const coins = useMyMoney().mine;
   if (draft.length < 2) {
     return (
       <div className="mt-1 text-[12px] text-muted">
@@ -1591,7 +1602,7 @@ function StampTray() {
   const setBuildItem = useGame((s) => s.setBuildItem);
   const buildItem = useGame((s) => s.buildItem);
   const xp = useGame((s) => s.xp);
-  const coins = useGame((s) => s.coins);
+  const coins = useMyMoney().mine;
   const lvl = levelFromXp(xp);
   const items = CATALOG.filter((i) => i.category === category);
   return (
@@ -1662,6 +1673,7 @@ function MobileFloats() {
     <div className="pointer-events-none absolute inset-x-3 bottom-2 z-20 hidden flex-col gap-2 max-lg:flex">
       {phase === "idle" && !selectedId && (
         <div className="flex justify-center">
+          <RoleChooser />
           <EventCard />
         </div>
       )}
@@ -1752,6 +1764,10 @@ function MobileSheets() {
                 Forschung öffnen <ChevronRight className="size-4" />
               </button>
               <MatchGoalsPanel />
+              <VipCard />
+              <SecretGoalCard />
+              <DuelStandings />
+              <MatchRulesPanel />
               <Quests />
             </div>
           )}
@@ -1760,6 +1776,7 @@ function MobileSheets() {
               <InfoPanel />
               <OperationsPanel />
               <TicketPricePanel />
+              <WalletPanel />
               <RenamePanel />
               <ActivityPanel />
             </div>
