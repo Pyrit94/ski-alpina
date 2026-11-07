@@ -137,17 +137,22 @@ export function paintGround(
 export function buildFarLand(hm: Heightmap, snowLineM: number, reach = 470): THREE.BufferGeometry {
   const half = hm.world / 2;
   const axis: number[] = [];
-  // Coarse inside (hidden), fine just outside the seam, coarse at the horizon.
+  // Fine just outside the seam, coarser toward the horizon.
   const outside: number[] = [];
   let d = 0;
   let step = 3;
   while (d < reach - half) {
     d += step;
     outside.push(half + d);
-    step = Math.min(11, step * 1.1);
+    step = Math.min(16, step * 1.12);
   }
   for (let i = outside.length - 1; i >= 0; i--) axis.push(-outside[i]!);
-  axis.push(-half, -half + 10, 0, half - 10, half);
+  // Inside, at four DEM cells: the rows along the seam must follow the map's
+  // edge closely, or a long cell interpolates straight across the rim and
+  // draws a taut line over the ground. Cells wholly inside are never indexed.
+  const cell = (hm.world / (hm.n - 1)) * 4;
+  const inner = Math.round(hm.world / cell);
+  for (let i = 0; i <= inner; i++) axis.push(-half + (hm.world * i) / inner);
   for (const o of outside) axis.push(o);
 
   const noise = createNoise2D(mulberry32(seedFromString("far-ranges")));
@@ -189,8 +194,10 @@ export function buildFarLand(hm: Heightmap, snowLineM: number, reach = 470): THR
         const rim = surfaceY(hm, cx, cz);
         const k = THREE.MathUtils.smoothstep(out, 0, 46);
         y = rim + (far(x, z, out) - rim) * k;
-        // Just below the seam so the map's own edge wins any depth tie.
-        if (out < 0.01) y -= 0.05;
+        // Just below the seam so the map's own edge wins any depth tie, and
+        // deep enough that the rim between two seam vertices never dips
+        // under the straight line this mesh draws across it.
+        if (out < 0.01) y -= 0.35;
       }
       const i = (iz * n + ix) * 3;
       positions[i] = x;
@@ -262,7 +269,7 @@ export function makeConiferGeometry(): THREE.BufferGeometry {
   parts.push(trunk);
   const top = tiers[tiers.length - 1]!.y + tiers[tiers.length - 1]!.h;
   for (const t of tiers) {
-    const cone = new THREE.ConeGeometry(t.r, t.h, 7, 1, true).toNonIndexed();
+    const cone = new THREE.ConeGeometry(t.r, t.h, 6, 1, true).toNonIndexed();
     cone.translate(0, t.y + t.h / 2, 0);
     const c = new THREE.Color();
     paint(cone, (y) => c.copy(deep).lerp(tip, Math.pow(Math.min(1, Math.max(0, (y - t.y) / t.h)), 1.4) * (0.55 + (0.45 * (t.y + t.h)) / top)));

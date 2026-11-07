@@ -49,11 +49,11 @@ interface Key {
 const hex = (h: number): Rgb => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255];
 
 const NIGHT: Omit<Key, "t"> = {
-  sun: hex(0x9fb4e0),
-  sunI: 0.28,
-  sky: hex(0x4a6390),
-  ground: hex(0x2c3a52),
-  hemiI: 0.75,
+  sun: hex(0xa9bde6),
+  sunI: 0.42,
+  sky: hex(0x6f88b8),
+  ground: hex(0x4a5a78),
+  hemiI: 0.9,
   zenith: hex(0x0d1a33),
   horizon: hex(0x2c4166),
   fog: hex(0x304668),

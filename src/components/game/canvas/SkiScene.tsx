@@ -105,23 +105,29 @@ function Terrain() {
           click(q, r);
         }}
       />
-      <FarLand material={material} snowLineM={snowLineM} />
+      <FarLand snowLineM={snowLineM} />
     </>
   );
 }
 
 /**
- * The world past the edge of the map: see `buildFarLand`. Shares the ground's
- * material, so it costs one draw call and no extra shader program. It takes no
+ * The world past the edge of the map: see `buildFarLand`. One draw call, no
  * pointer events — a click out there has nothing to build on.
+ *
+ * Lambert rather than the ground's material: it covers the whole top of the
+ * frame, almost all of it under heavy haze, and the procedural detail and PBR
+ * terms cannot be seen at that distance but were costing about a sixth of the
+ * frame on a software rasteriser.
  */
-function FarLand({ material, snowLineM }: { material: THREE.Material; snowLineM: number }) {
+function FarLand({ snowLineM }: { snowLineM: number }) {
   const hm = getHeightmap();
   // Distant snow follows the season in coarse steps; nobody counts metres at 300 units.
   const coarse = Math.round(snowLineM / 200) * 200;
   const geo = useMemo(() => buildFarLand(hm, coarse), [hm, coarse]);
+  const mat = useMemo(() => new THREE.MeshLambertMaterial({ vertexColors: true }), []);
   useEffect(() => () => geo.dispose(), [geo]);
-  return <mesh geometry={geo} material={material} raycast={noRaycast} />;
+  useEffect(() => () => mat.dispose(), [mat]);
+  return <mesh geometry={geo} material={mat} raycast={noRaycast} />;
 }
 
 function noRaycast() {
@@ -1346,7 +1352,7 @@ function Daylight({ tier }: { tier: QualityTier }) {
     () => ({
       at: new THREE.Vector3(),
       dir: new THREE.Vector3(),
-      fallback: new THREE.Vector3(-25, 10, -8),
+      fallback: new THREE.Vector3(-23, 10, -8.5),
       air: createAtmosphere(),
       clock: { raw: -1, at: 0 },
     }),
@@ -1456,12 +1462,12 @@ function LightsAndSky() {
 /**
  * Keeps the camera over the world.
  *
- * The orbit target stays inside the map. The camera itself may stand back
- * past the edge — that is where the establishing shot of the village and the
- * peaks beyond it is taken from — because the far land now continues the
- * ground to the horizon: outside the square there is terrain under you, not
- * the underside of a floating tile. It may not go further than that, and
- * never below the ground it is over.
+ * The orbit target stays inside the map. The camera itself may stand a little
+ * past the edge, because the far land now continues the ground to the
+ * horizon: outside the square there is terrain under you, not the underside
+ * of a floating tile. Not much further, though — the DEM raises a rim along
+ * the map edge, and from well outside it that rim becomes a wall in the
+ * foreground. Never below the ground it is over.
  *
  * Applied after `MapControls` has had its say, so damping and inertia still
  * feel free right up to the limit instead of fighting a hard stop.
@@ -1469,7 +1475,7 @@ function LightsAndSky() {
 function keepCameraInWorld(camera: THREE.Camera, target: THREE.Vector3) {
   const hm = getHeightmap();
   const edge = (hm.world / 2) * 0.94;
-  const outer = (hm.world / 2) * 1.4;
+  const outer = (hm.world / 2) * 1.14;
 
   target.x = THREE.MathUtils.clamp(target.x, -edge, edge);
   target.z = THREE.MathUtils.clamp(target.z, -edge, edge);

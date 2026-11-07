@@ -170,15 +170,15 @@ ${NOISE_GLSL}`,
   // where snow stops holding. The noise shifts the threshold so the edge is
   // ragged crag rather than a contour line.
   float skiSteep = 1.0 - clamp(normalize(vSkiUp).y, 0.0, 1.0);
-  float skiJag = (skiN - 0.5) * 0.32;
-  float skiRock = smoothstep(0.5 + skiJag, 0.58 + skiJag, skiSteep) * uRock;
+  float skiJag = (skiN - 0.5) * 0.22;
+  float skiRock = smoothstep(0.54 + skiJag, 0.6 + skiJag, skiSteep) * uRock;
   // Warm grey-brown gneiss, banded by the same noise so it is not one flat tone.
   vec3 skiStone = mix(vec3(0.12, 0.10, 0.085), vec3(0.27, 0.235, 0.2), skiN);
   diffuseColor.rgb = mix(diffuseColor.rgb, skiStone, skiRock);
 #endif
   // A little of the occlusion in the albedo itself, so a gully reads even
   // where the sky light is weak; the rest goes on the sky light below.
-  diffuseColor.rgb *= mix(1.0, vSkiAO, 0.3);
+  diffuseColor.rgb *= mix(1.0, vSkiAO, 0.2);
 }`,
       )
       // Occlusion belongs on the light that comes from the whole sky, not on

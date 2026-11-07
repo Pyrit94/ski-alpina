@@ -9,6 +9,7 @@ import { isPiste } from "@ski/config";
 import { getDem, validateHex } from "@ski/shared";
 import { BuildingModel } from "./models";
 import { makeHexGeometry } from "./geometry";
+import { useStableGame } from "./use-stable-game";
 
 const GRID_RADIUS = 12;
 const NDC_STAMP = new THREE.Vector2(0, 0.02);
@@ -58,9 +59,9 @@ export function HexRaster() {
   const phase = useGame((s) => s.phase);
   const hover = useGame((s) => s.hover);
   const buildItem = useGame((s) => s.buildItem);
-  const buildings = useGame((s) => s.buildings);
-  const lifts = useGame((s) => s.lifts);
-  const pistes = useGame((s) => s.pistes);
+  const buildings = useStableGame((s) => s.buildings);
+  const lifts = useStableGame((s) => s.lifts);
+  const pistes = useStableGame((s) => s.pistes);
   const mesh = useRef<THREE.InstancedMesh>(null);
   const origin = useRef({ q: 0, r: 9 });
   const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.93), []);
@@ -153,8 +154,8 @@ export function HexCursor() {
   const selectedId = useGame((s) => s.selectedId);
   const buildItem = useGame((s) => s.buildItem);
   const liftStart = useGame((s) => s.liftStart);
-  const buildings = useGame((s) => s.buildings);
-  const lifts = useGame((s) => s.lifts);
+  const buildings = useStableGame((s) => s.buildings);
+  const lifts = useStableGame((s) => s.lifts);
   const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.92), []);
   const hm = getHeightmap();
   const pulse = useRef(0);
