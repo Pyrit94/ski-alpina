@@ -79,6 +79,40 @@ export const PISTE_GRADES = [
   upkeepPerSegment: number;
 }[];
 
+/**
+ * How wide a run is groomed.
+ *
+ * Width is the one thing about a run the player chooses; the grade still comes
+ * from the ground. A wider run carries more people and is more pleasant to
+ * ski, but costs more to cut and to groom every day. Wide gentle runs are what
+ * beginners look for, so a wide blue draws a little extra.
+ *
+ * `width` 2 is the old default: a run saved before widths existed behaves
+ * exactly as it did.
+ */
+export const PISTE_WIDTHS = [
+  { width: 1, key: "schmal", label: "Schmal", capacity: 0.65, cost: 0.75, upkeep: 0.75, draw: 0.95, beginnerDraw: 1 },
+  { width: 2, key: "normal", label: "Normal", capacity: 1, cost: 1, upkeep: 1, draw: 1, beginnerDraw: 1 },
+  { width: 3, key: "breit", label: "Breit", capacity: 1.45, cost: 1.5, upkeep: 1.35, draw: 1.05, beginnerDraw: 1.12 },
+] as const satisfies readonly {
+  width: 1 | 2 | 3;
+  key: string;
+  label: string;
+  /** Multiplier on the grade's people per hour. */
+  capacity: number;
+  /** Multiplier on the price of cutting the run. */
+  cost: number;
+  /** Multiplier on daily grooming upkeep. */
+  upkeep: number;
+  /** Multiplier on how much this run's kilometres draw guests. */
+  draw: number;
+  /** Extra draw on top of `draw` when the run is blue: room for beginners. */
+  beginnerDraw: number;
+}[];
+
+/** Width a run has when nobody chose one. */
+export const DEFAULT_PISTE_WIDTH = 2 as const;
+
 /** The steepest ground any piste can be cut into. */
 export const MAX_PISTE_SLOPE = PISTE_GRADES[PISTE_GRADES.length - 1]!.maxSlope;
 

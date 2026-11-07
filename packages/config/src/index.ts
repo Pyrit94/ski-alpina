@@ -14,6 +14,8 @@ export {
   LAKE,
   PISTE_GRADES,
   MAX_PISTE_SLOPE,
+  PISTE_WIDTHS,
+  DEFAULT_PISTE_WIDTH,
 } from "./terrain.ts";
 export type { PisteGrade } from "./terrain.ts";
 export { MATCH, EVENTS } from "./match.ts";

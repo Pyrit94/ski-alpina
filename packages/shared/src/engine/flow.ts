@@ -6,6 +6,7 @@ import type { Dem } from "../terrain/dem.ts";
 import type { FlowEdgeViz, PlacedPiste, ResortState, RoundModifiers, SimStats } from "../types.ts";
 import { buildResortGraph, VILLAGE_HEX, type DemandSource } from "./graph.ts";
 import { pisteUpkeep } from "./level.ts";
+import { pisteWidthDraw } from "./piste-width.ts";
 import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
 
 export interface FlowTick {
@@ -76,7 +77,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
       p.difficulty === "park"
         ? ECONOMY.parkKmEquivalent
         : Math.max(1, p.hexes.length - 1) * FLOW.kmPerSegment;
-    weightedKm += km * (ECONOMY.gradeDraw[p.difficulty] ?? 1) * snow;
+    weightedKm += km * (ECONOMY.gradeDraw[p.difficulty] ?? 1) * snow * pisteWidthDraw(p);
     gradesOpen.add(p.difficulty);
   }
   const varietyDraw = 1 + ECONOMY.varietyDemandStep * Math.max(0, gradesOpen.size - 1);
