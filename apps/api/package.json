@@ -7,7 +7,7 @@
     "start": "node --experimental-strip-types src/index.ts"
   },
   "dependencies": {
-    "@fastify/static": "^10.1.9",
+    "@fastify/static": "^10.1.10",
     "@fastify/websocket": "^11.3.7",
     "@ski/config": "*",
     "@ski/shared": "*",
