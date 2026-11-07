@@ -38,6 +38,9 @@ import { AlbumCapture } from "./AlbumCapture";
 import { QUALITY, type QualityTier } from "./quality";
 import { useStableGame } from "./use-stable-game";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
+import { PisteNameLabel } from "./PisteDraftLayer";
+import { RIBBON_SCALE, draftColors, usePisteStroke } from "./piste-draft";
+import { usePisteEditor } from "@/lib/game/piste-editor";
 
 /**
  * The playable ground.
@@ -77,6 +80,7 @@ function Terrain() {
   const phase = useGame((s) => s.phase);
   const quality = useGame((s) => s.quality);
   const down = useRef<THREE.Vector2 | null>(null);
+  const stroke = usePisteStroke();
   const stamp = stampMode && phase !== "idle";
   // Photo detail from public/textures/pbr, when Get-Textures.ps1 has been run.
   const photoTextures = useGame((s) => s.photoTextures);
@@ -92,14 +96,22 @@ function Terrain() {
         receiveShadow={shadows}
         onPointerDown={(e) => {
           down.current = new THREE.Vector2(e.clientX, e.clientY);
+          // Desktop piste drawing: press and drag down the slope.
+          const { q, r } = worldToHex(e.point.x, e.point.z);
+          if (!stamp && stroke.down(q, r, e.button)) e.stopPropagation();
         }}
         onPointerMove={(e) => {
           if (stamp) return;
           e.stopPropagation();
           const { q, r } = worldToHex(e.point.x, e.point.z);
           hover(q, r);
+          stroke.move(q, r);
         }}
         onPointerUp={(e) => {
+          if (stroke.up()) {
+            down.current = null;
+            return;
+          }
           if (!down.current) return;
           const d = Math.hypot(e.clientX - down.current.x, e.clientY - down.current.y);
           down.current = null;
@@ -1027,7 +1039,8 @@ function Pistes() {
     for (const p of pistes) {
       if (p.hexes.length < 2) continue;
       const pts = pistePoints(p, hm);
-      const w = p.difficulty === "park" ? 1.7 : p.difficulty === "road" ? 1.0 : 1.25;
+      const w =
+        p.difficulty === "park" ? 1.7 : p.difficulty === "road" ? 1.0 : 1.25 * RIBBON_SCALE[p.width ?? 2];
       const edge = ribbonGeometry(pts, w + 0.34, 0.07);
       tint.set(PISTE_COLOR[p.difficulty] ?? "#2b7de9");
       const n = edge.attributes.position!.count;
@@ -1050,10 +1063,21 @@ function Pistes() {
     return { edge: merge(edges), snow: merge(snows) };
   }, [pistes, hm]);
 
-  const draftGeo = useMemo(
-    () => (draft.length < 2 ? null : ribbonGeometry(pistePoints({ hexes: draft }, hm), 1.2, 0.12)),
-    [draft, hm],
-  );
+  // The draft ribbon is as wide as the run will be and coloured per segment
+  // by the grade the ground gives it.
+  const draftWidth = usePisteEditor((s) => s.width);
+  const draftItem = useGame((s) => s.buildItem);
+  const draftGeo = useMemo(() => {
+    if (draft.length < 2) return null;
+    const scale = draftItem === "piste" ? RIBBON_SCALE[draftWidth] : 1;
+    const g = ribbonGeometry(pistePoints({ hexes: draft }, hm), 1.2 * scale, 0.12);
+    const colours = new Float32Array(draft.length * 6);
+    draftColors(draft, draftItem).forEach((c, i) => {
+      colours.set([c.r, c.g, c.b, c.r, c.g, c.b], i * 6);
+    });
+    g.setAttribute("color", new THREE.BufferAttribute(colours, 3));
+    return g;
+  }, [draft, hm, draftWidth, draftItem]);
 
   useEffect(
     () => () => {
@@ -1091,8 +1115,8 @@ function Pistes() {
         </mesh>
       )}
       {draftGeo && (
-        <mesh geometry={draftGeo}>
-          <meshStandardMaterial color="#7ec8ff" transparent opacity={0.75} />
+        <mesh geometry={draftGeo} raycast={noRaycast}>
+          <meshStandardMaterial vertexColors transparent opacity={0.8} />
         </mesh>
       )}
     </group>
@@ -1773,6 +1797,7 @@ export function SkiScene() {
       <HexRaster />
       <HexCursor />
       <HexGhost />
+      <PisteNameLabel />
       <CenterStamp />
       <StampFlash />
       <PeerFocus />

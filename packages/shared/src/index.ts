@@ -71,9 +71,17 @@ export {
   validateHex,
   validateIntent,
   validatePistePath,
+  validateGround,
   surveyPiste,
   pisteCost,
 } from "./engine/validate.ts";
+export { routePiste, segmentGrades } from "./engine/piste-route.ts";
+export type { RouteOptions, RouteTarget } from "./engine/piste-route.ts";
+export { extendDraft, pisteAnchors, pisteLinks, snapPisteStart } from "./engine/piste-draft.ts";
+export type { Anchor, AnchorKind, DraftStep, PisteLinks } from "./engine/piste-draft.ts";
+export { pistePriceAt, widthChangePrice } from "./engine/piste-edit.ts";
+export { pisteWidthDraw, widthDef, widthOf } from "./engine/piste-width.ts";
+export type { PisteWidthDef } from "./engine/piste-width.ts";
 export { applyIntent } from "./engine/apply.ts";
 export type { Applied } from "./engine/apply.ts";
 export { tickFlow, nearestStation, worldElev } from "./engine/flow.ts";

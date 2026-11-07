@@ -32,10 +32,11 @@ import {
 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
-import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, getDem, gradeBand, isLift, levelFromXp, liftThroughput, seasonPhase, surveyPiste, xpForLevel } from "@/lib/game/catalog";
+import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
 import { TERRAIN } from "@ski/config";
-import { PENDING_READY } from "@ski/shared";
+import { PENDING_READY, widthDef } from "@ski/shared";
+import { GRADE_COLOR, usePisteEditor } from "@/lib/game/piste-editor";
 import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
 import { useCardImages } from "@/lib/game/card-images";
@@ -44,6 +45,7 @@ import { ChatPanel, MarkButtons, MarkHint, UnreadBadge } from "./TeamHUD";
 import { ResearchPanel } from "./ResearchHUD";
 import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCard, VipCard, WalletPanel } from "./RulesHUD";
 import { useMyMoney } from "@/lib/game/team";
+import { PisteEditPanel, PisteEditor } from "./PisteEditor";
 import { useUnreadChat } from "@/lib/game/team";
 import { useBuildTerms } from "@/lib/game/research";
 import { Celebration, EventCard, FinalScreen, MatchGoalsPanel, MatchSetupModal, RoundBar, RoundReportModal, Toasts } from "./MatchHUD";
@@ -171,7 +173,7 @@ const CAT_ICON: Record<Category, typeof Cable> = {
  *
  * A piste no longer has one price: gentle ground is cheap to cut and steep
  * ground is not, so the catalogue figure is a floor rather than a quote. The
- * real number appears while drawing, in `PisteSurvey`.
+ * real number appears while drawing, in the piste editor.
  */
 function priceLabel(item: { id: ItemId; cost: number }): string {
   return item.id === "piste" ? `ab ${fmt(item.cost)}` : fmt(item.cost);
@@ -212,6 +214,7 @@ export function GameHUD() {
                 <RoleChooser />
                 <EventCard />
                 <BuildHint />
+                <PisteEditor />
               </div>
             )}
             {!desktop && <BuildHint />}
@@ -871,10 +874,21 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
   const segments = Math.max(1, piste.hexes.length - 1);
   const load = edge && edge.capacity > 0 ? Math.min(1, edge.flow / edge.capacity) : 0;
   const closed = Boolean(edge && edge.capacity <= 0);
+  const grade = piste.difficulty === "blue" || piste.difficulty === "red" || piste.difficulty === "black" ? piste.difficulty : null;
+  const widthLabel = piste.itemId === "piste" ? widthDef(piste.width).label : null;
   return (
     <Panel className="p-3">
-      <div className="text-[13px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
-      <div className="mt-0.5 text-[11px] text-muted">
+      <div className="truncate text-[13px] font-semibold uppercase tracking-wide text-navy">{piste.name || item.name}</div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+        {grade && (
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-bold text-panel"
+            style={{ background: GRADE_COLOR[grade] }}
+          >
+            {GRADE_LABEL[grade]}
+          </span>
+        )}
+        {widthLabel && <span>{widthLabel} ·</span>}
         {segments} Segmente · {(segments * FLOW.kmPerSegment).toFixed(1)} km
       </div>
       <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
@@ -894,7 +908,8 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
         </p>
       )}
       <BuiltByLine builtBy={piste.builtBy} />
-      <DemolishButton id={piste.id} refund={refundFor(item.cost * segments)} label={item.name} />
+      <PisteEditPanel key={piste.id} piste={piste} />
+      <DemolishButton id={piste.id} refund={refundFor(item.cost * segments)} label={piste.name || item.name} />
     </Panel>
   );
 }
@@ -1214,7 +1229,8 @@ function BuildHint() {
   const phase = useGame((s) => s.phase);
   const hover = useGame((s) => s.hover);
   const stampMode = useGame((s) => s.stampMode);
-  if (!buildItem || phase === "idle") return null;
+  // Drawing a run has its own editor card (PisteEditor.tsx).
+  if (!buildItem || phase === "idle" || phase === "piste") return null;
   const item = BY_ID[buildItem];
   const msg =
     phase === "lift-a"
@@ -1225,71 +1241,16 @@ function BuildHint() {
         ? stampMode
           ? "Gegenstation unter das Raster schieben"
           : "Bergstation tippen"
-        : phase === "piste"
-          ? stampMode
-            ? "Piste feldweise setzen, dann Fertig"
-            : "Hang talwärts tippen"
-          : hover?.reason || (stampMode ? "Karte schieben, Raster zielen, Setzen" : "Feld tippen zum Bauen");
+        : hover?.reason || (stampMode ? "Karte schieben, Raster zielen, Setzen" : "Feld tippen zum Bauen");
   return (
     <div className="pointer-events-none z-10 w-[min(92%,300px)] rounded-[16px] bg-panel/95 p-3 text-center shadow-[var(--shadow-panel)] max-lg:absolute max-lg:left-1/2 max-lg:top-2 max-lg:-translate-x-1/2">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
       <div className="mt-1 text-[12px] text-muted">{msg}</div>
-      {buildItem === "piste" ? (
-        <PisteSurvey />
-      ) : item.capacity ? (
+      {item.capacity ? (
         <div className="value mt-1 text-[13px] font-bold text-success">
           Kapazität {fmt(item.capacity)} Pers./h
         </div>
       ) : null}
-    </div>
-  );
-}
-
-/**
- * What the line drawn so far would become.
- *
- * The grade is no longer a choice, so the player needs to see what the ground
- * is making of their line while they draw it — and what it will cost. This runs
- * the same `surveyPiste` the server prices with, so the number shown is the
- * number charged.
- */
-function PisteSurvey() {
-  const draft = useGame((s) => s.pisteDraft);
-  const coins = useMyMoney().mine;
-  const terms = useBuildTerms();
-  if (draft.length < 2) {
-    return (
-      <div className="mt-1 text-[12px] text-muted">
-        Schwierigkeit und Preis ergeben sich aus dem Hang.
-      </div>
-    );
-  }
-  const survey = surveyPiste(getDem(), "piste", draft);
-  if (!survey) {
-    return (
-      <div className="mt-1 text-[12px] font-semibold text-danger">
-        Zu steil für eine Piste.
-      </div>
-    );
-  }
-  const segments = draft.length - 1;
-  const band = gradeBand(survey.grade);
-  const price = terms.discount(survey.cost);
-  return (
-    <div className="mt-1.5 flex items-center justify-center gap-2">
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold text-panel"
-        style={{ background: PISTE_TINT[survey.grade] }}
-      >
-        {GRADE_LABEL[survey.grade]} Piste
-      </span>
-      <span className="value text-[13px] font-bold text-navy">
-        {fmt(price)}
-      </span>
-      <span className="text-[11px] text-muted">
-        {segments} Seg. · {fmt(band.capacity)}/h
-      </span>
-      {coins < price && <span className="text-[11px] font-bold text-danger">zu teuer</span>}
     </div>
   );
 }
@@ -1375,12 +1336,6 @@ function MobileAlert() {
 }
 
 /** Difficulty colours, matching the run edges drawn on the mountain. */
-const PISTE_TINT: Record<string, string> = {
-  blue: "#2b7de9",
-  red: "#d64545",
-  black: "#1c1c1c",
-};
-
 function CenterTools() {
   const tool = useGame((s) => s.tool);
   const setTool = useGame((s) => s.setTool);
@@ -1494,8 +1449,21 @@ function MobileDock() {
   const item = buildItem ? BY_ID[buildItem] : null;
   const building = phase !== "idle";
   const ok = hover?.valid === true;
+  const pisteMode = usePisteEditor((s) => s.mode);
+  const draftLen = useGame((s) => s.pisteDraft.length);
+  const routing = pisteMode === "route" && buildItem !== "road";
   const stampLabel =
-    phase === "lift-a" ? "Talstation" : phase === "lift-b" ? "Bergstation" : phase === "piste" ? "Feld" : "Setzen";
+    phase === "lift-a"
+      ? "Talstation"
+      : phase === "lift-b"
+        ? "Bergstation"
+        : phase === "piste"
+          ? routing
+            ? draftLen === 0
+              ? "Start"
+              : "Ziel"
+            : "Feld"
+          : "Setzen";
 
   return (
     <div
@@ -1512,7 +1480,7 @@ function MobileDock() {
           {weather.tempC}° · {fmtCompact(stats.guestsPerHour)} Gäste · {stats.satisfaction}%
         </div>
       </div>
-      {building && <StampTray />}
+      {building && (phase === "piste" ? <PisteEditor compact /> : <StampTray />)}
       <div className="flex items-center gap-1.5 rounded-[22px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md">
         {building ? (
           <>
@@ -1536,7 +1504,8 @@ function MobileDock() {
               <button
                 type="button"
                 onClick={finish}
-                className="flex h-11 items-center gap-1 rounded-full bg-accent px-3.5 text-[12px] font-semibold text-panel"
+                disabled={draftLen < 2}
+                className="flex h-11 items-center gap-1 rounded-full bg-accent px-3.5 text-[12px] font-semibold text-panel disabled:opacity-45"
               >
                 <Check className="size-4" /> Fertig
               </button>
@@ -1661,13 +1630,16 @@ function MobileFloats() {
   const phase = useGame((s) => s.phase);
   const buildings = useGame((s) => s.buildings);
   const lifts = useGame((s) => s.lifts);
+  const pistes = useGame((s) => s.pistes);
   const selectEntity = useGame((s) => s.selectEntity);
   const setSheet = useGame((s) => s.setSheet);
   const showTutorial = tutorialOpen && sheet === "none" && phase === "idle" && !selectedId;
   const showSelected = !!selectedId && sheet === "none" && phase === "idle";
   const lift = lifts.find((l) => l.id === selectedId);
   const b = buildings.find((x) => x.id === selectedId);
-  const selectedItem = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : null;
+  // A selected run gets the same chip, so it can be renamed and widened on a phone.
+  const run = pistes.find((p) => p.id === selectedId);
+  const selectedItem = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : run ? BY_ID[run.itemId] : null;
 
   if (sheet !== "none") return null;
 
@@ -1692,8 +1664,8 @@ function MobileFloats() {
         >
           <ItemThumb id={selectedItem.id} className="size-11 shrink-0 rounded-[12px]" iconClass="size-5" />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] font-semibold text-navy">{selectedItem.name}</span>
-            <span className="block text-[11px] text-muted">Details und Upgrades</span>
+            <span className="block truncate text-[13px] font-semibold text-navy">{run?.name || selectedItem.name}</span>
+            <span className="block text-[11px] text-muted">{run ? "Name, Breite und Details" : "Details und Upgrades"}</span>
           </span>
           <span
             role="button"

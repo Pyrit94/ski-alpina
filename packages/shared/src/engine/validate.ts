@@ -18,6 +18,8 @@ import {
   validateResearch,
   type ResearchContext,
 } from "./research.ts";
+import type { PisteWidth } from "../types.ts";
+import { validateEditPiste } from "./piste-edit.ts";
 
 export function validateHex(
   state: ResortState,
@@ -26,6 +28,19 @@ export function validateHex(
   r: number,
   itemId: ItemId,
 ): IntentResult {
+  const ground = validateGround(dem, q, r, itemId);
+  if (!ground.ok) return ground;
+  // Collision is skipped for pistes: a run has to be able to reach a station,
+  // and stations occupy their hex. Not building the set for them keeps a
+  // 48-hex path check cheap enough to run on every pointer move.
+  if (!isPiste(itemId) && occupiedSet(state).has(`${q},${r}`)) {
+    return { ok: false, code: "collision", reason: "Belegt" };
+  }
+  return { ok: true };
+}
+
+/** The terrain half of `validateHex`: what the ground alone allows. */
+export function validateGround(dem: Dem, q: number, r: number, itemId: ItemId): IntentResult {
   const item = BY_ID[itemId];
   if (!item) return { ok: false, code: "invalid", reason: "Unbekanntes Objekt" };
   const { x, z } = hexToWorld(q, r);
@@ -39,10 +54,6 @@ export function validateHex(
     return { ok: false, code: "terrain", reason: "Falsche Höhe" };
   }
   if (slope > item.maxSlope) return { ok: false, code: "slope", reason: "Zu steil" };
-  const occ = occupiedSet(state);
-  if (occ.has(`${q},${r}`) && !isPiste(itemId)) {
-    return { ok: false, code: "collision", reason: "Belegt" };
-  }
   return { ok: true };
 }
 
@@ -62,7 +73,7 @@ export function validateHex(
  * drawing is the price charged on submit. Null when the line crosses ground
  * too steep to hold a piste.
  */
-export function surveyPiste(dem: Dem, itemId: ItemId, hexes: readonly Axial[]) {
+export function surveyPiste(dem: Dem, itemId: ItemId, hexes: readonly Axial[], width?: PisteWidth) {
   const item = BY_ID[itemId];
   if (!item || itemId !== "piste") return null;
   return measurePiste(
@@ -72,6 +83,7 @@ export function surveyPiste(dem: Dem, itemId: ItemId, hexes: readonly Axial[]) {
       return dem.slope(x, z);
     },
     item.cost,
+    width,
   );
 }
 
@@ -81,8 +93,8 @@ export function surveyPiste(dem: Dem, itemId: ItemId, hexes: readonly Axial[]) {
  * A plain piste is priced from the ground it crosses; everything else is a
  * flat per-segment price as before.
  */
-export function pisteCost(dem: Dem, itemId: ItemId, hexes: readonly Axial[]): number {
-  const survey = surveyPiste(dem, itemId, hexes);
+export function pisteCost(dem: Dem, itemId: ItemId, hexes: readonly Axial[], width?: PisteWidth): number {
+  const survey = surveyPiste(dem, itemId, hexes, width);
   if (survey) return survey.cost;
   return BY_ID[itemId].cost * Math.max(1, hexes.length - 1);
 }
@@ -228,7 +240,7 @@ export function validateIntent(
     // rather than as an affordability problem on an impossible run.
     const allowedP = roleAllows(state, actorId, intent.itemId);
     if (!allowedP.ok) return { ok: false, code: "rights", reason: allowedP.reason };
-    if (money < discounted(state, pisteCost(dem, intent.itemId, intent.hexes))) {
+    if (money < discounted(state, pisteCost(dem, intent.itemId, intent.hexes, intent.width))) {
       return { ok: false, code: "budget", reason: "Zu teuer" };
     }
     return { ok: true };
@@ -266,11 +278,8 @@ export function validateIntent(
     return { ok: true };
   }
 
-  if (
-    intent.type === "edit_piste"
-  ) {
-    return { ok: false, code: "invalid", reason: "Diese Funktion kommt gleich" };
-  }
+  if (intent.type === "edit_piste") return validateEditPiste(state, dem, intent, actorId);
+
 
   if (isResearchIntent(intent)) return validateResearch(state, intent, ctx);
 

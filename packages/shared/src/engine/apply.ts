@@ -8,6 +8,7 @@ import type { QuestState, ResortState } from "../types.ts";
 import { GRADE_LABEL, pisteDifficulty } from "./level.ts";
 import { entityCost, findEntity } from "./state.ts";
 import { surveyPiste } from "./validate.ts";
+import { applyEditPiste } from "./piste-edit.ts";
 import { inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
 import { applyEventWeights, recordVote, settleActorCoins, walletKey } from "./rules.ts";
 import { MATCH } from "../../../config/src/match.ts";
@@ -197,7 +198,8 @@ function applyOne(
     const segs = Math.max(1, intent.hexes.length - 1);
     // The ground decides the grade, so it is settled here and stored — the
     // run keeps its rating even if the terrain model is ever retuned.
-    const survey = dem ? surveyPiste(dem, intent.itemId, intent.hexes) : null;
+    const survey = dem ? surveyPiste(dem, intent.itemId, intent.hexes, intent.width) : null;
+    const name = intent.name?.trim();
     const piste = {
       id: createId("p"),
       itemId: intent.itemId,
@@ -206,6 +208,9 @@ function applyOne(
       builtAt: now,
       readyAt: readyAtFor(state, now, item.buildSeconds),
       builtBy: actor?.id,
+      // Only stored when chosen, so older and default runs stay identical.
+      ...(intent.width && intent.width !== 2 ? { width: intent.width } : {}),
+      ...(name ? { name } : {}),
     };
     const cost = discounted(state, survey ? survey.cost : item.cost * segs);
     return {
@@ -217,7 +222,7 @@ function applyOne(
       },
       title: item.id === "road" ? "Zufahrt gebaut" : "Piste angelegt",
       body: survey
-        ? `${GRADE_LABEL[survey.grade]} Piste, ${segs} Segmente.`
+        ? `${name ? `«${name}»: ` : ""}${GRADE_LABEL[survey.grade]} Piste, ${segs} Segmente.`
         : `${item.name} ist bereit.`,
       kind: "ok",
     };
@@ -444,6 +449,8 @@ function applyOne(
   if (isResearchIntent(intent)) {
     return applyResearch(state, intent, now, { actorId: actor?.id, team });
   }
+
+  if (intent.type === "edit_piste") return applyEditPiste(state, intent, dem);
 
   if (intent.type === "dismiss_tutorial") {
     return {

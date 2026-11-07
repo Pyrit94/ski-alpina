@@ -3,7 +3,8 @@ import type { ItemId } from "../../../config/src/ids.ts";
 import { BY_ID, type CatalogItem } from "../../../config/src/items.ts";
 import { PISTE_GRADES, type PisteGrade } from "../../../config/src/terrain.ts";
 import type { Axial } from "../hex.ts";
-import type { Upgrades } from "../types.ts";
+import type { PisteWidth, Upgrades } from "../types.ts";
+import { widthDef } from "./piste-width.ts";
 
 export function xpForLevel(level: number): number {
   if (level <= 1) return 0;
@@ -56,7 +57,9 @@ export function measurePiste(
   hexes: readonly Axial[],
   slopeAt: (hex: Axial) => number,
   baseCost: number,
+  width?: PisteWidth,
 ): { grade: PisteGrade; cost: number; upkeep: number } | null {
+  const wide = widthDef(width);
   const segments = Math.max(1, hexes.length - 1);
   let hardest = 0;
   let cost = 0;
@@ -75,24 +78,29 @@ export function measurePiste(
   }
   return {
     grade: PISTE_GRADES[hardest]!.grade,
-    cost: Math.round(cost),
-    upkeep: Math.round(upkeep),
+    cost: Math.round(cost * wide.cost),
+    upkeep: Math.round(upkeep * wide.upkeep),
   };
 }
 
 /** People per hour a built run carries, from the grade its ground gave it. */
-export function pisteCapacity(piste: { itemId: string; difficulty: string }): number {
+export function pisteCapacity(piste: { itemId: string; difficulty: string; width?: PisteWidth }): number {
   if (piste.difficulty === "blue" || piste.difficulty === "red" || piste.difficulty === "black") {
-    return gradeBand(piste.difficulty).capacity;
+    return Math.round(gradeBand(piste.difficulty).capacity * widthDef(piste.width).capacity);
   }
   return BY_ID[piste.itemId as ItemId]?.capacity ?? 0;
 }
 
 /** What a built run costs to hold open for a day. */
-export function pisteUpkeep(piste: { itemId: string; difficulty: string; hexes: unknown[] }): number {
+export function pisteUpkeep(piste: {
+  itemId: string;
+  difficulty: string;
+  hexes: unknown[];
+  width?: PisteWidth;
+}): number {
   const segments = Math.max(1, piste.hexes.length - 1);
   if (piste.difficulty === "blue" || piste.difficulty === "red" || piste.difficulty === "black") {
-    return gradeBand(piste.difficulty).upkeepPerSegment * segments;
+    return Math.round(gradeBand(piste.difficulty).upkeepPerSegment * segments * widthDef(piste.width).upkeep);
   }
   return (BY_ID[piste.itemId as ItemId]?.upkeep ?? 0) * segments;
 }
