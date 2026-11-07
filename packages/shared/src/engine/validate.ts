@@ -6,9 +6,17 @@ import type { Dem } from "../terrain/dem.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { IntentResult, PlayerRole, ResortState } from "../types.ts";
 import { findEntity, occupiedSet } from "./state.ts";
-import { levelFromXp, measurePiste } from "./level.ts";
+import { measurePiste } from "./level.ts";
 import { eventDef } from "./match.ts";
 import { MAX_PISTE_HEXES } from "../protocol/intents.ts";
+import {
+  buildCost,
+  discounted,
+  isResearchIntent,
+  itemUnlocked,
+  validateResearch,
+  type ResearchContext,
+} from "./research.ts";
 
 export function validateHex(
   state: ResortState,
@@ -121,6 +129,7 @@ export function validateIntent(
   intent: Intent,
   role: PlayerRole,
   now: number,
+  ctx: ResearchContext = {},
 ): IntentResult {
   if (role !== "builder") return { ok: false, code: "rights", reason: "Keine Baurechte" };
 
@@ -151,10 +160,10 @@ export function validateIntent(
     if (!item || isLift(intent.itemId) || isPiste(intent.itemId)) {
       return { ok: false, code: "invalid", reason: "Kein Gebäude" };
     }
-    if (levelFromXp(state.xp) < item.unlockLevel) {
+    if (!itemUnlocked(state, intent.itemId)) {
       return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
     }
-    if (state.coins < item.cost) return { ok: false, code: "budget", reason: "Zu teuer" };
+    if (state.coins < buildCost(state, intent.itemId)) return { ok: false, code: "budget", reason: "Zu teuer" };
     if ((item.gemCost ?? 0) > state.gems) return { ok: false, code: "budget", reason: "Zu wenig Edelsteine" };
     return validateHex(state, dem, intent.q, intent.r, intent.itemId);
   }
@@ -162,10 +171,10 @@ export function validateIntent(
   if (intent.type === "place_lift") {
     const item = BY_ID[intent.itemId];
     if (!item || !isLift(intent.itemId)) return { ok: false, code: "invalid", reason: "Kein Lift" };
-    if (levelFromXp(state.xp) < item.unlockLevel) {
+    if (!itemUnlocked(state, intent.itemId)) {
       return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
     }
-    if (state.coins < item.cost) return { ok: false, code: "budget", reason: "Zu teuer" };
+    if (state.coins < buildCost(state, intent.itemId)) return { ok: false, code: "budget", reason: "Zu teuer" };
     if ((item.gemCost ?? 0) > state.gems) return { ok: false, code: "budget", reason: "Zu wenig Edelsteine" };
     const a = validateHex(state, dem, intent.a.q, intent.a.r, intent.itemId);
     if (!a.ok) return a;
@@ -180,14 +189,14 @@ export function validateIntent(
   if (intent.type === "place_piste") {
     const item = BY_ID[intent.itemId];
     if (!item || !isPiste(intent.itemId)) return { ok: false, code: "invalid", reason: "Keine Piste" };
-    if (levelFromXp(state.xp) < item.unlockLevel) {
+    if (!itemUnlocked(state, intent.itemId)) {
       return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
     }
     const path = validatePistePath(state, dem, intent.itemId, intent.hexes);
     if (!path.ok) return path;
     // Price after the terrain check, so "too steep" is reported as too steep
     // rather than as an affordability problem on an impossible run.
-    if (state.coins < pisteCost(dem, intent.itemId, intent.hexes)) {
+    if (state.coins < discounted(state, pisteCost(dem, intent.itemId, intent.hexes))) {
       return { ok: false, code: "budget", reason: "Zu teuer" };
     }
     return { ok: true };
@@ -226,13 +235,12 @@ export function validateIntent(
   if (
     intent.type === "edit_piste" ||
     intent.type === "set_match_options" ||
-    intent.type === "choose_role" ||
-    intent.type === "start_research" ||
-    intent.type === "cancel_research" ||
-    intent.type === "pledge_research"
+    intent.type === "choose_role"
   ) {
     return { ok: false, code: "invalid", reason: "Diese Funktion kommt gleich" };
   }
+
+  if (isResearchIntent(intent)) return validateResearch(state, intent, ctx);
 
   if (intent.type === "set_ticket_price") {
     if (intent.chf < ECONOMY.ticketMin || intent.chf > ECONOMY.ticketMax) {

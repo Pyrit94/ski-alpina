@@ -147,7 +147,9 @@ export class GameRoom {
     if (!player) return { ok: false, code: "rights", reason: "Nicht verbunden" };
     player.lastSeen = Date.now();
     const now = Date.now();
-    const v = validateIntent(this.state, this.dem, intent, player.role, now);
+    // Who an alliance node needs: the builders here now (see ResearchContext).
+    const team = [...this.players.values()].filter((p) => p.online && p.role === "builder").map((p) => p.id);
+    const v = validateIntent(this.state, this.dem, intent, player.role, now, { actorId: player.id, team });
     if (!v.ok) return v;
     const applied = applyIntent(
       this.state,
@@ -155,6 +157,7 @@ export class GameRoom {
       now,
       { id: player.id, name: player.name },
       this.dem,
+      team,
     );
     this.state = applied.state;
     if (inMatch(this.state)) {

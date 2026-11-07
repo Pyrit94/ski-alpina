@@ -19,6 +19,7 @@ import { syncQuestProgress } from "./quests.ts";
 import { seasonPhase } from "./season.ts";
 import { DEFAULT_MATCH_OPTIONS, emptyResearch, emptyResort, NO_MODS, sandboxMatch } from "./state.ts";
 import { weatherForDay } from "./weather.ts";
+import { accrueResearch, researchEffects, researchTotal } from "./research.ts";
 
 /**
  * `readyAt` for anything built during a round's planning phase.
@@ -276,7 +277,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
   if (teamwork) {
     state = {
       ...state,
-      coins: state.coins + MATCH.teamwork.coins,
+      coins: state.coins + Math.round(MATCH.teamwork.coins * researchEffects(state).teamworkFactor),
       stars: state.stars + MATCH.teamwork.stars,
     };
   }
@@ -296,6 +297,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
   const seasonAtStart = state.season;
   const weather: WeatherKind[] = [];
   const coinsBefore = state.coins;
+  const researchBefore = researchTotal(state);
   let guests = 0;
   let revenue = 0;
   let upkeep = 0;
@@ -321,6 +323,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
         stats: flowed.stats,
         flow: flowed.flow,
       };
+      state = accrueResearch(state, flowed.stats, dt, now);
       const g = flowed.stats.guestsPerHour * dt;
       guests += g;
       guestsToday += g;
@@ -352,6 +355,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
   }
 
   const samples = state.match.daysPerRound * steps;
+  const researchGained = Math.round(researchTotal(state) - researchBefore);
   const bottleneck = [...bottlenecks.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
   const report: RoundReport = {
     round: state.match.round,
@@ -371,6 +375,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     ...(eventTitle ? { event: eventTitle } : {}),
     ...(eventBy ? { eventBy } : {}),
     ...(teamwork ? { teamwork: true } : {}),
+    ...(researchGained > 0 ? { research: researchGained } : {}),
   };
 
   const round = state.match.round + 1;

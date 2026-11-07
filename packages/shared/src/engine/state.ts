@@ -59,7 +59,7 @@ export const DEFAULT_MATCH_OPTIONS: MatchOptions = {
 };
 
 export function emptyResearch(): ResearchState {
-  return { done: [], active: null, points: 0, pledges: {} };
+  return { done: [], active: null, points: 0, pledges: {}, queue: [] };
 }
 
 /** Free play: no rounds, no end, the clock runs while someone is here. */

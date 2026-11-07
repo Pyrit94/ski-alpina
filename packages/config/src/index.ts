@@ -18,3 +18,5 @@ export {
 export type { PisteGrade } from "./terrain.ts";
 export { MATCH, EVENTS } from "./match.ts";
 export type { MatchPresetId, MatchPresetDef, EventDef, EventEffect, EventOption } from "./match.ts";
+export { RESEARCH, RESEARCH_BRANCHES, RESEARCH_NODES, RESEARCH_BY_ID, researchCost } from "./research.ts";
+export type { ResearchBranchDef, ResearchBranchId, ResearchEffect, ResearchNodeDef } from "./research.ts";

@@ -1,4 +1,5 @@
 import { ECONOMY, FLOW } from "../../../config/src/economy.ts";
+import { RESEARCH } from "../../../config/src/research.ts";
 import { isLift } from "../../../config/src/ids.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
@@ -7,6 +8,7 @@ import type { FlowEdgeViz, PlacedPiste, ResortState, RoundModifiers, SimStats } 
 import { buildResortGraph, VILLAGE_HEX, type DemandSource } from "./graph.ts";
 import { pisteUpkeep } from "./level.ts";
 import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
+import { liftResearchFactor, researchEffects, withResearchMods } from "./research.ts";
 
 export interface FlowTick {
   stats: SimStats;
@@ -52,11 +54,12 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const comfort = sum("satisfactionBonus");
   const summerDraw = sum("summerDraw");
 
-  const mods = activeModifiers(state);
+  const fx = researchEffects(state);
+  const mods = withResearchMods(activeModifiers(state), fx);
   const snowQuality = Math.max(0, Math.min(1, state.weather.snowQuality + mods.snow));
 
   // Where the snow actually ends today, snowmaking included.
-  const line = snowLine(state.day, snowQuality, snowmakers);
+  const line = snowLine(state.day, snowQuality, snowmakers, fx.snowmakerDrop);
   const snowAt = (piste: PlacedPiste) => {
     if (mods.closed.includes(piste.difficulty)) return 0;
     const ends = [piste.hexes[0]!, piste.hexes[piste.hexes.length - 1]!];
@@ -85,7 +88,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
 
   // When it is worth coming at all: time of day, weather, and the price.
   const nightLights = hasLights && (state.timeOfDay < 0.3 || state.timeOfDay > 0.7);
-  let appetite = hourFactor(state.timeOfDay) * (nightLights ? 1 + ECONOMY.lightsDayExtension : 1);
+  let appetite =
+    hourFactor(state.timeOfDay) * (nightLights ? 1 + ECONOMY.lightsDayExtension * fx.lightsFactor : 1);
   appetite *= 0.72 + snowQuality * 0.4;
   // Willingness to pay: 1 at the reference price, falling away either side of
   // it steeply enough that revenue peaks at an interior price.
@@ -93,7 +97,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     2 / (1 + Math.pow(state.ticketPrice / ECONOMY.ticketReference, ECONOMY.priceElasticity));
   // Reputation from last tick. Queues today cost guests tomorrow.
   const reputation = Math.max(0, Math.min(1, state.stats.satisfaction / 100));
-  appetite *= ECONOMY.reputationFloor + (1 - ECONOMY.reputationFloor) * reputation;
+  const floor = Math.min(RESEARCH.maxReputationFloor, ECONOMY.reputationFloor + fx.reputationFloor);
+  appetite *= floor + (1 - floor) * reputation;
   appetite *= mods.demand;
   appetite = Math.max(0, appetite);
 
@@ -151,10 +156,11 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
       if (mods.closed.includes(piste.difficulty)) return 0;
       let scale = pisteSnowScale(worldElev(dem, ends.bottom.q, ends.bottom.r), line);
       if (scale <= 0) return 0;
-      if (piste.difficulty === "blue" && hasSchool) scale *= 1 + ECONOMY.schoolBonus;
-      if (piste.difficulty === "black" && hasClinic) scale *= 1 + ECONOMY.clinicBlackBonus;
-      return scale;
+      if (piste.difficulty === "blue" && hasSchool) scale *= 1 + ECONOMY.schoolBonus + fx.schoolBonus;
+      if (piste.difficulty === "black" && hasClinic) scale *= 1 + ECONOMY.clinicBlackBonus + fx.clinicBonus;
+      return scale * fx.pisteCapacity;
     },
+    liftCapacityScale: (lift) => liftResearchFactor(fx, lift.itemId),
   });
 
   // Skiing first, cabins only for what is left over.
@@ -238,7 +244,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   sat +=
     Math.min(1, snowQuality + snowmakers * ECONOMY.snowmakerQuality) *
     ECONOMY.snowSatisfactionWeight;
-  sat += comfort;
+  sat += comfort + fx.satisfaction;
   // Guests who came to ski and only got a cabin ride down are not satisfied
   // guests, however smoothly the network moved them.
   const onPistes = pisteFlow.reduce((n, { used }) => n + used, 0);
@@ -269,7 +275,10 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   // maintains the cableways, so it only discounts the lifts.
   // Only the best maintenance depot on the mountain counts; two workshops do
   // not halve the bill twice over.
-  const bestCut = buildings.reduce((n, b) => Math.max(n, BY_ID[b.itemId].upkeepCut ?? 0), 0);
+  const bestCut = Math.min(
+    RESEARCH.maxUpkeepCut,
+    buildings.reduce((n, b) => Math.max(n, BY_ID[b.itemId].upkeepCut ?? 0), 0) + fx.upkeepCut,
+  );
   const liftUpkeep = readyLifts.reduce((n, l) => n + (BY_ID[l.itemId].upkeep ?? 0), 0) * (1 - bestCut);
   // Placing a lift also records its two stations in `buildings`, so charging
   // every building would bill each cableway three times over.
