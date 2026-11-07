@@ -288,6 +288,8 @@ export interface RoundReport {
   compromise?: boolean;
   /** Duel: each player's purse after the round. */
   wallets?: Record<string, number>;
+  /** Research points earned over the round. */
+  research?: number;
 }
 
 /** A decision put to the players at the start of a round. */
@@ -352,6 +354,8 @@ export interface ResearchState {
   points: number;
   /** Alliance nodes need every player's pledge before they can start. */
   pledges: Record<string, string[]>;
+  /** Nodes waiting to start once the running one is finished. */
+  queue: string[];
 }
 
 export interface SeasonGoal {

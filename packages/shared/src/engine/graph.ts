@@ -78,6 +78,8 @@ export interface GraphInput {
    * depends on how high the run sits.
    */
   pisteCapacityScale?: (piste: PlacedPiste, ends: { top: Axial; bottom: Axial }) => number;
+  /** Multiplier on a lift's throughput, e.g. from research. */
+  liftCapacityScale?: (lift: PlacedLift) => number;
 }
 
 function elevationAt(dem: Dem, hex: Axial): number {
@@ -144,7 +146,7 @@ export function clusterPorts(ports: Axial[], radius: number): number[] {
  * an exit serves nobody.
  */
 export function buildResortGraph(input: GraphInput): ResortGraph {
-  const { lifts, pistes, demands, exits, dem, pisteCapacityScale } = input;
+  const { lifts, pistes, demands, exits, dem, pisteCapacityScale, liftCapacityScale } = input;
 
   const ports: Axial[] = [];
   const addPort = (hex: Axial): number => ports.push(hex) - 1;
@@ -198,7 +200,7 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
   const pendingDescents: { edge: LiftEdge; from: number; to: number; capacity: number }[] = [];
   const liftEdges: LiftEdge[] = liftPorts.map((p, i) => {
     const item = BY_ID[p.lift.itemId];
-    const capacity = liftThroughput(item, p.lift.upgrades);
+    const capacity = Math.round(liftThroughput(item, p.lift.upgrades) * (liftCapacityScale?.(p.lift) ?? 1));
     const baseCluster = cluster[p.basePort]!;
     const topCluster = cluster[p.topPort]!;
     // Both queues feed one gadget edge, so arriving and lapping guests share

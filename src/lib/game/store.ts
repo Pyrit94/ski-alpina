@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { BY_ID, CATALOG, isLift, isPiste } from "@ski/config";
+import { BY_ID, CATALOG, RESEARCH_BY_ID, isLift, isPiste } from "@ski/config";
 import {
   hexDistance,
   hexLine,
@@ -7,6 +7,7 @@ import {
   validateHex,
   validatePistePath,
   getDem,
+  itemUnlocked,
   levelFromXp,
   worldToHex,
   type BuildPhase,
@@ -63,7 +64,7 @@ export interface UiState {
   /** Next map click places a marker of this kind instead of selecting. */
   markMode: "look" | "build" | "warn" | null;
   /** Bumped when something deserves a celebration; the value says what. */
-  celebrate: { id: number; title: string; body: string } | null;
+  celebrate: { id: number; title: string; body: string; kicker?: string } | null;
 }
 
 export interface GameStore extends ResortState, UiState {
@@ -105,6 +106,11 @@ export interface GameStore extends ResortState, UiState {
   setMarkMode: (kind: "look" | "build" | "warn" | null) => void;
   markReportSeen: (round: number) => void;
   clearCelebration: () => void;
+  startResearch: (nodeId: string) => void;
+  /** Without a node: stop the running one. With one: take it out of the queue. */
+  cancelResearch: (nodeId?: string) => void;
+  pledgeResearch: (nodeId: string) => void;
+  boostResearch: () => void;
 }
 
 let net: Net | null = null;
@@ -137,6 +143,7 @@ function flatten(s: ResortState): Partial<ResortState> {
     match: s.match,
     hallOfFame: s.hallOfFame,
     chat: s.chat ?? [],
+    research: s.research,
   };
 }
 
@@ -268,6 +275,20 @@ export const useGame = create<GameStore>((set, get) => ({
         if (!first && reports > prev.match.history.length) {
           play(state.match.history[reports - 1]?.medal ? "medal" : "round");
         }
+        // Research finished, by the clock, a round or a partner's pledge.
+        const learned = (state.research?.done ?? []).filter((id) => !(prev.research?.done ?? []).includes(id));
+        if (!first && learned.length > 0) {
+          const nodes = learned.map((id) => RESEARCH_BY_ID[id]).filter((n) => !!n);
+          play("levelup");
+          set({
+            celebrate: {
+              id: Date.now(),
+              kicker: "Erforscht",
+              title: nodes.map((n) => n.name).join(", "),
+              body: nodes.map((n) => n.effectText).join(" · "),
+            },
+          });
+        }
         if (!first && after > before) {
           play("levelup");
           const unlocked = CATALOG.filter((i) => i.unlockLevel === after).map((i) => i.name);
@@ -318,6 +339,10 @@ export const useGame = create<GameStore>((set, get) => ({
   },
   markReportSeen: (round) => set({ seenReportRound: round }),
   clearCelebration: () => set({ celebrate: null }),
+  startResearch: (nodeId) => net?.sendIntent({ type: "start_research", nodeId }),
+  cancelResearch: (nodeId) => net?.sendIntent(nodeId ? { type: "cancel_research", nodeId } : { type: "cancel_research" }),
+  pledgeResearch: (nodeId) => net?.sendIntent({ type: "pledge_research", nodeId }),
+  boostResearch: () => net?.sendIntent({ type: "boost_research" }),
   setSheet: (v) => set({ sheet: v }),
   rename: (name) => {
     set({ resortName: name.slice(0, 28) });
@@ -350,8 +375,7 @@ export const useGame = create<GameStore>((set, get) => ({
       return;
     }
     const item = BY_ID[id];
-    const lvl = levelFromXp(get().xp);
-    if (lvl < item.unlockLevel) {
+    if (!itemUnlocked(get(), id)) {
       get().pushNote("Noch gesperrt", `Erreiche Level ${item.unlockLevel}, um ${item.name} zu bauen.`, "warn");
       return;
     }

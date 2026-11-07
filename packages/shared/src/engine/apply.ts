@@ -11,6 +11,7 @@ import { surveyPiste } from "./validate.ts";
 import { inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
 import { applyEventWeights, recordVote, settleActorCoins, walletKey } from "./rules.ts";
 import { MATCH } from "../../../config/src/match.ts";
+import { applyResearch, buildCost, discounted, isResearchIntent } from "./research.ts";
 
 export interface Applied {
   state: ResortState;
@@ -106,8 +107,10 @@ export function applyIntent(
   now: number,
   actor?: Actor,
   dem?: Dem,
+  /** Online builders, for alliance research; see ResearchContext. */
+  team?: readonly string[],
 ): Applied {
-  return record(state, applyOne(state, intent, now, actor, dem), intent, now, actor);
+  return record(state, applyOne(state, intent, now, actor, dem, team), intent, now, actor);
 }
 
 function applyOne(
@@ -116,6 +119,7 @@ function applyOne(
   now: number,
   actor?: Actor,
   dem?: Dem,
+  team?: readonly string[],
 ): Applied {
   if (intent.type === "place_building") {
     const item = BY_ID[intent.itemId];
@@ -134,7 +138,7 @@ function applyOne(
       state: {
         ...state,
         buildings: [...state.buildings, building],
-        coins: state.coins - item.cost,
+        coins: state.coins - buildCost(state, intent.itemId),
         gems: state.gems - (item.gemCost ?? 0),
         xp: state.xp + item.xp,
         stars: state.stars + (item.xp >= 40 ? 1 : 0),
@@ -177,7 +181,7 @@ function applyOne(
             stationB,
           },
         ],
-        coins: state.coins - item.cost,
+        coins: state.coins - buildCost(state, intent.itemId),
         gems: state.gems - (item.gemCost ?? 0),
         xp: state.xp + item.xp,
         stars: state.stars + 1,
@@ -203,7 +207,7 @@ function applyOne(
       readyAt: readyAtFor(state, now, item.buildSeconds),
       builtBy: actor?.id,
     };
-    const cost = survey ? survey.cost : item.cost * segs;
+    const cost = discounted(state, survey ? survey.cost : item.cost * segs);
     return {
       state: {
         ...state,
@@ -435,6 +439,10 @@ function applyOne(
       body: `${fmtChf(intent.amount)} an ${toLabel}.`,
       kind: "ok",
     };
+  }
+
+  if (isResearchIntent(intent)) {
+    return applyResearch(state, intent, now, { actorId: actor?.id, team });
   }
 
   if (intent.type === "dismiss_tutorial") {

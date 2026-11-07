@@ -108,8 +108,14 @@ export const IntentSchema = z.discriminatedUnion("type", [
     type: z.literal("start_research"),
     nodeId: z.string().min(1).max(48),
   }),
+  // Without a node: stop the running one (points go back). With one: take it out of the queue.
   z.object({
     type: z.literal("cancel_research"),
+    nodeId: z.string().min(1).max(48).optional(),
+  }),
+  // "Mit Geld beschleunigen": buy a fixed package of points.
+  z.object({
+    type: z.literal("boost_research"),
   }),
   z.object({
     type: z.literal("pledge_research"),

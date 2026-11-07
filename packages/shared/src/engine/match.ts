@@ -19,6 +19,7 @@ import { seasonPhase } from "./season.ts";
 import { DEFAULT_MATCH_OPTIONS, emptyResearch, emptyResort, NO_MODS, sandboxMatch } from "./state.ts";
 import { applyEventWeights, creditAll, drawVip, ensureSecretGoals, openWallet, secretGoalResults, settleVip, settleVotes, shareIncome, walletMode } from "./rules.ts";
 import { weatherForDay } from "./weather.ts";
+import { accrueResearch, researchEffects, researchTotal } from "./research.ts";
 
 /**
  * `readyAt` for anything built during a round's planning phase.
@@ -323,7 +324,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     state.match.options.economy !== "duel" &&
     new Set(state.match.roundBuilders).size >= 2;
   if (teamwork) {
-    state = creditAll(state, MATCH.teamwork.coins);
+    state = creditAll(state, Math.round(MATCH.teamwork.coins * researchEffects(state).teamworkFactor));
     state = { ...state, stars: state.stars + MATCH.teamwork.stars };
   }
 
@@ -342,6 +343,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
   const seasonAtStart = state.season;
   const weather: WeatherKind[] = [];
   const coinsBefore = state.coins;
+  const researchBefore = researchTotal(state);
   let guests = 0;
   let revenue = 0;
   let upkeep = 0;
@@ -383,6 +385,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
           flow: flowed.flow,
         };
       }
+      state = accrueResearch(state, flowed.stats, dt, now);
       const g = flowed.stats.guestsPerHour * dt;
       guests += g;
       guestsToday += g;
@@ -419,6 +422,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
   state = vipOutcome.state;
 
   const samples = state.match.daysPerRound * steps;
+  const researchGained = Math.round(researchTotal(state) - researchBefore);
   const bottleneck = [...bottlenecks.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
   const report: RoundReport = {
     round: state.match.round,
@@ -441,6 +445,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     ...(vipOutcome.settled ? { vip: vipOutcome.settled } : {}),
     ...(compromise ? { compromise: true } : {}),
     ...(walletMode(state) ? { wallets: { ...state.match.wallets } } : {}),
+    ...(researchGained > 0 ? { research: researchGained } : {}),
   };
 
   const round = state.match.round + 1;
