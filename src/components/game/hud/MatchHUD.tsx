@@ -425,6 +425,7 @@ function ReportBody({ report, history = [] }: { report: RoundReport; history?: R
         </ul>
       )}
       {report.event && <p className="mt-2 text-[11px] text-muted">Ereignis: {report.event}</p>}
+      {report.research ? <p className="mt-1 text-[11px] text-muted">Forschung: +{fmt(report.research)} FP</p> : null}
       {tips.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1.5">
           {tips.map((t) => (
@@ -682,7 +683,7 @@ export function Celebration() {
       >
         <Confetti />
         <div className="flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent-soft">
-          <Sparkles className="size-4" /> Aufgestiegen
+          <Sparkles className="size-4" /> {celebrate.kicker ?? "Aufgestiegen"}
         </div>
         <div className="mt-0.5 text-[26px] font-bold">{celebrate.title}</div>
         <div className="mt-0.5 max-w-xs text-[12px] text-ice">{celebrate.body}</div>

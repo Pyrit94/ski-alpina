@@ -43,6 +43,7 @@ import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
 import { ChatPanel, MarkButtons, MarkHint, UnreadBadge } from "./TeamHUD";
 import { ResearchPanel } from "./ResearchHUD";
 import { useUnreadChat } from "@/lib/game/team";
+import { useBuildTerms } from "@/lib/game/research";
 import { Celebration, EventCard, FinalScreen, MatchGoalsPanel, MatchSetupModal, RoundBar, RoundReportModal, Toasts } from "./MatchHUD";
 import { useGame } from "@/lib/game/store";
 import type { Category, HudSheet, ItemId, MapLayer, PlacedPiste } from "@/lib/game/types";
@@ -455,9 +456,8 @@ function LeftColumn() {
   const setBuildItem = useGame((s) => s.setBuildItem);
   const cancel = useGame((s) => s.cancelBuild);
   const buildItem = useGame((s) => s.buildItem);
-  const xp = useGame((s) => s.xp);
   const coins = useGame((s) => s.coins);
-  const lvl = levelFromXp(xp);
+  const terms = useBuildTerms();
   const items = CATEGORIES;
   return (
     <aside className="hidden w-[292px] shrink-0 flex-col gap-2 overflow-hidden p-3 pr-1 lg:flex">
@@ -496,8 +496,8 @@ function LeftColumn() {
         </div>
         <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
           {CATALOG.filter((i) => i.category === category).map((it) => {
-            const locked = lvl < it.unlockLevel;
-            const tooExpensive = coins < it.cost;
+            const locked = terms.locked(it.id);
+            const tooExpensive = coins < terms.cost(it.id);
             const active = buildItem === it.id;
             return (
               <button
@@ -525,7 +525,7 @@ function LeftColumn() {
                 <span
                   className={`value ml-1 shrink-0 text-[11px] font-bold ${active ? "text-panel" : locked ? "text-subtle" : tooExpensive ? "text-warn" : "text-navy"}`}
                 >
-                  {priceLabel(it)}
+                  {priceLabel({ id: it.id, cost: terms.cost(it.id) })}
                 </span>
               </button>
             );
@@ -1245,6 +1245,7 @@ function BuildHint() {
 function PisteSurvey() {
   const draft = useGame((s) => s.pisteDraft);
   const coins = useGame((s) => s.coins);
+  const terms = useBuildTerms();
   if (draft.length < 2) {
     return (
       <div className="mt-1 text-[12px] text-muted">
@@ -1262,6 +1263,7 @@ function PisteSurvey() {
   }
   const segments = draft.length - 1;
   const band = gradeBand(survey.grade);
+  const price = terms.discount(survey.cost);
   return (
     <div className="mt-1.5 flex items-center justify-center gap-2">
       <span
@@ -1271,12 +1273,12 @@ function PisteSurvey() {
         {GRADE_LABEL[survey.grade]} Piste
       </span>
       <span className="value text-[13px] font-bold text-navy">
-        {fmt(survey.cost)}
+        {fmt(price)}
       </span>
       <span className="text-[11px] text-muted">
         {segments} Seg. · {fmt(band.capacity)}/h
       </span>
-      {coins < survey.cost && <span className="text-[11px] font-bold text-danger">zu teuer</span>}
+      {coins < price && <span className="text-[11px] font-bold text-danger">zu teuer</span>}
     </div>
   );
 }
@@ -1465,6 +1467,7 @@ function BuildReticle() {
 }
 
 function MobileDock() {
+  const terms = useBuildTerms();
   const sheet = useGame((s) => s.sheet);
   const unread = useUnreadChat();
   const tool = useGame((s) => s.tool);
@@ -1515,7 +1518,7 @@ function MobileDock() {
             >
               {stampLabel}
               {item && phase === "place" ? (
-                <span className="text-[10px] font-medium opacity-90">{fmtCompact(item.cost)}</span>
+                <span className="text-[10px] font-medium opacity-90">{fmtCompact(terms.cost(item.id))}</span>
               ) : null}
             </button>
             {phase === "piste" && (
@@ -1590,9 +1593,8 @@ function StampTray() {
   const setCategory = useGame((s) => s.setCategory);
   const setBuildItem = useGame((s) => s.setBuildItem);
   const buildItem = useGame((s) => s.buildItem);
-  const xp = useGame((s) => s.xp);
   const coins = useGame((s) => s.coins);
-  const lvl = levelFromXp(xp);
+  const terms = useBuildTerms();
   const items = CATALOG.filter((i) => i.category === category);
   return (
     <div className="mb-1.5 rounded-[20px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md">
@@ -1616,8 +1618,8 @@ function StampTray() {
       </div>
       <div className="mt-1 flex gap-1 overflow-x-auto">
         {items.map((it) => {
-          const locked = lvl < it.unlockLevel;
-          const tooExpensive = coins < it.cost;
+          const locked = terms.locked(it.id);
+          const tooExpensive = coins < terms.cost(it.id);
           const active = buildItem === it.id;
           const Icon = ITEM_ICON[it.id] ?? CAT_ICON[it.category];
           return (
@@ -1631,7 +1633,7 @@ function StampTray() {
               <Icon className="size-4" />
               <span className="mt-0.5 max-w-full truncate text-[9px] font-bold">{it.name.split(" ")[0]}</span>
               <span className={`value text-[9px] font-semibold ${active ? "text-panel/85" : tooExpensive ? "text-danger" : "text-muted"}`}>
-                {locked ? `Lv ${it.unlockLevel}` : it.id === "piste" ? `ab ${fmtCompact(it.cost)}` : fmtCompact(it.cost)}
+                {locked ? `Lv ${it.unlockLevel}` : it.id === "piste" ? `ab ${fmtCompact(terms.cost(it.id))}` : fmtCompact(terms.cost(it.id))}
               </span>
             </button>
           );
@@ -1777,8 +1779,7 @@ function MobileBuildGrid() {
   const setBuildItem = useGame((s) => s.setBuildItem);
   const category = useGame((s) => s.category);
   const setCategory = useGame((s) => s.setCategory);
-  const xp = useGame((s) => s.xp);
-  const lvl = levelFromXp(xp);
+  const terms = useBuildTerms();
   const items = CATALOG.filter((i) => i.category === category);
   return (
     <div>
@@ -1801,7 +1802,7 @@ function MobileBuildGrid() {
       </div>
       <div className="grid grid-cols-2 gap-2">
         {items.map((it) => {
-          const locked = lvl < it.unlockLevel;
+          const locked = terms.locked(it.id);
           return (
             <button
               key={it.id}
@@ -1823,7 +1824,7 @@ function MobileBuildGrid() {
               <div className="text-[13px] font-semibold text-navy">{it.name}</div>
               <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted">{it.blurb}</div>
               <div className="mt-2 flex items-center gap-1 text-[12px] font-semibold text-coin">
-                <Coin className="size-3.5" /> {fmt(it.cost)}
+                <Coin className="size-3.5" /> {fmt(terms.cost(it.id))}
               </div>
               </div>
             </button>
