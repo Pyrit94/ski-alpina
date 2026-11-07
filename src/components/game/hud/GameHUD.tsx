@@ -37,6 +37,7 @@ import { TERRAIN } from "@ski/config";
 import { PENDING_READY } from "@ski/shared";
 import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
+import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
 import { Celebration, EventCard, FinalScreen, MatchGoalsPanel, MatchSetupModal, RoundBar, RoundReportModal, Toasts } from "./MatchHUD";
 import { useGame } from "@/lib/game/store";
 import type { Category, HudSheet, ItemId, MapLayer, PlacedPiste } from "@/lib/game/types";
@@ -607,7 +608,12 @@ function RightColumn() {
           ))}
         </div>
       </Panel>
-      {tab === "ops" && <OperationsPanel />}
+      {tab === "ops" && (
+        <>
+          <OperationsPanel />
+          <TicketPricePanel />
+        </>
+      )}
       {tab === "goals" && (
         <>
           <Panel className="p-3">
@@ -623,6 +629,7 @@ function RightColumn() {
             <div className="text-[10px] font-semibold uppercase tracking-wide text-muted">Wer baut mit</div>
             <PlayersLine />
           </Panel>
+          <RenamePanel />
           <ActivityPanel />
         </>
       )}
@@ -973,6 +980,89 @@ function OperationsPanel() {
         <span>Betten {fmt(stats.beds)}</span>
         <span>Höhenmeter {fmtCompact(stats.verticalPerHour)}/h</span>
       </div>
+    </Panel>
+  );
+}
+
+/**
+ * The day ticket price, the one lever that acts every day.
+ *
+ * Kept local while dragging and sent once on release, so a slide does not
+ * become forty intents and forty activity entries.
+ */
+function TicketPricePanel() {
+  const price = useGame((s) => s.ticketPrice);
+  const setPrice = useGame((s) => s.setTicketPrice);
+  const finished = useGame((s) => s.match.phase === "finished" && s.match.mode === "match");
+  const [draft, setDraft] = useState<number | null>(null);
+  const value = draft ?? price;
+  const commit = () => {
+    if (draft !== null && draft !== price) setPrice(draft);
+    setDraft(null);
+  };
+  const ref = ECONOMY.ticketReference;
+  const mood = value > ref + 15 ? "Teuer – weniger Gäste, unzufriedener" : value < ref - 15 ? "Günstig – volle Pisten, wenig pro Gast" : "Marktüblich";
+  return (
+    <Panel className="p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Tageskarte</span>
+        <span className="value text-[16px] font-bold text-navy">{value} CHF</span>
+      </div>
+      <input
+        type="range"
+        min={ECONOMY.ticketMin}
+        max={ECONOMY.ticketMax}
+        step={1}
+        value={value}
+        disabled={finished}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+        aria-label="Preis der Tageskarte"
+        className="mt-2 h-2 w-full cursor-pointer accent-[var(--color-accent)]"
+      />
+      <div className="mt-1 flex items-center justify-between text-[10px] text-muted">
+        <span>{ECONOMY.ticketMin}</span>
+        <span className={value > ref + 15 ? "font-semibold text-warn" : value < ref - 15 ? "font-semibold text-accent" : ""}>{mood}</span>
+        <span>{ECONOMY.ticketMax}</span>
+      </div>
+    </Panel>
+  );
+}
+
+/** The resort's name, shown in the top bar and in the hall of fame. */
+function RenamePanel() {
+  const name = useGame((s) => s.resortName);
+  const rename = useGame((s) => s.rename);
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? name;
+  const dirty = draft !== null && draft.trim().length >= 2 && draft.trim() !== name;
+  return (
+    <Panel className="p-3">
+      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Name des Gebiets</div>
+      <form
+        className="flex gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (dirty) rename(value.trim());
+          setDraft(null);
+        }}
+      >
+        <input
+          value={value}
+          maxLength={28}
+          onChange={(e) => setDraft(e.target.value)}
+          className="h-10 min-w-0 flex-1 rounded-full bg-snow px-3 text-[13px] text-navy outline-none ring-1 ring-line focus:ring-accent"
+        />
+        <button
+          type="submit"
+          disabled={!dirty}
+          className="h-10 shrink-0 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-40"
+        >
+          Speichern
+        </button>
+      </form>
     </Panel>
   );
 }
@@ -1591,6 +1681,8 @@ function MobileSheets() {
             <div className="flex flex-col gap-2">
               <InfoPanel />
               <OperationsPanel />
+              <TicketPricePanel />
+              <RenamePanel />
               <ActivityPanel />
             </div>
           )}
@@ -1700,11 +1792,29 @@ function MatchMenuButtons() {
   );
 }
 
+function SoundToggle({ className }: { className: string }) {
+  const [on, setOn] = useState(() => (typeof window === "undefined" ? true : soundEnabled()));
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={() => {
+        setSoundEnabled(!on);
+        setOn(!on);
+        if (!on) play("click");
+      }}
+    >
+      Ton: {on ? "An" : "Aus"}
+    </button>
+  );
+}
+
 function MobileMenuBody() {
   const quality = useGame((s) => s.quality);
   return (
     <div className="flex flex-col gap-3 pb-2">
       <MatchMenuButtons />
+      <SoundToggle className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy" />
       <LayerTabs />
       <button
         type="button"
@@ -1730,6 +1840,7 @@ function MenuSheet() {
   return (
     <div className="absolute right-3 top-14 z-30 flex w-72 flex-col gap-1.5 rounded-[20px] bg-panel p-3 shadow-[var(--shadow-panel)]">
       <MatchMenuButtons />
+      <SoundToggle className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy" />
       <button
         type="button"
         className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy"

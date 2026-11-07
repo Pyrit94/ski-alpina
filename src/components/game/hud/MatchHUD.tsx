@@ -510,10 +510,13 @@ export function MatchSetupModal() {
 
 /** The end of a match: the score, the medals and the table. */
 export function FinalScreen() {
-  const state = useGame();
-  const seen = state.seenReportRound;
+  // Narrow subscriptions: this component is mounted for the whole game, and a
+  // whole-store subscription re-rendered it on every hover and every tick.
+  const match = useGame((s) => s.match);
+  const seen = useGame((s) => s.seenReportRound);
+  const hallOfFame = useGame((s) => s.hallOfFame);
+  const setMatchSetupOpen = useGame((s) => s.setMatchSetupOpen);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
-  const match = state.match;
   const historyLen = match.history.length;
   // Show once the last report has been read, or when asked for from the bar.
   const asked = seen === -2;
@@ -526,8 +529,9 @@ export function FinalScreen() {
     setDismissedAt(match.startedAt);
     useGame.setState({ seenReportRound: historyLen });
   };
-  const score = scoreBreakdown(state);
-  const rank = state.hallOfFame.findIndex((r) => r.score === match.score && r.finishedAt >= match.startedAt) + 1;
+  // Read once when shown; the finished resort no longer changes.
+  const score = scoreBreakdown(useGame.getState());
+  const rank = hallOfFame.findIndex((r) => r.score === match.score && r.finishedAt >= match.startedAt) + 1;
   return (
     <Modal onClose={close} wide>
       <div className="relative overflow-hidden bg-gradient-to-br from-navy to-[#24508f] px-5 pb-6 pt-7 text-snow">
@@ -553,11 +557,11 @@ export function FinalScreen() {
           <BigStat label="Medaillen" value={`${fmt(score.medals)}`} />
           <BigStat label="Total" value={`${fmt(score.total)}`} tone="good" />
         </div>
-        {state.hallOfFame.length > 0 && (
+        {hallOfFame.length > 0 && (
           <div className="mt-4">
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Bestenliste</div>
             <ol className="flex flex-col gap-1">
-              {state.hallOfFame.slice(0, 5).map((r, i) => (
+              {hallOfFame.slice(0, 5).map((r, i) => (
                 <li key={`${r.finishedAt}-${i}`} className={`flex items-center gap-2 rounded-[12px] px-3 py-2 text-[12px] ${r.finishedAt >= match.startedAt && r.score === match.score ? "bg-accent-soft/40" : "bg-snow"}`}>
                   <span className="value w-5 font-bold text-navy">{i + 1}.</span>
                   <span className="min-w-0 flex-1 truncate text-navy">
@@ -582,7 +586,7 @@ export function FinalScreen() {
             tone="success"
             onClick={() => {
               close();
-              state.setMatchSetupOpen(true);
+              setMatchSetupOpen(true);
             }}
           >
             Neue Partie <ChevronRight className="size-4" />

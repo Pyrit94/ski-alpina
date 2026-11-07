@@ -19,6 +19,7 @@ import {
 } from "@ski/shared";
 import type { Category, ItemId } from "../../../packages/config/src/ids.ts";
 import { connectGame, loadName, saveName } from "./net";
+import { play } from "./sound";
 import { emptyResort } from "@ski/shared";
 import type { NotificationItem } from "./types";
 
@@ -207,7 +208,11 @@ export const useGame = create<GameStore>((set, get) => ({
           connectedOnce: true,
           ...(first ? { seenReportRound: reports } : {}),
         });
+        if (!first && reports > prev.match.history.length) {
+          play(state.match.history[reports - 1]?.medal ? "medal" : "round");
+        }
         if (!first && after > before) {
+          play("levelup");
           const unlocked = CATALOG.filter((i) => i.unlockLevel === after).map((i) => i.name);
           set({
             celebrate: {
@@ -221,9 +226,13 @@ export const useGame = create<GameStore>((set, get) => ({
       onEvent: (title, body, kind, actorId, actorName) => {
         // Name the other builder; own actions need no attribution.
         const mine = !actorId || actorId === get().playerId;
+        if (mine && kind === "ok" && actorId) play("build");
         get().pushNote(title, mine || !actorName ? body : `${actorName}: ${body}`, kind);
       },
-      onError: (reason) => get().pushNote("Nicht möglich", reason, "warn"),
+      onError: (reason) => {
+        play("error");
+        get().pushNote("Nicht möglich", reason, "warn");
+      },
       onStatus: (connected) => set({ connected }),
     });
   },
