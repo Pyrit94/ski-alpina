@@ -11,6 +11,13 @@ updates:
     groups:
       npm-klein:
         update-types: [minor, patch]
+    ignore:
+      # better-auth 1.7 ersetzt die OAuth2-Endpunkte des genericOAuth-Plugins
+      # (signIn.oauth2, /oauth2/callback/:id) durch signIn.social und
+      # /callback/:id. Das ist eine Login-Migration samt neuer Redirect-URI bei
+      # Google, also von Hand. Patches von 1.6.x laufen weiter mit.
+      - dependency-name: better-auth
+        update-types: [version-update:semver-minor, version-update:semver-major]
   - package-ecosystem: docker
     directory: /
     schedule:
