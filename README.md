@@ -18,6 +18,16 @@ Was zählt:
 - **Der Schnee geht.** Gegen Saisonende steigt die Schneegrenze; Beschneiung und höher gelegene Pisten verlängern die Saison.
 - **Ticketpreis** ist der tägliche Hebel: zu teuer vertreibt Gäste, zu billig verschenkt Geld.
 
+**Pisten bauen** (Bauen → Pisten → Piste):
+
+- **Zeichnen:** an der Bergstation drücken und talwärts ziehen (am Handy: Raster zielen und stempeln). Der Start rastet an Bergstationen und Pistenenden ein.
+- **Route:** Start und Ziel antippen, Ziel-Schwierigkeit wählen (blau/rot/schwarz/egal) – das Spiel schlägt die passende Linie vor.
+- **Breite:** schmal / normal / breit (Kapazität, Preis, Unterhalt; breite blaue Pisten ziehen Anfänger an).
+- Live: Länge, Gefälle, Schwierigkeit, Kapazität, Preis, Unterhalt, **Höhenprofil mit Schneegrenze**, ✓/✗ ob Start und Ende angeschlossen sind.
+- **Zurück** (Backspace), **Fertig** (Enter), **Abbrechen** (Esc). Gebaute Pisten lassen sich umbenennen und verbreitern/verschmälern.
+
+**Forschung** (Tab «Forschung», am Handy über «Ziele»): Forschungspunkte entstehen aus Gästen und Höhenmetern. 21 Verbesserungen in fünf Zweigen – Bahnen, Pisten & Schnee, Gäste & Marketing, Betrieb und **Allianz**. Allianz-Forschung startet erst, wenn alle Anwesenden zugesagt haben (z. B. Gemeinsamer Einkauf −8 % Baukosten, Funkverbindung +50 % Teamwork-Bonus). Warteschlange bis 3, mit Geld beschleunigen möglich.
+
 **Spielregeln** (beim Start unter «Spielregeln anpassen», fast alles auch zwischen den Runden im Tab «Ziele»):
 
 | Regel | Optionen |

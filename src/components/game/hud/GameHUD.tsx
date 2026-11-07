@@ -724,7 +724,7 @@ function LayerTabs() {
           key={t.id}
           type="button"
           onClick={() => setLayer(t.id)}
-          className={`min-h-9 rounded-full px-2.5 text-[11px] font-semibold ${layer === t.id ? "bg-accent text-panel" : "text-navy hover:bg-snow"}`}
+          className={`min-h-9 whitespace-nowrap rounded-full px-2 text-[11px] font-semibold ${layer === t.id ? "bg-accent text-panel" : "text-navy hover:bg-snow"}`}
         >
           {t.label}
         </button>
@@ -1340,14 +1340,20 @@ function CenterTools() {
   const tool = useGame((s) => s.tool);
   const setTool = useGame((s) => s.setTool);
   const phase = useGame((s) => s.phase);
-  const finish = useGame((s) => s.finishPiste);
   const cancel = useGame((s) => s.cancelBuild);
+  const building = phase !== "idle";
+  // While building the editor card carries Fertig/Zurück/Abbrechen; the map
+  // layers and markers make room so the bar never runs over itself.
   return (
-    <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-1.5 lg:flex">
-      <LayerTabs />
-      <span className="mx-1 h-6 w-px bg-navy/15" />
-      <MarkButtons />
-      <span className="mx-1 h-6 w-px bg-navy/15" />
+    <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 hidden max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1.5 lg:flex">
+      {!building && (
+        <>
+          <LayerTabs />
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-navy/15" />
+          <MarkButtons />
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-navy/15" />
+        </>
+      )}
       <ToolBtn active={tool === "select"} onClick={() => setTool("select")} label="Auswahl">
         <MousePointer2 className="size-4" />
       </ToolBtn>
@@ -1357,17 +1363,13 @@ function CenterTools() {
       <ToolBtn active={tool === "orbit"} onClick={() => setTool("orbit")} label="Drehen">
         <Mountain className="size-4" />
       </ToolBtn>
-      {phase === "piste" && (
+      {building && phase !== "piste" && (
         <button
           type="button"
-          onClick={finish}
-          className="ml-1 flex h-10 items-center gap-1 rounded-full bg-success px-3 text-[12px] font-semibold text-panel"
+          onClick={cancel}
+          aria-label="Bauen beenden"
+          className="grid size-10 place-items-center rounded-full bg-panel text-danger shadow-[var(--shadow-chip)]"
         >
-          <Check className="size-4" /> Fertig
-        </button>
-      )}
-      {phase !== "idle" && (
-        <button type="button" onClick={cancel} className="grid size-10 place-items-center rounded-full bg-panel text-danger shadow-[var(--shadow-chip)]">
           <X className="size-4" />
         </button>
       )}
