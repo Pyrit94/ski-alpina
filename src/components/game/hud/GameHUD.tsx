@@ -2,41 +2,53 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import {
   BarChart3,
+  MessageCircle,
+  Cloud,
+  CloudFog,
+  CloudLightning,
+  Flag,
+  Lock,
+  Sun,
   Bus,
   Cable,
   Check,
   ChevronRight,
-  Compass,
-  Crosshair,
   Gem,
   Hammer,
   Hand,
-  HelpCircle,
   Hotel,
-  Layers,
   ListChecks,
-  Map as MapIcon,
   Menu,
   Mountain,
   MousePointer2,
   RotateCw,
-  Shield,
   Snowflake,
   Star,
   Store,
   Trash2,
   Trees,
   Utensils,
-  Volume2,
   X,
-  ZoomIn,
 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
-import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, GRADE_LABEL, QUICK, SEASON_LABEL, UPGRADES, getDem, gradeBand, isLift, levelFromXp, liftThroughput, seasonPhase, surveyPiste, xpForLevel } from "@/lib/game/catalog";
+import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
-import { fmt, fmtCompact } from "@/lib/game/format";
+import { TERRAIN } from "@ski/config";
+import { PENDING_READY, widthDef } from "@ski/shared";
+import { GRADE_COLOR, usePisteEditor } from "@/lib/game/piste-editor";
+import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
+import { useCardImages } from "@/lib/game/card-images";
+import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
+import { ChatPanel, MarkButtons, MarkHint, UnreadBadge } from "./TeamHUD";
+import { ResearchPanel } from "./ResearchHUD";
+import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCard, VipCard, WalletPanel } from "./RulesHUD";
+import { useMyMoney } from "@/lib/game/team";
+import { PisteEditPanel, PisteEditor } from "./PisteEditor";
+import { useUnreadChat } from "@/lib/game/team";
+import { useBuildTerms } from "@/lib/game/research";
+import { Celebration, EventCard, FinalScreen, MatchGoalsPanel, MatchSetupModal, RoundBar, RoundReportModal, Toasts } from "./MatchHUD";
 import { useGame } from "@/lib/game/store";
 import type { Category, HudSheet, ItemId, MapLayer, PlacedPiste } from "@/lib/game/types";
 
@@ -161,7 +173,7 @@ const CAT_ICON: Record<Category, typeof Cable> = {
  *
  * A piste no longer has one price: gentle ground is cheap to cut and steep
  * ground is not, so the catalogue figure is a floor rather than a quote. The
- * real number appears while drawing, in `PisteSurvey`.
+ * real number appears while drawing, in the piste editor.
  */
 function priceLabel(item: { id: ItemId; cost: number }): string {
   return item.id === "piste" ? `ab ${fmt(item.cost)}` : fmt(item.cost);
@@ -195,15 +207,34 @@ export function GameHUD() {
         <div className="flex h-full">
           {desktop && <LeftColumn />}
           <div className="relative min-w-0 flex-1">
-            <BuildHint />
+            {desktop && (
+              <div className="absolute inset-x-0 top-2 z-10 flex flex-col items-center gap-2 px-3">
+                <RoundBar />
+                <MarkHint />
+                <RoleChooser />
+                <EventCard />
+                <BuildHint />
+                <PisteEditor />
+              </div>
+            )}
+            {!desktop && <BuildHint />}
             {desktop && <CenterTools />}
-            <Minimap />
+            {desktop && <Attribution />}
             {!desktop && <MobileFloats />}
+            {!desktop && (
+              <div className="pointer-events-auto absolute right-3 top-3 z-20 flex flex-col items-end gap-2">
+                <MarkButtons vertical />
+              </div>
+            )}
+            {!desktop && (
+              <div className="absolute inset-x-0 top-3 z-20 flex justify-center px-16">
+                <MarkHint />
+              </div>
+            )}
           </div>
           {desktop && <RightColumn />}
         </div>
       </div>
-      <BottomBar />
       <BuildReticle />
       {!desktop && (
         <>
@@ -211,7 +242,34 @@ export function GameHUD() {
           <MobileSheets />
         </>
       )}
+      <div className="absolute left-1/2 top-[4.25rem] z-40 -translate-x-1/2 lg:bottom-16 lg:left-auto lg:right-[316px] lg:top-auto lg:translate-x-0">
+        <Toasts />
+      </div>
+      <MatchSetupModal />
+      <RoundReportModal />
+      <FinalScreen />
+      <Celebration />
     </div>
+  );
+}
+
+/**
+ * A photo for an item when Get-Textures.ps1 has fetched one, else its icon.
+ * A photo that fails to load falls back to the icon too.
+ */
+function ItemThumb({ id, className, iconClass = "size-4" }: { id: ItemId; className: string; iconClass?: string }) {
+  const images = useCardImages();
+  const [broken, setBroken] = useState(false);
+  const item = BY_ID[id];
+  const img = images[id];
+  if (img && !broken) {
+    return <img src={img.url} alt="" title={img.title} onError={() => setBroken(true)} className={`${className} object-cover`} />;
+  }
+  const Icon = ITEM_ICON[id] ?? CAT_ICON[item.category];
+  return (
+    <span className={`${className} grid place-items-center bg-ice`} style={{ color: item.color }}>
+      <Icon className={iconClass} />
+    </span>
   );
 }
 
@@ -224,52 +282,42 @@ function Panel({ children, className = "" }: { children: ReactNode; className?: 
 }
 
 function TopBar() {
-  const coins = useGame((s) => s.coins);
   const gems = useGame((s) => s.gems);
   const stars = useGame((s) => s.stars);
   const season = useGame((s) => s.season);
   const day = useGame((s) => s.day);
   const weather = useGame((s) => s.weather);
+  const resortName = useGame((s) => s.resortName);
   const setSheet = useGame((s) => s.setSheet);
   const sheet = useGame((s) => s.sheet);
+  const WeatherIcon = weather.kind === "snow" ? Snowflake : weather.kind === "sun" ? Sun : weather.kind === "storm" ? CloudLightning : weather.kind === "fog" ? CloudFog : Cloud;
   return (
     <header
       className="pointer-events-auto flex items-center gap-2 px-3 lg:px-4"
       style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
     >
-      <div className="flex shrink-0 items-center gap-2 rounded-full bg-panel/92 py-1 pl-1 pr-2.5 shadow-[var(--shadow-chip)] lg:pr-3">
+      <div className="flex shrink-0 items-center gap-2 rounded-full bg-panel/92 py-1 pl-1 pr-2.5 shadow-[var(--shadow-chip)] lg:pr-4">
         <LogoMark />
         <div className="hidden leading-tight sm:block">
-          <div className="text-[13px] font-bold tracking-wide text-navy lg:text-[15px]">SKI BUILDER</div>
-          <div className="hidden text-[9px] font-medium uppercase tracking-[0.14em] text-muted lg:block">
-            Baue dein Traum-Skigebiet
-          </div>
+          <div className="text-[13px] font-bold tracking-wide text-navy lg:text-[15px]">SKI ALPINA</div>
+          <div className="hidden max-w-[10rem] truncate text-[10px] font-medium text-muted lg:block">{resortName}</div>
         </div>
       </div>
       <div className="flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto lg:justify-center lg:gap-2">
-        <Currency n={coins} icon={<Coin />} onAdd />
-        <Currency n={gems} icon={<Gem className="size-4 text-gem" />} onAdd />
-        <Currency n={stars} icon={<Star className="size-4 fill-star text-star" />} onAdd />
+        <MyPurseChip coin={<Coin />} />
+        <Currency n={gems} icon={<Gem className="size-4 text-gem" />} label="Edelsteine" />
+        <Currency n={stars} icon={<Star className="size-4 fill-star text-star" />} label="Prestige: jeder Stern +1 % Gäste" />
+        <LevelChip />
         <div className="hidden items-center gap-2 rounded-full bg-panel/92 px-3 py-1.5 text-[11px] font-medium text-muted shadow-[var(--shadow-chip)] lg:flex">
-          Saison {season} · Tag {day}
-          <span className="inline-flex items-center gap-1 text-accent">
-            <Snowflake className="size-3.5" />
-            {weather.tempC}°
-          </span>
+          <WeatherIcon className="size-3.5 text-accent" />
+          {weather.label} · {weather.tempC}°
+          <span className="text-subtle">· S{season} T{day}</span>
         </div>
       </div>
       <div className="hidden shrink-0 items-center gap-1.5 lg:flex">
-        <IconBtn onClick={() => useGame.setState({ layer: "heat" })}>
-          <BarChart3 className="size-4" />
-        </IconBtn>
-        <IconBtn>
-          <Shield className="size-4" />
-        </IconBtn>
-        <IconBtn onClick={() => useGame.setState({ layer: "3d" })}>
-          <MapIcon className="size-4" />
-        </IconBtn>
-        <IconBtn onClick={() => setSheet(sheet === "menu" ? "none" : "menu")}>
-          <Layers className="size-4" />
+        <Avatars />
+        <IconBtn onClick={() => setSheet(sheet === "menu" ? "none" : "menu")} label="Menü">
+          <Menu className="size-4" />
         </IconBtn>
       </div>
       <IconBtn
@@ -285,6 +333,69 @@ function TopBar() {
         </div>
       )}
     </header>
+  );
+}
+
+/** Level and progress to the next, as a ring around the number. */
+function LevelChip() {
+  const xp = useGame((s) => s.xp);
+  const lvl = levelFromXp(xp);
+  const next = xpForLevel(lvl + 1);
+  const prev = xpForLevel(lvl);
+  const pct = Math.min(1, (xp - prev) / Math.max(1, next - prev));
+  const r = 11;
+  const c = 2 * Math.PI * r;
+  return (
+    <div
+      className="flex items-center gap-1.5 rounded-full bg-panel/92 py-1 pl-1 pr-2.5 shadow-[var(--shadow-chip)]"
+      title={`Level ${lvl}: ${fmt(xp)} / ${fmt(next)} XP`}
+    >
+      <svg viewBox="0 0 28 28" className="size-7">
+        <circle cx="14" cy="14" r={r} fill="var(--color-ice)" stroke="var(--color-line)" strokeWidth="3" />
+        <circle
+          cx="14"
+          cy="14"
+          r={r}
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={`${c * pct} ${c}`}
+          transform="rotate(-90 14 14)"
+        />
+        <text x="14" y="18" textAnchor="middle" className="fill-navy text-[11px] font-bold">
+          {lvl}
+        </text>
+      </svg>
+      <span className="hidden text-[11px] font-semibold text-navy lg:inline">Level</span>
+    </div>
+  );
+}
+
+/** Who is here, in the colour their ring has on the mountain. */
+function Avatars() {
+  const players = useGame((s) => s.players);
+  const me = useGame((s) => s.playerId);
+  const ready = useGame((s) => s.match.ready);
+  if (players.length === 0) return null;
+  return (
+    <div className="flex items-center -space-x-1.5 rounded-full bg-panel/92 py-1 pl-1 pr-2 shadow-[var(--shadow-chip)]">
+      {players.slice(0, 4).map((p) => (
+        <span
+          key={p.id}
+          title={`${p.name}${p.id === me ? " (du)" : ""}${ready.includes(p.id) ? " · bereit" : ""}`}
+          className="relative grid size-7 place-items-center rounded-full text-[11px] font-bold text-panel ring-2 ring-panel"
+          style={{ background: peerColor(p.id) }}
+        >
+          {p.name.slice(0, 1).toUpperCase()}
+          {ready.includes(p.id) && (
+            <span className="absolute -bottom-0.5 -right-0.5 grid size-3.5 place-items-center rounded-full bg-success ring-2 ring-panel">
+              <Check className="size-2.5 text-panel" />
+            </span>
+          )}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -307,20 +418,16 @@ function LogoMark() {
  * floating next to the digits. Tabular figures matter here — a balance that
  * jitters as it ticks is distracting in the corner of the eye.
  */
-function Currency({ n, icon, onAdd }: { n: number; icon: ReactNode; onAdd?: boolean }) {
+function Currency({ n, icon, label }: { n: number; icon: ReactNode; label: string }) {
   return (
-    <div className="flex items-center gap-1.5 rounded-full bg-panel/92 py-1 pl-1 pr-2 shadow-[var(--shadow-chip)] lg:pr-1">
+    <div className="flex items-center gap-1.5 rounded-full bg-panel/92 py-1 pl-1 pr-2.5 shadow-[var(--shadow-chip)]" title={label}>
       <span className="grid size-6 place-items-center rounded-full bg-ice shadow-[inset_0_1px_2px_rgba(11,31,58,.12)]">
         {icon}
       </span>
-      <span className="value min-w-[1.7rem] text-right text-[13px] font-bold text-navy lg:min-w-[2.5rem] lg:text-[14px]">
-        {fmtCompact(n)}
+      <span className="value min-w-[1.7rem] text-right text-[13px] font-bold text-navy lg:min-w-[3rem] lg:text-[14px]">
+        <span className="lg:hidden">{fmtCompact(n)}</span>
+        <span className="hidden lg:inline">{fmt(n)}</span>
       </span>
-      {onAdd && (
-        <span className="btn-3d hidden size-5 place-items-center rounded-full bg-accent text-[11px] font-bold text-panel lg:grid">
-          +
-        </span>
-      )}
     </div>
   );
 }
@@ -354,12 +461,11 @@ function LeftColumn() {
   const setBuildItem = useGame((s) => s.setBuildItem);
   const cancel = useGame((s) => s.cancelBuild);
   const buildItem = useGame((s) => s.buildItem);
-  const xp = useGame((s) => s.xp);
-  const coins = useGame((s) => s.coins);
-  const lvl = levelFromXp(xp);
+  const coins = useMyMoney().mine;
+  const terms = useBuildTerms();
   const items = CATEGORIES;
   return (
-    <aside className="hidden w-[292px] shrink-0 flex-col gap-2 overflow-y-auto p-3 pr-1 lg:flex">
+    <aside className="hidden w-[292px] shrink-0 flex-col gap-2 overflow-hidden p-3 pr-1 lg:flex">
       <Panel className="p-3">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-2 text-[13px] font-semibold text-navy">
@@ -370,7 +476,7 @@ function LeftColumn() {
             <X className="size-4" />
           </button>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="grid grid-cols-5 gap-1">
           {items.map((c) => {
             const Icon = CAT_ICON[c.id];
             const active = category === c.id;
@@ -378,73 +484,54 @@ function LeftColumn() {
               <button
                 key={c.id}
                 type="button"
+                title={`${c.label} – ${c.hint}`}
                 onClick={() => setCategory(c.id)}
-                className={`flex items-center gap-3 rounded-[14px] px-2.5 py-2 text-left transition-colors duration-150 ${active ? "bg-accent-soft" : "hover:bg-snow"}`}
+                className={`flex flex-col items-center gap-1 rounded-[14px] px-1 py-2 text-[9px] font-semibold transition-colors duration-150 ${active ? "bg-accent text-panel" : "bg-snow text-navy hover:bg-ice"}`}
               >
-                <span className={`grid size-9 place-items-center rounded-[10px] ${active ? "bg-accent text-panel" : "bg-ice text-navy"}`}>
-                  <Icon className="size-4" />
-                </span>
-                <span>
-                  <span className="block text-[12px] font-semibold uppercase tracking-wide text-navy">{c.label}</span>
-                  <span className="block text-[10px] text-muted">{c.hint}</span>
-                </span>
+                <Icon className="size-4" />
+                <span className="max-w-full truncate">{c.label.split(" ")[0]}</span>
               </button>
             );
           })}
         </div>
       </Panel>
-      <Panel className="p-3">
+      <Panel className="flex min-h-0 flex-1 flex-col p-3">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
           {CATEGORIES.find((c) => c.id === category)?.label}
         </div>
-        <div className="flex max-h-48 flex-col gap-1 overflow-y-auto pr-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
           {CATALOG.filter((i) => i.category === category).map((it) => {
-            const locked = lvl < it.unlockLevel;
-            const tooExpensive = coins < it.cost;
+            const locked = terms.locked(it.id);
+            const tooExpensive = coins < terms.cost(it.id);
             const active = buildItem === it.id;
             return (
               <button
                 key={it.id}
                 type="button"
                 onClick={() => setBuildItem(it.id)}
-                className={`flex items-center justify-between rounded-[12px] px-2 py-1.5 text-left ${active ? "bg-accent text-panel" : "hover:bg-snow"}`}
+                title={it.blurb}
+                className={`flex items-center gap-2.5 rounded-[14px] px-2 py-1.5 text-left transition-colors ${active ? "bg-accent text-panel" : locked ? "opacity-60 hover:bg-snow" : "hover:bg-snow"}`}
               >
-                <span className="min-w-0">
+                {locked ? (
+                  <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-snow text-subtle">
+                    <Lock className="size-4" />
+                  </span>
+                ) : (
+                  <ItemThumb id={it.id} className={`size-9 shrink-0 rounded-[11px] ${active ? "ring-2 ring-panel/70" : ""}`} />
+                )}
+                <span className="min-w-0 flex-1">
                   <span className={`block truncate text-[12px] font-semibold ${active ? "text-panel" : "text-navy"}`}>
                     {it.name}
                   </span>
                   <span className={`block truncate text-[10px] ${active ? "text-panel/80" : "text-muted"}`}>
-                    {locked ? `Level ${it.unlockLevel}` : it.blurb}
+                    {locked ? `Ab Level ${it.unlockLevel}` : it.blurb}
                   </span>
                 </span>
                 <span
-                  className={`value ml-2 shrink-0 text-[11px] font-bold ${tooExpensive && !active ? "text-danger" : active ? "text-panel" : "text-navy"}`}
+                  className={`value ml-1 shrink-0 text-[11px] font-bold ${active ? "text-panel" : locked ? "text-subtle" : tooExpensive ? "text-warn" : "text-navy"}`}
                 >
-                  {priceLabel(it)}
+                  {priceLabel({ id: it.id, cost: terms.cost(it.id) })}
                 </span>
-              </button>
-            );
-          })}
-        </div>
-      </Panel>
-      <Panel className="p-3">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Schnellauswahl</div>
-        <div className="grid grid-cols-3 gap-1.5">
-          {QUICK.map((id) => {
-            const it = BY_ID[id];
-            const Icon = ITEM_ICON[id] ?? Cable;
-            const locked = lvl < it.unlockLevel;
-            const active = buildItem === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setBuildItem(id)}
-                className={`btn-3d ${active ? "" : "btn-3d-light"} flex flex-col items-center gap-1 rounded-[14px] px-1 py-2 text-[10px] font-semibold ${active ? "bg-accent text-panel" : locked ? "bg-snow text-subtle" : "bg-ice text-navy"}`}
-                style={active ? { ["--lip" as string]: "var(--color-accent-dark)" } : undefined}
-              >
-                <Icon className="size-4" />
-                {it.name.split(" ")[0]}
               </button>
             );
           })}
@@ -471,10 +558,10 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
   const [folded, setFolded] = useState(false);
   if (!open) return null;
   const copy = [
-    { t: "Dein Skigebiet wartet!", b: "Verbinde die ersten Hütten mit einer Gondelbahn und starte in die Saison." },
-    { t: "Pisten zeichnen", b: "Wähle die Piste und tippe den Hang hinunter – immer talwärts. Schwierigkeit und Preis ergeben sich aus dem Gelände." },
-    { t: "Einkehrschwung", b: "Ein Restaurant an der Strecke bringt Einnahmen und zufriedene Gäste." },
-    { t: "Wachsen", b: "Erfülle Aufgaben, upgrade Bahnen und öffne höhere Lagen." },
+    { t: "Der erste Lift", b: "Wähle den Schlepplift, setz die Talstation beim Dorf und die Bergstation weiter oben am Hang." },
+    { t: "Pisten zeichnen", b: "Wähle «Piste» und tippe von der Bergstation den Hang hinunter bis zurück ins Dorf. Das Gelände bestimmt Farbe und Preis." },
+    { t: "Gäste kommen wegen der Pisten", b: "Mehr Kilometer und mehr Abwechslung (blau, rot, schwarz) bringen mehr Gäste. Parkhäuser und Hotels lassen sie ins Tal." },
+    { t: "Zu zweit in Runden", b: "Startet eine Partie: Ihr baut gleichzeitig, dann drückt jede:r «Runde beenden» – das Spiel rechnet zehn Tage durch." },
   ];
   const c = copy[step] ?? copy[0]!;
 
@@ -497,14 +584,13 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
 
   return (
     <Panel className="overflow-hidden">
-      {!compact && <img src="/textures/station.jpg" alt="" className="h-20 w-full object-cover" />}
-      <div className="p-3">
+      <div className={compact ? "p-2.5" : "p-3"}>
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold uppercase tracking-wide text-accent">
               Tutorial {step + 1}/4
             </div>
-            <div className="mt-1 text-[14px] font-semibold text-navy">{c.t}</div>
+            <div className={`mt-0.5 font-semibold text-navy ${compact ? "text-[13px]" : "text-[14px]"}`}>{c.t}</div>
           </div>
           <button
             type="button"
@@ -516,18 +602,18 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
           </button>
         </div>
         <p className="mt-1 text-[11px] leading-snug text-muted">{c.b}</p>
-        <div className="mt-3 flex gap-1.5">
+        <div className={`flex gap-1.5 ${compact ? "mt-2" : "mt-3"}`}>
           <button
             type="button"
             onClick={dismiss}
-            className="btn-3d btn-3d-light h-11 shrink-0 rounded-full bg-ice px-4 text-[12px] font-bold text-navy"
+            className="btn-3d btn-3d-light h-10 shrink-0 rounded-full bg-ice px-4 text-[12px] font-bold text-navy"
           >
             Überspringen
           </button>
           <button
             type="button"
             onClick={step >= 3 ? dismiss : next}
-            className="btn-3d flex h-11 flex-1 items-center justify-center gap-1 rounded-full bg-accent text-[13px] font-bold text-panel"
+            className="btn-3d flex h-10 flex-1 items-center justify-center gap-1 rounded-full bg-accent text-[13px] font-bold text-panel"
             style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
           >
             {step >= 3 ? "Loslegen" : "Weiter"} <ChevronRight className="size-4" />
@@ -539,15 +625,86 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
 }
 
 function RightColumn() {
+  const selectedId = useGame((s) => s.selectedId);
+  const [tab, setTab] = useState<"ops" | "goals" | "research" | "team">("ops");
+  const unread = useUnreadChat();
+  const tabs = [
+    { id: "ops" as const, label: "Betrieb" },
+    { id: "goals" as const, label: "Ziele" },
+    { id: "research" as const, label: "Forschung" },
+    { id: "team" as const, label: "Team" },
+  ];
   return (
     <aside className="hidden w-[300px] shrink-0 flex-col gap-2 overflow-y-auto p-3 pl-1 lg:flex">
-      <LayerTabs />
-      <InfoPanel />
-      <OperationsPanel />
-      <ActivityPanel />
-      <Notifications />
-      <Quests />
+      {selectedId && <InfoPanel />}
+      <Panel className="p-1">
+        <div className="grid grid-cols-4 gap-1">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`relative h-9 rounded-full text-[12px] font-semibold transition-colors ${tab === t.id ? "bg-accent text-panel" : "text-navy hover:bg-snow"}`}
+            >
+              {t.label}
+              {t.id === "team" && tab !== "team" && <UnreadBadge n={unread} />}
+            </button>
+          ))}
+        </div>
+      </Panel>
+      {tab === "ops" && (
+        <>
+          <OperationsPanel />
+          <TicketPricePanel />
+        </>
+      )}
+      {tab === "goals" && (
+        <>
+          <Panel className="p-3">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Partie</div>
+            <MatchGoalsPanel />
+            <div className="mt-3 flex flex-col gap-2">
+              <VipCard />
+              <SecretGoalCard />
+              <DuelStandings />
+              <MatchRulesPanel />
+            </div>
+          </Panel>
+          <Quests />
+        </>
+      )}
+      {tab === "research" && (
+        <Panel className="p-3">
+          <ResearchPanel />
+        </Panel>
+      )}
+      {tab === "team" && (
+        <>
+          <Panel className="p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted">Wer baut mit</div>
+            <PlayersLine />
+          </Panel>
+          <Panel className="p-3">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Team-Chat</div>
+            <ChatPanel />
+          </Panel>
+          <Panel className="p-3 empty:hidden">
+            <WalletPanel />
+          </Panel>
+          <RenamePanel />
+          <ActivityPanel />
+        </>
+      )}
     </aside>
+  );
+}
+
+/** Copernicus attribution, required wherever the terrain is shown. */
+function Attribution() {
+  return (
+    <div className="pointer-events-auto absolute bottom-2 left-3 z-10 max-w-[18rem] text-[9px] leading-tight text-navy/60">
+      {TERRAIN.attribution}
+    </div>
   );
 }
 
@@ -555,27 +712,24 @@ function LayerTabs() {
   const layer = useGame((s) => s.layer);
   const setLayer = useGame((s) => s.setLayer);
   const tabs: { id: MapLayer; label: string }[] = [
-    { id: "3d", label: "3D Karte" },
-    { id: "height", label: "Höhenkarte" },
-    { id: "pistes", label: "Pistennetz" },
-    { id: "heat", label: "Wärmekarte" },
+    { id: "3d", label: "Gelände" },
+    { id: "height", label: "Höhen" },
+    { id: "pistes", label: "Pisten" },
+    { id: "heat", label: "Auslastung" },
   ];
   return (
-    <Panel className="p-2">
-      <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Karten-Ebene</div>
-      <div className="grid grid-cols-2 gap-1">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setLayer(t.id)}
-            className={`min-h-10 rounded-full px-2 py-1.5 text-[10px] font-semibold ${layer === t.id ? "bg-accent text-panel" : "bg-ice text-navy"}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-    </Panel>
+    <div className="grid grid-cols-4 gap-1 rounded-full bg-panel/92 p-1 shadow-[var(--shadow-chip)]">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => setLayer(t.id)}
+          className={`min-h-9 whitespace-nowrap rounded-full px-2 text-[11px] font-semibold ${layer === t.id ? "bg-accent text-panel" : "text-navy hover:bg-snow"}`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -587,9 +741,11 @@ function InfoPanel() {
   const stats = useGame((s) => s.stats);
   const flow = useGame((s) => s.flow);
   const upgrade = useGame((s) => s.upgrade);
-  const coins = useGame((s) => s.coins);
-  const lift = lifts.find((l) => l.id === selectedId);
-  const b = buildings.find((x) => x.id === selectedId);
+  const coins = useMyMoney().mine;
+  // A station stands for its lift: that is what carries guests and what
+  // upgrades act on.
+  const lift = lifts.find((l) => l.id === selectedId || l.stationA === selectedId || l.stationB === selectedId);
+  const b = lift ? undefined : buildings.find((x) => x.id === selectedId);
   const piste = pistes.find((p) => p.id === selectedId);
   const item = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : piste ? BY_ID[piste.itemId] : null;
   const entity = lift ?? b;
@@ -600,7 +756,7 @@ function InfoPanel() {
         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Info</div>
         <p className="mt-2 text-[12px] text-muted">Tippe ein Gebäude oder eine Bahn, um Details zu sehen.</p>
         <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
-          <Stat label="Personen" value={`${fmt(stats.peoplePerHour)}/h`} />
+          <Stat label="Gäste" value={`${fmt(stats.guestsPerHour)}`} />
           <Stat
             label="Zufrieden"
             value={`${stats.satisfaction}%`}
@@ -614,20 +770,21 @@ function InfoPanel() {
         </div>
         <PlayersLine />
         <p className="mt-3 text-[10px] leading-snug text-subtle">
-          Enthaelt modifizierte Copernicus-Daten (DEM GLO-30), © European Union / ESA
+          {TERRAIN.attribution}
         </p>
       </Panel>
     );
   }
   const cap = isLift(item.id) ? liftThroughput(item, entity.upgrades) : item.capacity;
   const constructing = entity.readyAt > Date.now();
+  const pendingRound = entity.readyAt >= PENDING_READY;
   // What the sim actually routed through this installation this tick.
   const edge = flow.find((e) => e.id === entity.id);
   const load = edge && edge.capacity > 0 ? Math.min(1, edge.flow / edge.capacity) : 0;
   return (
     <Panel className="p-3">
       <div className="flex items-start gap-2">
-        <img src="/textures/station.jpg" alt="" className="size-12 rounded-[12px] object-cover" />
+        <ItemThumb id={item.id} className="size-12 shrink-0 rounded-[12px]" iconClass="size-5" />
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
           <div className="mt-0.5 inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
@@ -635,17 +792,19 @@ function InfoPanel() {
           </div>
         </div>
       </div>
-      {constructing && <div className="mt-2 text-[11px] text-warn">Im Bau…</div>}
+      {constructing && (
+        <div className="mt-2 text-[11px] text-warn">{pendingRound ? "Wird bis Ende der Runde fertig." : "Im Bau…"}</div>
+      )}
       <BuiltByLine builtBy={entity.builtBy} />
       <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
         <Stat label="Kapazität" value={cap ? `${fmt(cap)}/h` : "—"} />
         <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
-        <Stat label="Traegt" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
+        <Stat label="Fahrten" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
       </div>
       {edge && edge.flow <= 0 && (
         <p className="mt-2 rounded-[12px] bg-danger/10 px-2 py-1.5 text-[11px] leading-snug text-danger">
-          Diese Anlage befoerdert niemanden. Sie haengt an keiner Abfahrt, die zurueck ins Dorf
-          fuehrt.
+          Diese Anlage befördert niemanden. Sie hängt an keiner Abfahrt, die zurück ins Dorf
+          führt.
         </p>
       )}
       {isLift(item.id) && (
@@ -671,14 +830,9 @@ function InfoPanel() {
               );
             })}
           </div>
-          <button
-            type="button"
-            className="btn-3d mt-2 flex h-11 w-full items-center justify-center gap-1 rounded-full bg-accent text-[13px] font-bold text-panel"
-            style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
-            onClick={() => upgrade(entity.id, "capacity")}
-          >
-            Upgrade <Coin className="size-3.5" /> {fmt(UPGRADES[2]!.cost[entity.upgrades.capacity] ?? 0)}
-          </button>
+          <p className="mt-1.5 text-[10px] leading-snug text-muted">
+            Jede Stufe erhöht die Förderleistung. Kapazität wirkt am stärksten.
+          </p>
         </div>
       )}
       <DemolishButton id={entity.id} refund={refundFor(item.cost)} label={item.name} />
@@ -720,16 +874,27 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
   const segments = Math.max(1, piste.hexes.length - 1);
   const load = edge && edge.capacity > 0 ? Math.min(1, edge.flow / edge.capacity) : 0;
   const closed = Boolean(edge && edge.capacity <= 0);
+  const grade = piste.difficulty === "blue" || piste.difficulty === "red" || piste.difficulty === "black" ? piste.difficulty : null;
+  const widthLabel = piste.itemId === "piste" ? widthDef(piste.width).label : null;
   return (
     <Panel className="p-3">
-      <div className="text-[13px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
-      <div className="mt-0.5 text-[11px] text-muted">
+      <div className="truncate text-[13px] font-semibold uppercase tracking-wide text-navy">{piste.name || item.name}</div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+        {grade && (
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-bold text-panel"
+            style={{ background: GRADE_COLOR[grade] }}
+          >
+            {GRADE_LABEL[grade]}
+          </span>
+        )}
+        {widthLabel && <span>{widthLabel} ·</span>}
         {segments} Segmente · {(segments * FLOW.kmPerSegment).toFixed(1)} km
       </div>
       <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
         <Stat label="Kapazität" value={edge ? `${fmt(edge.capacity)}/h` : "—"} />
         <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
-        <Stat label="Traegt" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
+        <Stat label="Fahrten" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
       </div>
       {closed && (
         <p className="mt-2 rounded-[12px] bg-danger/10 px-2 py-1.5 text-[11px] leading-snug text-danger">
@@ -738,12 +903,13 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
       )}
       {!closed && edge && edge.flow <= 0 && (
         <p className="mt-2 rounded-[12px] bg-warn/12 px-2 py-1.5 text-[11px] leading-snug text-warn">
-          Diese Abfahrt traegt niemanden. Sie muss oben an eine Bahn und unten ans Dorf oder an
+          Auf dieser Abfahrt fährt niemand. Sie muss oben an eine Bahn und unten ans Dorf oder an
           eine Talstation anschliessen.
         </p>
       )}
       <BuiltByLine builtBy={piste.builtBy} />
-      <DemolishButton id={piste.id} refund={refundFor(item.cost * segments)} label={item.name} />
+      <PisteEditPanel key={piste.id} piste={piste} />
+      <DemolishButton id={piste.id} refund={refundFor(item.cost * segments)} label={piste.name || item.name} />
     </Panel>
   );
 }
@@ -772,7 +938,7 @@ function DemolishButton({ id, refund, label }: { id: string; refund: number; lab
     <div className="mt-3">
       <p className="mb-1.5 text-[11px] leading-snug text-muted">
         {label} entfernen? Du bekommst <span className="font-semibold text-navy">{fmt(refund)}</span>{" "}
-        CHF zurueck.
+        CHF zurück.
       </p>
       <div className="flex gap-1.5">
         <button
@@ -808,59 +974,60 @@ function DemolishButton({ id, refund, label }: { id: string; refund: number; lab
 function OperationsPanel() {
   const stats = useGame((s) => s.stats);
   const day = useGame((s) => s.day);
+  const mode = useGame((s) => s.match.mode);
   const idle = stats.idleLifts + stats.idlePistes;
-  const turnedAway = stats.demandPerHour - stats.peoplePerHour;
   const phase = seasonPhase(day);
   return (
     <Panel className="p-3">
-      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Betrieb</div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Betrieb</span>
+        <span className="text-[10px] text-subtle">{mode === "match" ? "Vorschau Mittag" : "jetzt"}</span>
+      </div>
       <div className="grid grid-cols-3 gap-1.5 text-center">
-        <Stat label="Nachfrage" value={`${fmt(stats.demandPerHour)}/h`} />
+        <Stat label="Andrang" value={fmt(stats.marketPerHour)} />
+        <Stat label="Fahrten/h" value={fmt(stats.peoplePerHour)} tone={stats.queued > 0 ? "warn" : "good"} />
         <Stat
-          label="Bedient"
-          value={`${fmt(stats.peoplePerHour)}/h`}
-          tone={turnedAway > 0 ? "warn" : "good"}
-        />
-        <Stat
-          label="Wartezeit"
-          value={`${stats.waitMinutes} min`}
+          label="Warten"
+          value={`${stats.waitMinutes}′`}
           tone={stats.waitMinutes > 12 ? "bad" : stats.waitMinutes > 6 ? "warn" : "neutral"}
         />
       </div>
       <div className="mt-1.5 grid grid-cols-3 gap-1.5 text-center">
-        <Stat label="Umsatz" value={`${fmt(stats.revenuePerHour)}`} />
+        <Stat label="Umsatz/T" value={fmt(stats.revenuePerHour)} />
         <Stat label="Unterhalt" value={`−${fmt(stats.upkeepPerHour)}`} tone="warn" />
-        <Stat
-          label="Netto"
-          value={`${stats.incomePerHour < 0 ? "−" : "+"}${fmt(Math.abs(stats.incomePerHour))}`}
-          tone={stats.incomePerHour < 0 ? "bad" : "good"}
-        />
+        <Stat label="Netto/T" value={fmtSigned(stats.incomePerHour)} tone={stats.incomePerHour < 0 ? "bad" : "good"} />
       </div>
       <div className="mt-2 flex flex-col gap-1.5">
         {stats.incomePerHour < 0 && (
           <Warning tone="bad">
             Der Unterhalt frisst mehr, als das Gebiet einnimmt. Schliess ungenutzte Anlagen ans Netz
-            an oder hol mehr Gaeste ins Tal.
+            an oder mach den Berg attraktiver.
           </Warning>
         )}
         {idle > 0 && (
           <Warning tone="bad">
             {idle === 1 ? "Eine Anlage ist" : `${idle} Anlagen sind`} nicht angeschlossen und
-            befoerdert niemanden. Eine Bahn braucht eine Abfahrt zurueck ins Dorf.
+            befördert niemanden. Eine Bahn braucht eine Abfahrt zurück ins Dorf.
           </Warning>
         )}
-        {turnedAway > 0 && idle === 0 && (
+        {stats.queued > 0 && idle === 0 && (
           <Warning tone="warn">
-            {fmt(turnedAway)} Gaeste pro Stunde finden keinen Platz.
+            {fmt(stats.queued)} Fahrten pro Stunde stehen an.
             {stats.bottleneckLabel
               ? ` Engpass: ${stats.bottleneckLabel} bei ${Math.round(stats.bottleneckUse * 100)} %.`
               : " Es fehlt eine Verbindung ins Gebiet."}
           </Warning>
         )}
-        {turnedAway <= 0 && stats.bottleneckLabel && (
+        {stats.turnedAway > 0 && (
           <Warning tone="warn">
-            {stats.bottleneckLabel} laeuft bei {Math.round(stats.bottleneckUse * 100)} % — der
-            naechste Ausbau gehoert dorthin.
+            {fmt(stats.turnedAway)} Gäste pro Stunde kommen nicht ins Tal: mehr Parkhäuser, ein
+            Busbahnhof oder Hotelbetten helfen.
+          </Warning>
+        )}
+        {stats.queued <= 0 && stats.bottleneckLabel && (
+          <Warning tone="warn">
+            {stats.bottleneckLabel} läuft bei {Math.round(stats.bottleneckUse * 100)} % — der
+            nächste Ausbau gehört dorthin.
           </Warning>
         )}
         {stats.closedPistes > 0 && (
@@ -868,17 +1035,108 @@ function OperationsPanel() {
             {stats.closedPistes === 1 ? "Eine Piste liegt" : `${stats.closedPistes} Pisten liegen`}{" "}
             unter der Schneegrenze und {stats.closedPistes === 1 ? "ist" : "sind"} zu.
             {phase === "summer"
-              ? " Im Sommer traegt nur, was auch talwaerts faehrt."
-              : " Beschneiung oder hoeher gelegene Abfahrten helfen."}
+              ? " Im Sommer fährt nur, was auch talwärts fährt."
+              : " Beschneiung oder höher gelegene Abfahrten helfen."}
+          </Warning>
+        )}
+        {stats.marketPerHour === 0 && stats.liftCapacity === 0 && (
+          <Warning tone="warn">
+            Noch kein Skigebiet: Bau einen Lift vom Dorf hinauf und eine Piste zurück. Gäste kommen
+            wegen der Pisten – je mehr und abwechslungsreicher, desto mehr.
           </Warning>
         )}
       </div>
-      <div className="mt-2 text-[10px] text-muted">
-        {SEASON_LABEL[phase]} · Schneegrenze {fmt(stats.snowLineM)} m
+      <div className="mt-2 grid grid-cols-2 gap-x-2 text-[10px] text-muted">
+        <span>{SEASON_LABEL[phase]}</span>
+        <span>Schneegrenze {fmt(stats.snowLineM)} m</span>
+        <span>Pisten {stats.pisteKm} km</span>
+        <span>Liftkapazität {fmt(stats.liftCapacity)}/h</span>
+        <span>Betten {fmt(stats.beds)}</span>
+        <span>Höhenmeter {fmtCompact(stats.verticalPerHour)}/h</span>
       </div>
-      <div className="text-[10px] text-muted">
-        Hoehenmeter {fmt(stats.verticalPerHour)}/h · Kapazitaet {fmt(stats.liftCapacity)}/h
+    </Panel>
+  );
+}
+
+/**
+ * The day ticket price, the one lever that acts every day.
+ *
+ * Kept local while dragging and sent once on release, so a slide does not
+ * become forty intents and forty activity entries.
+ */
+function TicketPricePanel() {
+  const price = useGame((s) => s.ticketPrice);
+  const setPrice = useGame((s) => s.setTicketPrice);
+  const finished = useGame((s) => s.match.phase === "finished" && s.match.mode === "match");
+  const [draft, setDraft] = useState<number | null>(null);
+  const value = draft ?? price;
+  const commit = () => {
+    if (draft !== null && draft !== price) setPrice(draft);
+    setDraft(null);
+  };
+  const ref = ECONOMY.ticketReference;
+  const mood = value > ref + 15 ? "Teuer – weniger Gäste, unzufriedener" : value < ref - 15 ? "Günstig – volle Pisten, wenig pro Gast" : "Marktüblich";
+  return (
+    <Panel className="p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Tageskarte</span>
+        <span className="value text-[16px] font-bold text-navy">{value} CHF</span>
       </div>
+      <input
+        type="range"
+        min={ECONOMY.ticketMin}
+        max={ECONOMY.ticketMax}
+        step={1}
+        value={value}
+        disabled={finished}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+        aria-label="Preis der Tageskarte"
+        className="mt-2 h-2 w-full cursor-pointer accent-[var(--color-accent)]"
+      />
+      <div className="mt-1 flex items-center justify-between text-[10px] text-muted">
+        <span>{ECONOMY.ticketMin}</span>
+        <span className={value > ref + 15 ? "font-semibold text-warn" : value < ref - 15 ? "font-semibold text-accent" : ""}>{mood}</span>
+        <span>{ECONOMY.ticketMax}</span>
+      </div>
+    </Panel>
+  );
+}
+
+/** The resort's name, shown in the top bar and in the hall of fame. */
+function RenamePanel() {
+  const name = useGame((s) => s.resortName);
+  const rename = useGame((s) => s.rename);
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? name;
+  const dirty = draft !== null && draft.trim().length >= 2 && draft.trim() !== name;
+  return (
+    <Panel className="p-3">
+      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Name des Gebiets</div>
+      <form
+        className="flex gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (dirty) rename(value.trim());
+          setDraft(null);
+        }}
+      >
+        <input
+          value={value}
+          maxLength={28}
+          onChange={(e) => setDraft(e.target.value)}
+          className="h-10 min-w-0 flex-1 rounded-full bg-snow px-3 text-[13px] text-navy outline-none ring-1 ring-line focus:ring-accent"
+        />
+        <button
+          type="submit"
+          disabled={!dirty}
+          className="h-10 shrink-0 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-40"
+        >
+          Speichern
+        </button>
+      </form>
     </Panel>
   );
 }
@@ -929,26 +1187,6 @@ function Stat({
   );
 }
 
-function Notifications() {
-  const notes = useGame((s) => s.notifications);
-  const n = notes[0];
-  if (!n) return null;
-  return (
-    <Panel className="p-3">
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Benachrichtigungen</div>
-      <div className="flex items-start gap-2">
-        <span className="mt-0.5 grid size-5 place-items-center rounded-full bg-success text-panel">
-          <Check className="size-3" />
-        </span>
-        <div>
-          <div className="text-[12px] font-semibold text-navy">{n.title}</div>
-          <div className="text-[11px] text-muted">{n.body}</div>
-        </div>
-      </div>
-    </Panel>
-  );
-}
-
 function Quests() {
   const quests = useGame((s) => s.quests);
   const claim = useGame((s) => s.claimQuest);
@@ -956,7 +1194,7 @@ function Quests() {
   const active = quests.filter((q) => !q.claimed).slice(0, 3);
   return (
     <Panel className="p-3">
-      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Fortschritt & Ziele</div>
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Aufträge</div>
       <div className="flex flex-col gap-2">
         {active.map((q) => {
           const pct = Math.min(100, (q.progress / q.target) * 100);
@@ -976,7 +1214,10 @@ function Quests() {
           );
         })}
       </div>
-      <div className="mt-3 text-[10px] text-muted">
+      {active.some((q) => q.progress >= q.target) && (
+        <div className="mt-2 text-[10px] font-semibold text-success">Fertige Aufträge antippen, um die Belohnung abzuholen.</div>
+      )}
+      <div className="mt-2 text-[10px] text-muted">
         Pisten {stats.pisteKm} km · Betten {stats.beds} · Kapazität {fmt(stats.liftCapacity)}/h
       </div>
     </Panel>
@@ -988,7 +1229,8 @@ function BuildHint() {
   const phase = useGame((s) => s.phase);
   const hover = useGame((s) => s.hover);
   const stampMode = useGame((s) => s.stampMode);
-  if (!buildItem || phase === "idle") return null;
+  // Drawing a run has its own editor card (PisteEditor.tsx).
+  if (!buildItem || phase === "idle" || phase === "piste") return null;
   const item = BY_ID[buildItem];
   const msg =
     phase === "lift-a"
@@ -999,69 +1241,16 @@ function BuildHint() {
         ? stampMode
           ? "Gegenstation unter das Raster schieben"
           : "Bergstation tippen"
-        : phase === "piste"
-          ? stampMode
-            ? "Piste feldweise setzen, dann Fertig"
-            : "Hang talwärts tippen"
-          : hover?.reason || (stampMode ? "Karte schieben, Raster zielen, Setzen" : "Feld tippen zum Bauen");
+        : hover?.reason || (stampMode ? "Karte schieben, Raster zielen, Setzen" : "Feld tippen zum Bauen");
   return (
-    <div className="pointer-events-none absolute left-1/2 top-2 z-10 w-[min(92%,300px)] -translate-x-1/2 rounded-[16px] bg-panel/95 p-3 text-center shadow-[var(--shadow-panel)] lg:top-4">
+    <div className="pointer-events-none z-10 w-[min(92%,300px)] rounded-[16px] bg-panel/95 p-3 text-center shadow-[var(--shadow-panel)] max-lg:absolute max-lg:left-1/2 max-lg:top-2 max-lg:-translate-x-1/2">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
       <div className="mt-1 text-[12px] text-muted">{msg}</div>
-      {buildItem === "piste" ? (
-        <PisteSurvey />
-      ) : item.capacity ? (
+      {item.capacity ? (
         <div className="value mt-1 text-[13px] font-bold text-success">
           Kapazität {fmt(item.capacity)} Pers./h
         </div>
       ) : null}
-    </div>
-  );
-}
-
-/**
- * What the line drawn so far would become.
- *
- * The grade is no longer a choice, so the player needs to see what the ground
- * is making of their line while they draw it — and what it will cost. This runs
- * the same `surveyPiste` the server prices with, so the number shown is the
- * number charged.
- */
-function PisteSurvey() {
-  const draft = useGame((s) => s.pisteDraft);
-  const coins = useGame((s) => s.coins);
-  if (draft.length < 2) {
-    return (
-      <div className="mt-1 text-[12px] text-muted">
-        Schwierigkeit und Preis ergeben sich aus dem Hang.
-      </div>
-    );
-  }
-  const survey = surveyPiste(getDem(), "piste", draft);
-  if (!survey) {
-    return (
-      <div className="mt-1 text-[12px] font-semibold text-danger">
-        Zu steil für eine Piste.
-      </div>
-    );
-  }
-  const segments = draft.length - 1;
-  const band = gradeBand(survey.grade);
-  return (
-    <div className="mt-1.5 flex items-center justify-center gap-2">
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold text-panel"
-        style={{ background: PISTE_TINT[survey.grade] }}
-      >
-        {GRADE_LABEL[survey.grade]} Piste
-      </span>
-      <span className="value text-[13px] font-bold text-navy">
-        {fmt(survey.cost)}
-      </span>
-      <span className="text-[11px] text-muted">
-        {segments} Seg. · {fmt(band.capacity)}/h
-      </span>
-      {coins < survey.cost && <span className="text-[11px] font-bold text-danger">zu teuer</span>}
     </div>
   );
 }
@@ -1111,7 +1300,7 @@ function MobileAlert() {
   const stats = useGame((s) => s.stats);
   const setSheet = useGame((s) => s.setSheet);
   const idle = stats.idleLifts + stats.idlePistes;
-  const turnedAway = stats.demandPerHour - stats.peoplePerHour;
+  const turnedAway = stats.queued;
 
   const alert =
     stats.incomePerHour < 0
@@ -1125,7 +1314,7 @@ function MobileAlert() {
                 tone: "warn" as const,
                 text: stats.bottleneckLabel
                   ? `Engpass: ${stats.bottleneckLabel}`
-                  : `${fmtCompact(turnedAway)} Gaeste finden keinen Platz`,
+                  : `${fmtCompact(turnedAway)} Fahrten stehen an`,
               }
             : null;
 
@@ -1134,7 +1323,7 @@ function MobileAlert() {
     <button
       type="button"
       onClick={() => setSheet("info")}
-      className={`mb-1.5 flex min-h-9 w-full items-center gap-2 rounded-full px-3 text-left text-[11px] font-semibold shadow-[var(--shadow-chip)] ${
+      className={`flex min-h-7 min-w-0 items-center gap-1.5 rounded-full px-2.5 text-left text-[10px] font-semibold shadow-[var(--shadow-chip)] ${
         alert.tone === "bad" ? "bg-danger text-panel" : "bg-warn text-panel"
       }`}
     >
@@ -1142,26 +1331,29 @@ function MobileAlert() {
         !
       </span>
       <span className="min-w-0 flex-1 truncate">{alert.text}</span>
-      <ChevronRight className="size-3.5 shrink-0" />
     </button>
   );
 }
 
 /** Difficulty colours, matching the run edges drawn on the mountain. */
-const PISTE_TINT: Record<string, string> = {
-  blue: "#2b7de9",
-  red: "#d64545",
-  black: "#1c1c1c",
-};
-
 function CenterTools() {
   const tool = useGame((s) => s.tool);
   const setTool = useGame((s) => s.setTool);
   const phase = useGame((s) => s.phase);
-  const finish = useGame((s) => s.finishPiste);
   const cancel = useGame((s) => s.cancelBuild);
+  const building = phase !== "idle";
+  // While building the editor card carries Fertig/Zurück/Abbrechen; the map
+  // layers and markers make room so the bar never runs over itself.
   return (
-    <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-1.5 lg:flex">
+    <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 hidden max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1.5 lg:flex">
+      {!building && (
+        <>
+          <LayerTabs />
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-navy/15" />
+          <MarkButtons />
+          <span className="mx-0.5 h-6 w-px shrink-0 bg-navy/15" />
+        </>
+      )}
       <ToolBtn active={tool === "select"} onClick={() => setTool("select")} label="Auswahl">
         <MousePointer2 className="size-4" />
       </ToolBtn>
@@ -1171,17 +1363,13 @@ function CenterTools() {
       <ToolBtn active={tool === "orbit"} onClick={() => setTool("orbit")} label="Drehen">
         <Mountain className="size-4" />
       </ToolBtn>
-      {phase === "piste" && (
+      {building && phase !== "piste" && (
         <button
           type="button"
-          onClick={finish}
-          className="ml-1 flex h-10 items-center gap-1 rounded-full bg-success px-3 text-[12px] font-semibold text-panel"
+          onClick={cancel}
+          aria-label="Bauen beenden"
+          className="grid size-10 place-items-center rounded-full bg-panel text-danger shadow-[var(--shadow-chip)]"
         >
-          <Check className="size-4" /> Fertig
-        </button>
-      )}
-      {phase !== "idle" && (
-        <button type="button" onClick={cancel} className="grid size-10 place-items-center rounded-full bg-panel text-danger shadow-[var(--shadow-chip)]">
           <X className="size-4" />
         </button>
       )}
@@ -1199,80 +1387,6 @@ function ToolBtn({ active, onClick, children, label }: { active: boolean; onClic
     >
       {children}
     </button>
-  );
-}
-
-function Minimap() {
-  const season = useGame((s) => s.season);
-  return (
-    <div className="pointer-events-auto absolute bottom-3 right-3 hidden overflow-hidden rounded-[18px] shadow-[var(--shadow-panel)] lg:block">
-      <div className="relative h-28 w-36">
-        <img src="/textures/hero.jpg" alt="Minikarte" className="h-full w-full object-cover" />
-        <div className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full bg-panel/90 text-navy">
-          <Compass className="size-3.5" />
-        </div>
-        <div className="absolute bottom-1 left-1 rounded-full bg-navy/70 px-1.5 py-0.5 text-[9px] text-snow">
-          S{season}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BottomBar() {
-  const phase = useGame((s) => s.phase);
-  const hover = useGame((s) => s.hover);
-  const xp = useGame((s) => s.xp);
-  const lvl = levelFromXp(xp);
-  const next = xpForLevel(lvl + 1);
-  const prev = xpForLevel(lvl);
-  const pct = Math.min(100, ((xp - prev) / Math.max(1, next - prev)) * 100);
-  return (
-    <div className="pointer-events-auto hidden items-center gap-3 px-4 pb-3 lg:flex">
-      <Panel className="flex items-center gap-2 px-3 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Kartensteuerung</span>
-        <Mini key="d" icon={<RotateCw className="size-3.5" />} label="Drehen" />
-        <Mini icon={<ZoomIn className="size-3.5" />} label="Zoomen" />
-        <Mini icon={<Mountain className="size-3.5" />} label="Neigen" />
-        <Mini icon={<Crosshair className="size-3.5" />} label="Auswahl" />
-      </Panel>
-      <Panel className="flex items-center gap-2 px-3 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Bau-Modus</span>
-        <Chip ok={hover?.valid !== false} label={hover?.reason || (phase === "idle" ? "Bereit" : "Bauen")} />
-      </Panel>
-      <Panel className="flex flex-1 items-center gap-3 px-3 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Level {lvl}</span>
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ice">
-          <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
-        </div>
-        <span className="text-[10px] tabular-nums text-muted">
-          {fmt(xp)} / {fmt(next)}
-        </span>
-      </Panel>
-      <IconBtn>
-        <Volume2 className="size-4" />
-      </IconBtn>
-      <IconBtn>
-        <HelpCircle className="size-4" />
-      </IconBtn>
-    </div>
-  );
-}
-
-function Mini({ icon, label }: { icon: ReactNode; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-ice px-2 py-1 text-[10px] font-medium text-navy">
-      {icon}
-      {label}
-    </span>
-  );
-}
-
-function Chip({ ok, label }: { ok: boolean; label: string }) {
-  return (
-    <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${ok ? "bg-success/15 text-success" : "bg-danger/10 text-danger"}`}>
-      {label}
-    </span>
   );
 }
 
@@ -1321,7 +1435,9 @@ function BuildReticle() {
 }
 
 function MobileDock() {
+  const terms = useBuildTerms();
   const sheet = useGame((s) => s.sheet);
+  const unread = useUnreadChat();
   const tool = useGame((s) => s.tool);
   const setTool = useGame((s) => s.setTool);
   const phase = useGame((s) => s.phase);
@@ -1335,27 +1451,38 @@ function MobileDock() {
   const item = buildItem ? BY_ID[buildItem] : null;
   const building = phase !== "idle";
   const ok = hover?.valid === true;
+  const pisteMode = usePisteEditor((s) => s.mode);
+  const draftLen = useGame((s) => s.pisteDraft.length);
+  const routing = pisteMode === "route" && buildItem !== "road";
   const stampLabel =
-    phase === "lift-a" ? "Talstation" : phase === "lift-b" ? "Bergstation" : phase === "piste" ? "Feld" : "Setzen";
+    phase === "lift-a"
+      ? "Talstation"
+      : phase === "lift-b"
+        ? "Bergstation"
+        : phase === "piste"
+          ? routing
+            ? draftLen === 0
+              ? "Start"
+              : "Ziel"
+            : "Feld"
+          : "Setzen";
 
   return (
     <div
       className="pointer-events-auto px-3 pt-1 lg:hidden"
       style={{ paddingBottom: "max(0.45rem, env(safe-area-inset-bottom))" }}
     >
-      <MobileAlert />
+      {!building && <RoundBar mobile />}
       <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
         <div className="flex min-w-0 items-center gap-1.5">
-          <div className="shrink-0 rounded-full bg-panel/92 px-2.5 py-1 text-[10px] font-medium text-muted shadow-[var(--shadow-chip)]">
-            {weather.label} · {weather.tempC}°
-          </div>
+          <MobileAlert />
           <MobilePresence />
         </div>
-        <div className="value rounded-full bg-panel/92 px-2.5 py-1 text-[11px] font-bold text-navy shadow-[var(--shadow-chip)]">
-          {fmtCompact(stats.peoplePerHour)}/h · {stats.satisfaction}%
+        <div className="value shrink-0 rounded-full bg-panel/92 px-2.5 py-1 text-[11px] font-bold text-navy shadow-[var(--shadow-chip)]">
+          {weather.tempC}° · {fmtCompact(stats.guestsPerHour)} Gäste · {stats.satisfaction}%
         </div>
       </div>
-      {building && <StampTray />}
+      {building && (phase === "piste" ? <PisteEditor compact /> : <StampTray />)}
       <div className="flex items-center gap-1.5 rounded-[22px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md">
         {building ? (
           <>
@@ -1372,14 +1499,15 @@ function MobileDock() {
             >
               {stampLabel}
               {item && phase === "place" ? (
-                <span className="text-[10px] font-medium opacity-90">{fmtCompact(item.cost)}</span>
+                <span className="text-[10px] font-medium opacity-90">{fmtCompact(terms.cost(item.id))}</span>
               ) : null}
             </button>
             {phase === "piste" && (
               <button
                 type="button"
                 onClick={finish}
-                className="flex h-11 items-center gap-1 rounded-full bg-accent px-3.5 text-[12px] font-semibold text-panel"
+                disabled={draftLen < 2}
+                className="flex h-11 items-center gap-1 rounded-full bg-accent px-3.5 text-[12px] font-semibold text-panel disabled:opacity-45"
               >
                 <Check className="size-4" /> Fertig
               </button>
@@ -1412,6 +1540,15 @@ function MobileDock() {
             </button>
             <button
               type="button"
+              aria-label="Team-Chat"
+              onClick={() => toggleSheet(sheet, "chat")}
+              className={`relative grid size-11 shrink-0 place-items-center rounded-[14px] ${sheet === "chat" ? "bg-accent text-panel" : "text-navy"}`}
+            >
+              <MessageCircle className="size-5" />
+              <UnreadBadge n={unread} />
+            </button>
+            <button
+              type="button"
               aria-label="Ziele"
               onClick={() => toggleSheet(sheet, "quests")}
               className={`grid size-11 shrink-0 place-items-center rounded-[14px] ${sheet === "quests" ? "bg-accent text-panel" : "text-navy"}`}
@@ -1438,9 +1575,8 @@ function StampTray() {
   const setCategory = useGame((s) => s.setCategory);
   const setBuildItem = useGame((s) => s.setBuildItem);
   const buildItem = useGame((s) => s.buildItem);
-  const xp = useGame((s) => s.xp);
-  const coins = useGame((s) => s.coins);
-  const lvl = levelFromXp(xp);
+  const coins = useMyMoney().mine;
+  const terms = useBuildTerms();
   const items = CATALOG.filter((i) => i.category === category);
   return (
     <div className="mb-1.5 rounded-[20px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md">
@@ -1464,8 +1600,8 @@ function StampTray() {
       </div>
       <div className="mt-1 flex gap-1 overflow-x-auto">
         {items.map((it) => {
-          const locked = lvl < it.unlockLevel;
-          const tooExpensive = coins < it.cost;
+          const locked = terms.locked(it.id);
+          const tooExpensive = coins < terms.cost(it.id);
           const active = buildItem === it.id;
           const Icon = ITEM_ICON[it.id] ?? CAT_ICON[it.category];
           return (
@@ -1479,7 +1615,7 @@ function StampTray() {
               <Icon className="size-4" />
               <span className="mt-0.5 max-w-full truncate text-[9px] font-bold">{it.name.split(" ")[0]}</span>
               <span className={`value text-[9px] font-semibold ${active ? "text-panel/85" : tooExpensive ? "text-danger" : "text-muted"}`}>
-                {locked ? `Lv ${it.unlockLevel}` : it.id === "piste" ? `ab ${fmtCompact(it.cost)}` : fmtCompact(it.cost)}
+                {locked ? `Lv ${it.unlockLevel}` : it.id === "piste" ? `ab ${fmtCompact(terms.cost(it.id))}` : fmtCompact(terms.cost(it.id))}
               </span>
             </button>
           );
@@ -1494,37 +1630,27 @@ function MobileFloats() {
   const selectedId = useGame((s) => s.selectedId);
   const tutorialOpen = useGame((s) => s.tutorialOpen);
   const phase = useGame((s) => s.phase);
-  const notes = useGame((s) => s.notifications);
   const buildings = useGame((s) => s.buildings);
   const lifts = useGame((s) => s.lifts);
+  const pistes = useGame((s) => s.pistes);
   const selectEntity = useGame((s) => s.selectEntity);
   const setSheet = useGame((s) => s.setSheet);
-  const [hiddenNote, setHiddenNote] = useState<string | null>(null);
-  const note = notes[0] && notes[0].id !== hiddenNote ? notes[0] : null;
   const showTutorial = tutorialOpen && sheet === "none" && phase === "idle" && !selectedId;
   const showSelected = !!selectedId && sheet === "none" && phase === "idle";
   const lift = lifts.find((l) => l.id === selectedId);
   const b = buildings.find((x) => x.id === selectedId);
-  const selectedItem = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : null;
+  // A selected run gets the same chip, so it can be renamed and widened on a phone.
+  const run = pistes.find((p) => p.id === selectedId);
+  const selectedItem = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : run ? BY_ID[run.itemId] : null;
 
   if (sheet !== "none") return null;
 
   return (
     <div className="pointer-events-none absolute inset-x-3 bottom-2 z-20 hidden flex-col gap-2 max-lg:flex">
-      {note && !showTutorial && phase === "idle" && (
-        <div className="toast-in pointer-events-auto mx-auto flex w-full max-w-sm items-start gap-2 rounded-[16px] bg-panel/95 px-3 py-2 shadow-[var(--shadow-panel)]">
-          <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-semibold text-navy">{note.title}</div>
-            <div className="text-[11px] leading-snug text-muted">{note.body}</div>
-          </div>
-          <button
-            type="button"
-            aria-label="Hinweis schliessen"
-            className="grid size-11 shrink-0 place-items-center rounded-full text-muted"
-            onClick={() => setHiddenNote(note.id)}
-          >
-            <X className="size-4" />
-          </button>
+      {phase === "idle" && !selectedId && (
+        <div className="flex justify-center">
+          <RoleChooser />
+          <EventCard />
         </div>
       )}
       {showTutorial && (
@@ -1538,10 +1664,10 @@ function MobileFloats() {
           onClick={() => setSheet("info")}
           className="toast-in pointer-events-auto flex w-full items-center gap-3 rounded-[18px] bg-panel/95 p-3 text-left shadow-[var(--shadow-panel)]"
         >
-          <img src="/textures/station.jpg" alt="" className="size-11 rounded-[12px] object-cover" />
+          <ItemThumb id={selectedItem.id} className="size-11 shrink-0 rounded-[12px]" iconClass="size-5" />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] font-semibold text-navy">{selectedItem.name}</span>
-            <span className="block text-[11px] text-muted">Details und Upgrades</span>
+            <span className="block truncate text-[13px] font-semibold text-navy">{run?.name || selectedItem.name}</span>
+            <span className="block text-[11px] text-muted">{run ? "Name, Breite und Details" : "Details und Upgrades"}</span>
           </span>
           <span
             role="button"
@@ -1564,7 +1690,18 @@ function MobileSheets() {
   const sheet = useGame((s) => s.sheet);
   const setSheet = useGame((s) => s.setSheet);
   if (sheet === "none") return null;
-  const title = sheet === "build" ? "Bauen" : sheet === "quests" ? "Ziele" : sheet === "info" ? "Gebiet" : "Menü";
+  const title =
+    sheet === "build"
+      ? "Bauen"
+      : sheet === "quests"
+        ? "Ziele & Partie"
+        : sheet === "info"
+          ? "Gebiet"
+          : sheet === "chat"
+            ? "Team-Chat"
+            : sheet === "research"
+              ? "Forschung"
+              : "Menü";
   return (
     <div className="pointer-events-none absolute inset-0 z-30 lg:hidden">
       <button
@@ -1593,15 +1730,36 @@ function MobileSheets() {
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
           {sheet === "build" && <MobileBuildGrid />}
-          {sheet === "quests" && <Quests />}
+          {sheet === "quests" && (
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => useGame.getState().setSheet("research")}
+                className="flex min-h-11 items-center justify-between rounded-[14px] bg-accent-soft/40 px-3 text-[13px] font-semibold text-navy"
+              >
+                Forschung öffnen <ChevronRight className="size-4" />
+              </button>
+              <MatchGoalsPanel />
+              <VipCard />
+              <SecretGoalCard />
+              <DuelStandings />
+              <MatchRulesPanel />
+              <Quests />
+            </div>
+          )}
           {sheet === "info" && (
             <div className="flex flex-col gap-2">
               <InfoPanel />
               <OperationsPanel />
+              <TicketPricePanel />
+              <WalletPanel />
+              <RenamePanel />
               <ActivityPanel />
             </div>
           )}
           {sheet === "menu" && <MobileMenuBody />}
+          {sheet === "chat" && <ChatPanel compact />}
+          {sheet === "research" && <ResearchPanel compact />}
         </div>
       </div>
     </div>
@@ -1612,8 +1770,7 @@ function MobileBuildGrid() {
   const setBuildItem = useGame((s) => s.setBuildItem);
   const category = useGame((s) => s.category);
   const setCategory = useGame((s) => s.setCategory);
-  const xp = useGame((s) => s.xp);
-  const lvl = levelFromXp(xp);
+  const terms = useBuildTerms();
   const items = CATALOG.filter((i) => i.category === category);
   return (
     <div>
@@ -1636,25 +1793,30 @@ function MobileBuildGrid() {
       </div>
       <div className="grid grid-cols-2 gap-2">
         {items.map((it) => {
-          const locked = lvl < it.unlockLevel;
-          const Icon = ITEM_ICON[it.id] ?? CAT_ICON[it.category];
+          const locked = terms.locked(it.id);
           return (
             <button
               key={it.id}
               type="button"
               onClick={() => setBuildItem(it.id)}
-              className="min-h-[5.5rem] rounded-[16px] bg-snow p-3 text-left"
+              className={`min-h-[5.5rem] overflow-hidden rounded-[16px] bg-snow text-left ${locked ? "opacity-55" : ""}`}
             >
-              <div className="mb-1 flex items-center gap-2">
-                <span className="grid size-8 place-items-center rounded-[10px] bg-ice text-navy">
-                  <Icon className="size-4" />
-                </span>
-                {locked && <span className="text-[10px] font-semibold text-subtle">Lv {it.unlockLevel}</span>}
+              <div className="relative">
+                <ItemThumb id={it.id} className="h-20 w-full" iconClass="size-7" />
+                {locked && (
+                  <span className="absolute inset-0 grid place-items-center bg-snow/70 text-[11px] font-semibold text-subtle">
+                    <span className="flex items-center gap-1">
+                      <Lock className="size-4" /> Ab Level {it.unlockLevel}
+                    </span>
+                  </span>
+                )}
               </div>
+              <div className="p-3 pt-2">
               <div className="text-[13px] font-semibold text-navy">{it.name}</div>
               <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted">{it.blurb}</div>
               <div className="mt-2 flex items-center gap-1 text-[12px] font-semibold text-coin">
-                <Coin className="size-3.5" /> {fmt(it.cost)}
+                <Coin className="size-3.5" /> {fmt(terms.cost(it.id))}
+              </div>
               </div>
             </button>
           );
@@ -1664,28 +1826,83 @@ function MobileBuildGrid() {
   );
 }
 
-function MobileMenuBody() {
-  const persist = useGame((s) => s.persist);
+function MatchMenuButtons() {
+  const mode = useGame((s) => s.match.mode);
+  const openSetup = useGame((s) => s.setMatchSetupOpen);
+  const start = useGame((s) => s.startMatch);
   const setSheet = useGame((s) => s.setSheet);
+  const [armed, setArmed] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="flex min-h-12 w-full items-center gap-2 rounded-[16px] bg-accent px-4 text-left text-[13px] font-bold text-panel"
+        onClick={() => {
+          setSheet("none");
+          openSetup(true);
+        }}
+      >
+        <Flag className="size-4" /> {mode === "match" ? "Neue Partie" : "Partie starten"}
+      </button>
+      {mode === "match" &&
+        (armed ? (
+          <button
+            type="button"
+            className="flex min-h-12 w-full items-center rounded-[16px] bg-danger/10 px-4 text-left text-[13px] font-semibold text-danger"
+            onClick={() => {
+              setSheet("none");
+              start("sandbox");
+            }}
+          >
+            Partie abbrechen und Tal leeren?
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy"
+            onClick={() => setArmed(true)}
+          >
+            Zum freien Spiel wechseln
+          </button>
+        ))}
+    </>
+  );
+}
+
+function SoundToggle({ className }: { className: string }) {
+  const [on, setOn] = useState(() => (typeof window === "undefined" ? true : soundEnabled()));
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={() => {
+        setSoundEnabled(!on);
+        setOn(!on);
+        if (!on) play("click");
+      }}
+    >
+      Ton: {on ? "An" : "Aus"}
+    </button>
+  );
+}
+
+function PhotoTextureToggle({ className }: { className: string }) {
+  const on = useGame((s) => s.photoTextures);
+  const set = useGame((s) => s.setPhotoTextures);
+  return (
+    <button type="button" className={className} onClick={() => set(!on)}>
+      Fotostrukturen: {on ? "An" : "Aus"}
+    </button>
+  );
+}
+
+function MobileMenuBody() {
   const quality = useGame((s) => s.quality);
-  const xp = useGame((s) => s.xp);
-  const lvl = levelFromXp(xp);
-  const next = xpForLevel(lvl + 1);
-  const prev = xpForLevel(lvl);
-  const pct = Math.min(100, ((xp - prev) / Math.max(1, next - prev)) * 100);
   return (
     <div className="flex flex-col gap-3 pb-2">
-      <div>
-        <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-navy">
-          <span>Level {lvl}</span>
-          <span className="tabular-nums text-muted">
-            {fmt(xp)} / {fmt(next)}
-          </span>
-        </div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-ice">
-          <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
-        </div>
-      </div>
+      <MatchMenuButtons />
+      <PhotoTextureToggle className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy" />
+      <SoundToggle className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy" />
       <LayerTabs />
       <button
         type="button"
@@ -1697,54 +1914,33 @@ function MobileMenuBody() {
       <button
         type="button"
         className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy"
-        onClick={() => {
-          persist();
-          setSheet("none");
-        }}
-      >
-        Spielstand speichern
-      </button>
-      <button
-        type="button"
-        className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy"
         onClick={() => exportSave(useGame.getState())}
       >
         Spielstand exportieren
       </button>
+      <p className="text-[10px] leading-snug text-subtle">{TERRAIN.attribution}</p>
     </div>
   );
 }
 
 function MenuSheet() {
-  const persist = useGame((s) => s.persist);
-  const setSheet = useGame((s) => s.setSheet);
   const quality = useGame((s) => s.quality);
   return (
-    <div className="absolute right-3 top-14 z-30 w-64 rounded-[18px] bg-panel p-3 shadow-[var(--shadow-panel)]">
-      <div className="text-[12px] font-semibold text-navy">Einstellungen</div>
+    <div className="absolute right-3 top-14 z-30 flex w-72 flex-col gap-1.5 rounded-[20px] bg-panel p-3 shadow-[var(--shadow-panel)]">
+      <MatchMenuButtons />
+      <SoundToggle className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy" />
+      <PhotoTextureToggle className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy" />
       <button
         type="button"
-        className="mt-2 w-full rounded-[12px] bg-ice px-3 py-2 text-left text-[12px]"
+        className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy"
         onClick={() => useGame.setState({ quality: quality === "high" ? "low" : "high" })}
       >
         Grafik: {quality === "high" ? "Hoch" : "Sparsam"}
       </button>
       <button
         type="button"
-        className="mt-1 w-full rounded-[12px] bg-ice px-3 py-2 text-left text-[12px]"
-        onClick={() => {
-          persist();
-          setSheet("none");
-        }}
-      >
-        Spielstand speichern
-      </button>
-      <button
-        type="button"
-        className="mt-1 w-full rounded-[12px] bg-ice px-3 py-2 text-left text-[12px]"
-        onClick={() => {
-          exportSave(useGame.getState());
-        }}
+        className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy"
+        onClick={() => exportSave(useGame.getState())}
       >
         Spielstand exportieren
       </button>

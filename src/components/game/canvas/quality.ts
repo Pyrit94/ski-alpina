@@ -36,9 +36,31 @@ export type QualityTier = {
   /** Aerial perspective ramp, in world units. */
   fogNear: number;
   fogFar: number;
-  /** Opening camera. A phone sees a narrower slice, so it starts closer. */
+  /**
+   * Opening camera and the point it orbits. Both lie on the line from the
+   * Matterhorn through the village: the camera stands back behind the village
+   * (just short of the rim the DEM raises along the map edge), the target sits
+   * on the slopes above it. The village lands in the lower third and the summit just under
+   * the top edge, with sky above it.
+   *
+   * A phone in portrait has the HUD over its lower half, so it centres on
+   * the village itself, a little steeper (about 40 degrees), and leaves the
+   * peaks for the top of the screen.
+   *
+   * The desktop pitch, about 31 degrees with a wide-ish lens, is a compromise forced by geometry: at 50
+   * degrees or more the top of the frame is still on the ground and the peaks
+   * fall out of shot, which is exactly the flat grey sheet this replaced.
+   */
   cameraAt: [number, number, number];
+  cameraTarget: [number, number, number];
   fov: number;
+  /** Trees per scatter point: forest grows in stands, not singles. */
+  treesPerClump: number;
+  /**
+   * Frame time above which the renderer drops its pixel ratio a step, and
+   * below which it climbs back. See AdaptiveResolution in SkiScene.
+   */
+  slowFrameMs: number;
   /** Peak labels drop their altitude on a narrow screen. */
   compactLabels: boolean;
 };
@@ -61,13 +83,16 @@ export const QUALITY: Record<"low" | "high", QualityTier> = {
     // drawing, and the horizon lands sooner on a small screen anyway.
     fogNear: 30,
     fogFar: 600,
-    cameraAt: [10, 54, 84],
-    fov: 46,
+    cameraAt: [25, 66, 109],
+    cameraTarget: [-4, 3, 40],
+    fov: 60,
+    treesPerClump: 2,
+    slowFrameMs: 24,
     compactLabels: true,
   },
   high: {
     terrain: TERRAIN_DETAIL.high,
-    trees: 720,
+    trees: 600,
     rocks: 180,
     dpr: [1, 1.7],
     shadows: true,
@@ -78,8 +103,11 @@ export const QUALITY: Record<"low" | "high", QualityTier> = {
     sunBoost: 1,
     fogNear: 40,
     fogFar: 720,
-    cameraAt: [22, 50, 108],
-    fov: 42,
+    cameraAt: [30, 88, 110],
+    cameraTarget: [-23.1, 10, -8.5],
+    fov: 55,
+    treesPerClump: 3,
+    slowFrameMs: 22,
     compactLabels: false,
   },
 };

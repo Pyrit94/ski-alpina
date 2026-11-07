@@ -40,7 +40,13 @@ function stopAll(code) {
   if (shuttingDown) return;
   shuttingDown = true;
   for (const child of children) child.kill("SIGTERM");
-  process.exit(code);
+  // Give the socket its moment to write the last save before the container
+  // goes. It exits on its own once that is done.
+  const deadline = setTimeout(() => process.exit(code), 8000);
+  Promise.all(children.map((c) => (c.exitCode !== null || c.signalCode !== null ? null : new Promise((r) => c.once("exit", r))))).then(() => {
+    clearTimeout(deadline);
+    process.exit(code);
+  });
 }
 
 function start(label, args) {
@@ -57,6 +63,36 @@ function start(label, args) {
   });
   return child;
 }
+
+/**
+ * Apply `migrations/*.sql` before anything opens the database.
+ *
+ * `npm run build` migrates too, but an image build has no database to reach:
+ * Coolify builds before the compose stack's Postgres is up and without the
+ * runtime variables. Without this the socket's `resorts` table never existed
+ * and every save failed quietly every few seconds. Retried, because on a cold
+ * start the database container is usually still initialising.
+ */
+async function migrate() {
+  if (!process.env.DATABASE_URL?.trim()) return;
+  const attempts = Number(process.env.MIGRATE_ATTEMPTS || 30);
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const code = await new Promise((resolve) => {
+      const child = spawn("node", ["scripts/migrate.mjs"], { stdio: "inherit" });
+      child.on("error", () => resolve(1));
+      child.on("exit", (c) => resolve(c ?? 1));
+    });
+    if (code === 0) return;
+    if (attempt < attempts) {
+      console.warn(`[serve] migration attempt ${attempt}/${attempts} failed, retrying in 2 s`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  console.error("[serve] database never became ready — giving up");
+  process.exit(1);
+}
+
+await migrate();
 
 start("game socket", ["--experimental-strip-types", "scripts/ws-server.mjs"]);
 start("app", [

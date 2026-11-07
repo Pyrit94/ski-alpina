@@ -1,6 +1,22 @@
 import { z } from "zod";
 import { ITEM_IDS } from "../../../config/src/ids.ts";
 
+/** Longest run one stroke may draw. The client stops the draft here too. */
+export const MAX_PISTE_HEXES = 48;
+
+export const MatchOptionsPatchSchema = z
+  .object({
+    economy: z.enum(["shared", "roles", "duel"]),
+    roleSplit: z.number().int().min(10).max(90),
+    events: z.enum(["off", "first", "vote"]),
+    secretGoals: z.boolean(),
+    vips: z.boolean(),
+    album: z.boolean(),
+    research: z.boolean(),
+    teamwork: z.boolean(),
+  })
+  .partial();
+
 export const AxialSchema = z.object({
   q: z.number().int().min(-80).max(80),
   r: z.number().int().min(-80).max(80),
@@ -26,7 +42,16 @@ export const IntentSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("place_piste"),
     itemId: ItemIdSchema,
-    hexes: z.array(AxialSchema).min(2).max(48),
+    hexes: z.array(AxialSchema).min(2).max(MAX_PISTE_HEXES),
+    width: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+    name: z.string().trim().max(32).optional(),
+  }),
+  // Rename a run, or change its width (rebuilds the grooming, costs the difference).
+  z.object({
+    type: z.literal("edit_piste"),
+    pisteId: z.string().min(2).max(48),
+    name: z.string().trim().max(32).optional(),
+    width: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   }),
   z.object({
     type: z.literal("upgrade"),
@@ -55,6 +80,56 @@ export const IntentSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("dismiss_tutorial"),
   }),
+  // Start a match of the given length, or go back to free play. Either one
+  // clears the valley; the client asks before sending it.
+  z.object({
+    type: z.literal("start_match"),
+    preset: z.enum(["kurz", "normal", "lang", "sandbox"]),
+    options: MatchOptionsPatchSchema.optional(),
+  }),
+  // Change the rules between rounds; applies from the next round on.
+  z.object({
+    type: z.literal("set_match_options"),
+    options: MatchOptionsPatchSchema,
+  }),
+  // In "roles" mode: take the mountain or the valley.
+  z.object({
+    type: z.literal("choose_role"),
+    role: z.enum(["berg", "tal"]),
+  }),
+  // Separate purses: hand money to the other role or player.
+  z.object({
+    type: z.literal("transfer_coins"),
+    to: z.string().min(2).max(64),
+    amount: z.number().int().min(1).max(10_000_000),
+  }),
+  // Research: start (or queue), cancel, and pledge support for an alliance node.
+  z.object({
+    type: z.literal("start_research"),
+    nodeId: z.string().min(1).max(48),
+  }),
+  // Without a node: stop the running one (points go back). With one: take it out of the queue.
+  z.object({
+    type: z.literal("cancel_research"),
+    nodeId: z.string().min(1).max(48).optional(),
+  }),
+  // "Mit Geld beschleunigen": buy a fixed package of points.
+  z.object({
+    type: z.literal("boost_research"),
+  }),
+  z.object({
+    type: z.literal("pledge_research"),
+    nodeId: z.string().min(1).max(48),
+  }),
+  // "I'm done with this round" — or, with ready false, "wait, not yet".
+  z.object({
+    type: z.literal("end_round"),
+    ready: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("choose_event"),
+    option: z.number().int().min(0).max(1),
+  }),
 ]);
 
 export type Intent = z.infer<typeof IntentSchema>;
@@ -81,6 +156,17 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("focus"),
     hex: AxialSchema.nullable(),
   }),
+  // A line of team chat. Not an intent either: it changes nothing built.
+  z.object({
+    type: z.literal("chat"),
+    text: z.string().trim().min(1).max(200),
+  }),
+  // "Look here": a marker on the map for the other player, gone after a while.
+  z.object({
+    type: z.literal("mark"),
+    hex: AxialSchema,
+    kind: z.enum(["look", "build", "warn"]),
+  }),
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -103,6 +189,10 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
         role: z.enum(["builder", "visitor"]),
         lastSeen: z.number(),
         focus: AxialSchema.nullable().optional(),
+        mark: z
+          .object({ hex: AxialSchema, kind: z.enum(["look", "build", "warn"]), at: z.number() })
+          .nullable()
+          .optional(),
       }),
     ),
   }),

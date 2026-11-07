@@ -28,9 +28,23 @@ export const ECONOMY = {
    * a tick keeps it stable and self-correcting instead of a death spiral.
    */
   reputationFloor: 0.45,
-  hotelRatePerBedPerHour: 18,
-  fbPerVisitor: 4.2,
-  shopPerVisitor: 2.1,
+  /**
+   * Lift rides one guest takes in a day.
+   *
+   * The flow network counts trips, not people: a skier who laps the same chair
+   * six times is one ticket. Paying per trip made every franc of turnover six
+   * to eight times too large, so a starter resort paid itself back in minutes
+   * and money stopped mattering after the first season.
+   */
+  ridesPerGuest: 5,
+  /** Daily room rate per occupied bed. */
+  hotelRatePerBed: 40,
+  /** Share of the day's guests who want a bed for the night. */
+  overnightShare: 0.35,
+  /** Spend per guest in a restaurant or hut, while there are seats. */
+  fbPerGuest: 22,
+  /** Spend per guest in a shop, while there is shop space. */
+  shopPerGuest: 12,
   /** Extra capacity a ski school gives the easy runs. */
   schoolBonus: 0.08,
   /** Extra capacity mountain rescue gives the steep runs. */
@@ -46,17 +60,43 @@ export const ECONOMY = {
    * earned are kept: the work was done.
    */
   demolishRefund: 0.45,
-  parkingDemandPerHour: 140,
-  busDemandPerHour: 110,
-  walkInPerHour: 36,
-  bedOvernightShare: 0.42,
-  /** Share of hourly guests who take a hotel bed. */
-  occupancyPerVisitor: 0.15,
+  /**
+   * Guests per hour that one weighted kilometre of open piste draws.
+   *
+   * Demand comes from what the mountain offers, not from how many car parks
+   * sit in the valley. Car parks, buses and hotels are only the doors guests
+   * come in through. The old rule offered a fixed stream per car park, so the
+   * winning move was a valley paved with parking and a single T-bar.
+   */
+  demandPerKm: 300,
+  /** How much a kilometre of each grade draws, relative to a blue run. */
+  gradeDraw: { blue: 1, red: 1.15, black: 1.25, park: 1.4 } as Record<string, number>,
+  /** A snowpark counts as this many kilometres of piste. */
+  parkKmEquivalent: 0.6,
+  /** Extra demand for each further grade on offer, beyond the first. */
+  varietyDemandStep: 0.12,
+  /** Extra demand per comfort point (restaurants, huts, spa …), capped. */
+  comfortDemandPerPoint: 0.02,
+  comfortDemandCap: 0.4,
+  /** Extra demand per star of prestige, capped. */
+  prestigePerStar: 0.01,
+  prestigeCap: 0.4,
+  /** Sightseers per hour a cableway that runs both ways draws once the snow is gone. */
+  sightseersPerCableway: 120,
+  /** Sightseers per hour per point of `summerDraw`. */
+  summerDrawScale: 3000,
+  /** Guests per hour who can arrive on foot from the village. */
+  villageArrivalsPerHour: 120,
+  parkingArrivalsPerHour: 320,
+  busArrivalsPerHour: 280,
+  /** Arrivals per hour per hotel bed: hotel guests are already here. */
+  bedArrivalsPerHour: 1.2,
   /** Ticket revenue uplift per ticket office. */
   ticketOfficeIncomeBonus: 0.08,
   /** Satisfaction points lost per minute of queueing. */
   waitPenaltyPerMinute: 1.19,
-  varietyBonus: 6,
+  /** Satisfaction per distinct grade that guests actually ski. */
+  varietyBonus: 5,
   targetSatisfaction: 72,
   /** Satisfaction points from a full-quality snowpack. */
   snowSatisfactionWeight: 12,

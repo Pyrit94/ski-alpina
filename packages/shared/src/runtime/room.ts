@@ -3,12 +3,14 @@ import { applyIntent } from "../engine/apply.ts";
 import { tickResort } from "../engine/tick.ts";
 import { validateIntent } from "../engine/validate.ts";
 import { emptyResort, migrateResort } from "../engine/state.ts";
+import { ensureMatchPlayers, inMatch, resolveRound, withPreview } from "../engine/match.ts";
+import { decideVotes } from "../engine/rules.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import { getDem } from "../terrain/dem.ts";
 import type { Axial } from "../hex.ts";
-import type { PlayerPresence, PlayerRole, ResortState } from "../types.ts";
+import type { ChatEntry, MapMark, MarkKind, PlayerPresence, PlayerRole, ResortState } from "../types.ts";
 
 export interface RoomPlayer {
   id: string;
@@ -20,6 +22,8 @@ export interface RoomPlayer {
   userId?: string;
   /** Hex this player is pointing at, for the others' benefit. */
   focus?: Axial | null;
+  /** Marker left for the others, with when. */
+  mark?: MapMark | null;
   /**
    * Whether they are connected right now.
    *
@@ -78,7 +82,10 @@ export class GameRoom {
       return known;
     }
     const player: RoomPlayer = {
-      id: createId("pl"),
+      // An account keeps the same player id across server restarts. A random
+      // id here gave every person a fresh identity after each deploy, so their
+      // earlier builds and their row in the contributor list stopped being theirs.
+      id: identity ? accountPlayerId(identity.userId) : createId("pl"),
       token: identity ? createId("tok") : token && token.length >= 8 ? token : createId("tok"),
       name: (identity ? identity.name : name.slice(0, 24)) || "Gast",
       role: "builder",
@@ -87,6 +94,7 @@ export class GameRoom {
       ...(identity ? { userId: identity.userId } : {}),
     };
     this.players.set(player.id, player);
+    if (inMatch(this.state)) this.state = ensureMatchPlayers(this.state, this.builderIds());
     return player;
   }
 
@@ -132,6 +140,7 @@ export class GameRoom {
         role: p.role,
         lastSeen: p.lastSeen,
         focus: p.focus ?? null,
+        mark: p.mark && Date.now() - p.mark.at < MARK_TTL_MS ? p.mark : null,
       }));
   }
 
@@ -140,7 +149,9 @@ export class GameRoom {
     if (!player) return { ok: false, code: "rights", reason: "Nicht verbunden" };
     player.lastSeen = Date.now();
     const now = Date.now();
-    const v = validateIntent(this.state, this.dem, intent, player.role, now);
+    // Who an alliance node needs: the builders here now (see ResearchContext).
+    const team = [...this.players.values()].filter((p) => p.online && p.role === "builder").map((p) => p.id);
+    const v = validateIntent(this.state, this.dem, intent, player.role, now, { actorId: player.id, team });
     if (!v.ok) return v;
     const applied = applyIntent(
       this.state,
@@ -148,8 +159,25 @@ export class GameRoom {
       now,
       { id: player.id, name: player.name },
       this.dem,
+      team,
     );
     this.state = applied.state;
+    if (inMatch(this.state)) {
+      // Late joiners and new matches: purses and secret goals for everyone here.
+      this.state = ensureMatchPlayers(this.state, this.builderIds());
+      // With voting on, the event is settled once everyone online has voted.
+      if (intent.type === "choose_event") {
+        const decided = decideVotes(this.state, this.onlineBuilderIds());
+        if (decided) this.state = decided;
+      }
+      // Planning has no clock, so show what the change will do right away.
+      this.state = withPreview(this.state, this.dem);
+      const resolved = this.resolveIfReady(now);
+      if (resolved) {
+        this.seq += 1;
+        return { ok: true, event: resolved };
+      }
+    }
     this.seq += 1;
     return {
       ok: true,
@@ -176,12 +204,86 @@ export class GameRoom {
     player.focus = hex;
   }
 
-  tick(): void {
-    const now = Date.now();
+  /**
+   * Advance the resort by the real time since the last tick.
+   *
+   * Only while someone is here: a resort left alone used to run on for days —
+   * a weekend away was some 25 seasons — so coming back meant finding the game
+   * played without you. Returns whether anything moved.
+   */
+  /** Team chat. Kept with the resort, so a message waits for whoever is away. */
+  say(playerId: string, text: string, now = Date.now()): ChatEntry | null {
+    const player = this.players.get(playerId);
+    const clean = text.replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!player || !clean) return null;
+    player.lastSeen = now;
+    const entry: ChatEntry = { id: createId("c"), at: now, actor: player.id, actorName: player.name, text: clean };
+    this.state = { ...this.state, chat: [...(this.state.chat ?? []), entry].slice(-CHAT_LIMIT) };
+    this.seq += 1;
+    return entry;
+  }
+
+  /** A short-lived "look here" for the others. Replaces this player's last one. */
+  setMark(playerId: string, hex: Axial, kind: MarkKind, now = Date.now()): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    player.lastSeen = now;
+    player.mark = { hex, kind, at: now };
+  }
+
+  tick(now = Date.now()): boolean {
     const dt = Math.min(2.5, (now - this.lastTick) / 1000);
     this.lastTick = now;
+    if (![...this.players.values()].some((p) => p.online)) return false;
+    if (inMatch(this.state)) {
+      // A match has no clock. The only thing that can move it is everyone
+      // who is still here being ready — which can become true when the one
+      // player who was not ready leaves.
+      if (this.resolveIfReady(now)) {
+        this.seq += 1;
+        return true;
+      }
+      return false;
+    }
     this.state = tickResort(this.state, this.dem, dt, now);
     this.seq += 1;
+    return true;
+  }
+
+  /** Everyone this room knows as a builder, online or not. */
+  builderIds(): string[] {
+    return [...this.players.values()].filter((p) => p.role === "builder").map((p) => p.id);
+  }
+
+  onlineBuilderIds(): string[] {
+    return [...this.players.values()].filter((p) => p.role === "builder" && p.online).map((p) => p.id);
+  }
+
+  /**
+   * Play the round out once every online player has pressed ready.
+   *
+   * Online, not every player ever seen: a partner who is away must not block
+   * the other, so a round can be played alone and the absent one catches up
+   * through the weekly report.
+   */
+  private resolveIfReady(now: number): RoomEvent | null {
+    const match = this.state.match;
+    if (match.mode !== "match" || match.phase !== "plan" || match.ready.length === 0) return null;
+    const online = [...this.players.values()].filter((p) => p.online && p.role === "builder");
+    if (online.length === 0 || !online.every((p) => match.ready.includes(p.id))) return null;
+    const round = match.round;
+    this.state = resolveRound(this.state, this.dem, now);
+    const report = this.state.match.history[this.state.match.history.length - 1];
+    const finished = this.state.match.phase === "finished";
+    return {
+      title: finished ? "Partie beendet" : `Runde ${round} gespielt`,
+      body: finished
+        ? `Endstand: ${this.state.match.score} Punkte.`
+        : `${report?.guests ?? 0} Gäste, ${report && report.net >= 0 ? "+" : ""}${report?.net ?? 0} CHF.`,
+      kind: "ok",
+      actorId: "",
+      actorName: "Saison",
+    };
   }
 
   snapshot(): ResortState {
@@ -189,7 +291,16 @@ export class GameRoom {
   }
 }
 
+/** Stable player id for a signed-in account. */
+export function accountPlayerId(userId: string): string {
+  return `pl_${userId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40)}`;
+}
+
 export const TICK_MS = ECONOMY.simTickMs;
+/** How long a map marker stays up. */
+export const MARK_TTL_MS = 45_000;
+/** How many chat lines a room keeps. */
+export const CHAT_LIMIT = 60;
 export const PERSIST_MS = ECONOMY.persistMs;
 /**
  * How long a silent player stays in the presence list.

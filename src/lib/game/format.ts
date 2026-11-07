@@ -7,10 +7,18 @@ export function fmt(n: number) {
   return de.format(Math.round(n));
 }
 
+/** Short form for tight spots: 950, 12.5k, 1.2 Mio. Swiss grouping below 10'000. */
 export function fmtCompact(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`;
-  return de.format(Math.round(n));
+  const sign = n < 0 ? "−" : "";
+  const a = Math.abs(n);
+  if (a >= 1_000_000) return `${sign}${de1.format(a / 1_000_000)} Mio`;
+  if (a >= 10_000) return `${sign}${de1.format(a / 1000)}k`;
+  return `${sign}${de.format(Math.round(a))}`;
+}
+
+/** Signed money: +1'200 or −800. */
+export function fmtSigned(n: number) {
+  return `${n < 0 ? "−" : "+"}${fmt(Math.abs(n))}`;
 }
 
 export function uid(prefix = "id") {

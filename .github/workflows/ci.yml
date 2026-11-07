@@ -1,0 +1,77 @@
+# Prüft jeden Push und Pull Request. Coolify deployt `main` selbst (GitHub-App),
+# diese CI ist das Tor davor: Dependabot-PRs werden nur gemergt, wenn sie grün ist.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          DOCKER_PREVIEW: "1"
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t ski-alpina:ci .
+      - name: Smoke test (Postgres, Migration, Socket, fremder Host)
+        run: |
+          docker network create ski
+          docker run -d --name db --network ski -e POSTGRES_USER=ski -e POSTGRES_DB=ski -e POSTGRES_PASSWORD=ci postgres:17-alpine
+          docker run -d --name app --network ski -p 8080:8080 \
+            -e DATABASE_URL=postgres://ski:ci@db:5432/ski \
+            -e BETTER_AUTH_URL=https://ski.example.test \
+            -e BETTER_AUTH_SECRET=ci-secret-ci-secret-ci-secret-ci-secret \
+            -e GOOGLE_CLIENT_ID=ci -e GOOGLE_CLIENT_SECRET=ci \
+            ski-alpina:ci
+          for i in $(seq 1 60); do
+            curl -fsS -o /dev/null http://127.0.0.1:8080/ && break
+            sleep 2
+          done
+          docker logs app
+          curl -fsS -o /dev/null -H "Host: ski.example.test" http://127.0.0.1:8080/
+          docker logs app 2>&1 | grep -q "roster enforced"
+          docker exec db psql -U ski -d ski -tAc "select count(*) from _migrations" | grep -qv '^0$'
+
+  automerge:
+    # Patch- und Minor-Updates von Dependabot laufen nach grüner CI von selbst durch.
+    needs: [test, docker]
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v2
+      - if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

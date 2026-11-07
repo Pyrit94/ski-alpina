@@ -149,6 +149,17 @@ export function handleSocket(socket: Socket, identity?: SocketIdentity | null): 
       return;
     }
     const room = getRoom(bound.roomId);
+    if (msg.data.type === "chat") {
+      if (room.say(bound.playerId, msg.data.text)) {
+        broadcast(bound.roomId, { type: "snapshot", seq: room.seq, state: room.snapshot(), players: room.presence() });
+      }
+      return;
+    }
+    if (msg.data.type === "mark") {
+      room.setMark(bound.playerId, msg.data.hex, msg.data.kind);
+      broadcast(bound.roomId, { type: "snapshot", seq: room.seq, state: room.snapshot(), players: room.presence() });
+      return;
+    }
     const result = room.submit(bound.playerId, msg.data.intent);
     if (!result.ok) {
       send(socket, { type: "error", intentId: msg.data.id, reason: result.reason, code: result.code });

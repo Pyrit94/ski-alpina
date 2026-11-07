@@ -8,7 +8,9 @@ import { useGame } from "@/lib/game/store";
 import { isPiste } from "@ski/config";
 import { getDem, validateHex } from "@ski/shared";
 import { BuildingModel } from "./models";
+import { PisteDraftMarks } from "./PisteDraftLayer";
 import { makeHexGeometry } from "./geometry";
+import { useStableGame } from "./use-stable-game";
 
 const GRID_RADIUS = 12;
 const NDC_STAMP = new THREE.Vector2(0, 0.02);
@@ -58,9 +60,9 @@ export function HexRaster() {
   const phase = useGame((s) => s.phase);
   const hover = useGame((s) => s.hover);
   const buildItem = useGame((s) => s.buildItem);
-  const buildings = useGame((s) => s.buildings);
-  const lifts = useGame((s) => s.lifts);
-  const pistes = useGame((s) => s.pistes);
+  const buildings = useStableGame((s) => s.buildings);
+  const lifts = useStableGame((s) => s.lifts);
+  const pistes = useStableGame((s) => s.pistes);
   const mesh = useRef<THREE.InstancedMesh>(null);
   const origin = useRef({ q: 0, r: 9 });
   const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.93), []);
@@ -153,8 +155,8 @@ export function HexCursor() {
   const selectedId = useGame((s) => s.selectedId);
   const buildItem = useGame((s) => s.buildItem);
   const liftStart = useGame((s) => s.liftStart);
-  const buildings = useGame((s) => s.buildings);
-  const lifts = useGame((s) => s.lifts);
+  const buildings = useStableGame((s) => s.buildings);
+  const lifts = useStableGame((s) => s.lifts);
   const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.92), []);
   const hm = getHeightmap();
   const pulse = useRef(0);
@@ -253,20 +255,13 @@ export function HexCursor() {
 }
 
 export function HexGhost() {
-  const draft = useGame((s) => s.pisteDraft);
   const liftStart = useGame((s) => s.liftStart);
   const hm = getHeightmap();
   const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.9), []);
   return (
     <group>
-      {draft.map((h) => {
-        const { x, z } = hexToWorld(h.q, h.r);
-        return (
-          <mesh key={`${h.q}:${h.r}`} geometry={geo} position={[x, surfaceY(hm, x, z) + 0.1, z]}>
-            <meshBasicMaterial color="#7ec8ff" transparent opacity={0.42} side={THREE.DoubleSide} depthWrite={false} />
-          </mesh>
-        );
-      })}
+      {/* The piste draft: grade colours, blocked hex, snap and end markers, in two draw calls. */}
+      <PisteDraftMarks />
       {liftStart && (
         <mesh
           geometry={geo}

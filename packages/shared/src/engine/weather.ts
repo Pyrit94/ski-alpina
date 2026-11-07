@@ -22,14 +22,14 @@ const WINTER: { kind: WeatherKind; upTo: number; label: string; snow: number; te
   // storms could never occur at all.
   { kind: "snow", upTo: 0.3, label: "Schneefall", snow: 0.97, temp: -8 },
   { kind: "sun", upTo: 0.58, label: "Sonnig, Pulver", snow: 0.88, temp: -6 },
-  { kind: "cloud", upTo: 0.8, label: "Bewoelkt", snow: 0.8, temp: -5 },
+  { kind: "cloud", upTo: 0.8, label: "Bewölkt", snow: 0.8, temp: -5 },
   { kind: "fog", upTo: 0.92, label: "Hochnebel", snow: 0.7, temp: -3 },
   { kind: "storm", upTo: 1, label: "Sturm", snow: 0.52, temp: -12 },
 ];
 
 const GREEN: { kind: WeatherKind; upTo: number; label: string; snow: number; temp: number }[] = [
   { kind: "sun", upTo: 0.55, label: "Sonnig und warm", snow: 0.2, temp: 16 },
-  { kind: "cloud", upTo: 0.85, label: "Bewoelkt", snow: 0.22, temp: 11 },
+  { kind: "cloud", upTo: 0.85, label: "Bewölkt", snow: 0.22, temp: 11 },
   { kind: "storm", upTo: 1, label: "Gewitter", snow: 0.18, temp: 9 },
 ];
 

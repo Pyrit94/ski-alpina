@@ -8,6 +8,11 @@ import type { QuestState, ResortState } from "../types.ts";
 import { GRADE_LABEL, pisteDifficulty } from "./level.ts";
 import { entityCost, findEntity } from "./state.ts";
 import { surveyPiste } from "./validate.ts";
+import { applyEditPiste } from "./piste-edit.ts";
+import { inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
+import { applyEventWeights, recordVote, settleActorCoins, walletKey } from "./rules.ts";
+import { MATCH } from "../../../config/src/match.ts";
+import { applyResearch, buildCost, discounted, isResearchIntent } from "./research.ts";
 
 export interface Applied {
   state: ResortState;
@@ -62,7 +67,8 @@ function record(
   }
 
   // Reading the tutorial is not news for the other player.
-  const newsworthy = intent.type !== "next_tutorial" && intent.type !== "dismiss_tutorial";
+  const newsworthy =
+    intent.type !== "next_tutorial" && intent.type !== "dismiss_tutorial" && intent.type !== "end_round";
   const activity = newsworthy
     ? [
         {
@@ -78,7 +84,16 @@ function record(
       ].slice(0, ACTIVITY_LIMIT)
     : next.activity;
 
-  return { ...applied, state: { ...next, contributors, activity } };
+  // In a match, remember who built this round for the teamwork bonus.
+  let match = next.match;
+  if (actor && isBuild && match?.mode === "match" && !match.roundBuilders.includes(actor.id)) {
+    match = { ...match, roundBuilders: [...match.roundBuilders, actor.id] };
+  }
+
+  let settled: ResortState = { ...next, contributors, activity, match };
+  // Separate purses: whatever the intent cost or paid lands with its actor.
+  if (intent.type !== "start_match") settled = settleActorCoins(before, settled, actor?.id);
+  return { ...applied, state: settled };
 }
 
 /**
@@ -93,8 +108,10 @@ export function applyIntent(
   now: number,
   actor?: Actor,
   dem?: Dem,
+  /** Online builders, for alliance research; see ResearchContext. */
+  team?: readonly string[],
 ): Applied {
-  return record(state, applyOne(state, intent, now, actor, dem), intent, now, actor);
+  return record(state, applyOne(state, intent, now, actor, dem, team), intent, now, actor);
 }
 
 function applyOne(
@@ -103,6 +120,7 @@ function applyOne(
   now: number,
   actor?: Actor,
   dem?: Dem,
+  team?: readonly string[],
 ): Applied {
   if (intent.type === "place_building") {
     const item = BY_ID[intent.itemId];
@@ -113,15 +131,15 @@ function applyOne(
       r: intent.r,
       level: 1,
       builtAt: now,
-      readyAt: now + item.buildSeconds * 1000,
-      upgrades: { speed: 1, cabins: 1, capacity: 1 },
+      readyAt: readyAtFor(state, now, item.buildSeconds),
+      upgrades: { speed: 0, cabins: 0, capacity: 0 },
       builtBy: actor?.id,
     };
     return {
       state: {
         ...state,
         buildings: [...state.buildings, building],
-        coins: state.coins - item.cost,
+        coins: state.coins - buildCost(state, intent.itemId),
         gems: state.gems - (item.gemCost ?? 0),
         xp: state.xp + item.xp,
         stars: state.stars + (item.xp >= 40 ? 1 : 0),
@@ -141,8 +159,8 @@ function applyOne(
       itemId: intent.itemId,
       level: 1,
       builtAt: now,
-      readyAt: now + item.buildSeconds * 1000,
-      upgrades: { speed: 1, cabins: 1, capacity: 1 },
+      readyAt: readyAtFor(state, now, item.buildSeconds),
+      upgrades: { speed: 0, cabins: 0, capacity: 0 },
       builtBy: actor?.id,
     };
     return {
@@ -164,13 +182,13 @@ function applyOne(
             stationB,
           },
         ],
-        coins: state.coins - item.cost,
+        coins: state.coins - buildCost(state, intent.itemId),
         gems: state.gems - (item.gemCost ?? 0),
         xp: state.xp + item.xp,
         stars: state.stars + 1,
       },
       title: "Bahn im Bau",
-      body: `${item.name} verbindet die Haenge.`,
+      body: `${item.name} verbindet die Hänge.`,
       kind: "ok",
     };
   }
@@ -180,17 +198,21 @@ function applyOne(
     const segs = Math.max(1, intent.hexes.length - 1);
     // The ground decides the grade, so it is settled here and stored — the
     // run keeps its rating even if the terrain model is ever retuned.
-    const survey = dem ? surveyPiste(dem, intent.itemId, intent.hexes) : null;
+    const survey = dem ? surveyPiste(dem, intent.itemId, intent.hexes, intent.width) : null;
+    const name = intent.name?.trim();
     const piste = {
       id: createId("p"),
       itemId: intent.itemId,
       difficulty: survey ? survey.grade : pisteDifficulty(intent.itemId),
       hexes: intent.hexes,
       builtAt: now,
-      readyAt: now + item.buildSeconds * 1000,
+      readyAt: readyAtFor(state, now, item.buildSeconds),
       builtBy: actor?.id,
+      // Only stored when chosen, so older and default runs stay identical.
+      ...(intent.width && intent.width !== 2 ? { width: intent.width } : {}),
+      ...(name ? { name } : {}),
     };
-    const cost = survey ? survey.cost : item.cost * segs;
+    const cost = discounted(state, survey ? survey.cost : item.cost * segs);
     return {
       state: {
         ...state,
@@ -198,9 +220,9 @@ function applyOne(
         coins: state.coins - cost,
         xp: state.xp + item.xp * segs,
       },
-      title: "Piste geoeffnet",
+      title: item.id === "road" ? "Zufahrt gebaut" : "Piste angelegt",
       body: survey
-        ? `${GRADE_LABEL[survey.grade]} Piste, ${segs} Segmente.`
+        ? `${name ? `«${name}»: ` : ""}${GRADE_LABEL[survey.grade]} Piste, ${segs} Segmente.`
         : `${item.name} ist bereit.`,
       kind: "ok",
     };
@@ -208,30 +230,25 @@ function applyOne(
 
   if (intent.type === "upgrade") {
     const def = UPGRADES.find((u) => u.key === intent.key)!;
-    const lift = state.lifts.find((l) => l.id === intent.entityId);
-    const building = state.buildings.find((b) => b.id === intent.entityId);
-    const target = lift ?? building;
-    const cur = target!.upgrades[intent.key];
+    const entity = findEntity(state, intent.entityId);
+    const lift = entity?.kind === "lift" ? entity.lift : null;
+    if (!lift) return { state, title: "Upgrade", body: "Nichts zu verbessern.", kind: "warn" };
+    const cur = lift.upgrades[intent.key];
     const cost = def.cost[cur] ?? 0;
     const next = cur + 1;
-    const bump = (id: string, upgrades: { speed: number; cabins: number; capacity: number }, level: number) =>
-      id === intent.entityId ? { upgrades: { ...upgrades, [intent.key]: next }, level: Math.max(level, next) } : null;
     return {
       state: {
         ...state,
         coins: state.coins - cost,
         xp: state.xp + 12,
-        lifts: state.lifts.map((l) => {
-          const b = bump(l.id, l.upgrades, l.level);
-          return b ? { ...l, ...b } : l;
-        }),
-        buildings: state.buildings.map((x) => {
-          const b = bump(x.id, x.upgrades, x.level);
-          return b ? { ...x, ...b } : x;
-        }),
+        lifts: state.lifts.map((l) =>
+          l.id === lift.id
+            ? { ...l, upgrades: { ...l.upgrades, [intent.key]: next }, level: Math.max(l.level, next + 1) }
+            : l,
+        ),
       },
-      title: "Upgrade",
-      body: `${def.label} auf Stufe ${next}.`,
+      title: "Ausgebaut",
+      body: `${BY_ID[lift.itemId].name}: ${def.label} Stufe ${next}.`,
       kind: "ok",
     };
   }
@@ -260,7 +277,7 @@ function applyOne(
           ),
         },
         title: "Abgerissen",
-        body: `${BY_ID[lift.itemId].name} entfernt, ${refund.coins} CHF zurueck.`,
+        body: `${BY_ID[lift.itemId].name} entfernt, ${fmtChf(refund.coins)} zurück.`,
         kind: "info",
       };
     }
@@ -268,14 +285,14 @@ function applyOne(
       return {
         state: { ...base, buildings: state.buildings.filter((b) => b.id !== entity.building.id) },
         title: "Abgerissen",
-        body: `${BY_ID[entity.building.itemId].name} entfernt, ${refund.coins} CHF zurueck.`,
+        body: `${BY_ID[entity.building.itemId].name} entfernt, ${fmtChf(refund.coins)} zurück.`,
         kind: "info",
       };
     }
     return {
       state: { ...base, pistes: state.pistes.filter((p) => p.id !== entity.piste.id) },
-      title: "Zurueckgebaut",
-      body: `${BY_ID[entity.piste.itemId].name} entfernt, ${refund.coins} CHF zurueck.`,
+      title: "Zurückgebaut",
+      body: `${BY_ID[entity.piste.itemId].name} entfernt, ${fmtChf(refund.coins)} zurück.`,
       kind: "info",
     };
   }
@@ -321,7 +338,7 @@ function applyOne(
     return {
       state: { ...state, ticketPrice: intent.chf },
       title: "Tarif",
-      body: `Tageskarte ${intent.chf} CHF.`,
+      body: `Tageskarte neu ${intent.chf} CHF.`,
       kind: "info",
     };
   }
@@ -336,19 +353,123 @@ function applyOne(
   }
 
   if (intent.type === "next_tutorial") {
-    const step = Math.min(3, state.tutorialStep + 1);
+    // Four steps, 0..3; moving past the last one closes it.
+    const step = state.tutorialStep + 1;
     return {
-      state: { ...state, tutorialStep: step, tutorialOpen: step < 4 },
+      state: { ...state, tutorialStep: Math.min(3, step), tutorialOpen: step < 4 },
       title: "Hinweis",
       body: "Weiter im Tutorial.",
       kind: "info",
     };
   }
 
-  return {
-    state: { ...state, tutorialOpen: false },
-    title: "Tutorial",
-    body: "Geschlossen.",
-    kind: "info",
-  };
+  if (intent.type === "start_match") {
+    if (intent.preset === "sandbox") {
+      return { state: startSandbox(state), title: "Freies Spiel", body: "Ein leeres Tal, keine Uhr, kein Ende.", kind: "info" };
+    }
+    const preset = MATCH.presets.find((p) => p.id === intent.preset)!;
+    return {
+      state: dem ? startMatch(state, intent.preset, now, dem, intent.options) : state,
+      title: "Neue Partie",
+      body: `${preset.label}: ${preset.hint}. Viel Glück!`,
+      kind: "ok",
+    };
+  }
+
+  if (intent.type === "end_round") {
+    const id = actor?.id ?? "";
+    const others = state.match.ready.filter((x) => x !== id);
+    return {
+      state: { ...state, match: { ...state.match, ready: intent.ready ? [...others, id] : others } },
+      title: intent.ready ? "Bereit" : "Doch nicht bereit",
+      body: intent.ready ? "Runde beendet – wartet auf alle." : "Runde wieder offen.",
+      kind: "info",
+    };
+  }
+
+  if (intent.type === "choose_event") {
+    const pending = state.match.event!;
+    const option = pending.options[intent.option]!;
+    if (state.match.options.events === "vote") {
+      // A vote; the room settles it once everyone online has voted.
+      return {
+        state: { ...state, match: { ...state.match, event: recordVote(pending, actor?.id ?? "", intent.option) } },
+        title: pending.title,
+        body: `Stimme für «${option.label}».`,
+        kind: "info",
+      };
+    }
+    const weights = [0, 0];
+    weights[intent.option] = 1;
+    return {
+      state: applyEventWeights(state, weights, actor?.id ?? ""),
+      title: pending.title,
+      body: `Entschieden: ${option.label}.`,
+      kind: "ok",
+    };
+  }
+
+  if (intent.type === "set_match_options") {
+    const { economy: _economy, ...rest } = intent.options;
+    return {
+      state: { ...state, match: { ...state.match, options: { ...state.match.options, ...rest } } },
+      title: "Regeln angepasst",
+      body: "Gilt ab dieser Runde.",
+      kind: "info",
+    };
+  }
+
+  if (intent.type === "choose_role") {
+    const id = actor?.id ?? "";
+    const label = intent.role === "berg" ? "Berg (Bahnen & Pisten)" : "Tal (Hotels, Gastro & Dienste)";
+    return {
+      state: { ...state, match: { ...state.match, roles: { ...state.match.roles, [id]: intent.role } } },
+      title: "Rolle gewählt",
+      body: `${actor?.name ?? "Jemand"} führt jetzt: ${label}.`,
+      kind: "info",
+    };
+  }
+
+  if (intent.type === "transfer_coins") {
+    const from = walletKey(state, actor?.id);
+    if (!from) return { state, title: "Überweisung", body: "Keine eigene Kasse.", kind: "warn" };
+    const wallets = { ...state.match.wallets };
+    wallets[from] = (wallets[from] ?? 0) - intent.amount;
+    wallets[intent.to] = (wallets[intent.to] ?? 0) + intent.amount;
+    const toLabel = intent.to === "berg" ? "Berg" : intent.to === "tal" ? "Tal" : (state.contributors[intent.to]?.name ?? "Mitspieler:in");
+    // Coins in total do not change, so settleActorCoins leaves this alone.
+    return {
+      state: { ...state, match: { ...state.match, wallets } },
+      title: "Überweisung",
+      body: `${fmtChf(intent.amount)} an ${toLabel}.`,
+      kind: "ok",
+    };
+  }
+
+  if (isResearchIntent(intent)) {
+    return applyResearch(state, intent, now, { actorId: actor?.id, team });
+  }
+
+  if (intent.type === "edit_piste") return applyEditPiste(state, intent, dem);
+
+  if (intent.type === "dismiss_tutorial") {
+    return {
+      state: { ...state, tutorialOpen: false },
+      title: "Tutorial",
+      body: "Geschlossen.",
+      kind: "info",
+    };
+  }
+
+  // Implemented in their own modules as they land; until then, nothing changes.
+  return { state, title: "Hinweis", body: "Diese Funktion kommt gleich.", kind: "info" };
+}
+
+/** Real seconds in free play; finished when the round is played in a match. */
+function readyAtFor(state: ResortState, now: number, buildSeconds: number): number {
+  return inMatch(state) ? PENDING_READY : now + buildSeconds * 1000;
+}
+
+function fmtChf(n: number): string {
+  return `${Math.round(n).toLocaleString("de-CH")} CHF`;
 }

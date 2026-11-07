@@ -6,3 +6,9 @@ artifacts
 *.log
 .grok/preview.pid
 .grok/preview.log
+.env
+.env.*
+.vercel
+.output
+.tanstack
+.claude/worktrees

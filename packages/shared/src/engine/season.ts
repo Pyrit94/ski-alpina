@@ -37,9 +37,10 @@ export function naturalSnowLine(day: number): number {
  * Poor snow quality lifts it, cannons push it back down — but only so far, so
  * snowmaking buys a low resort a few weeks rather than a whole summer.
  */
-export function snowLine(day: number, snowQuality: number, snowmakers: number): number {
+export function snowLine(day: number, snowQuality: number, snowmakers: number, dropFactor = 1): number {
   const weather = (1 - Math.max(0, Math.min(1, snowQuality))) * SEASON.weatherSwingMetres;
-  const made = Math.min(snowmakers * SEASON.snowmakerDrop, SEASON.maxSnowmakerDrop);
+  // `dropFactor` is research making each cannon (and the ceiling) count for more.
+  const made = Math.min(snowmakers * SEASON.snowmakerDrop, SEASON.maxSnowmakerDrop) * dropFactor;
   return naturalSnowLine(day) + weather - made;
 }
 

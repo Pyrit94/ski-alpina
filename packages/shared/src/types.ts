@@ -6,7 +6,7 @@ export type Tool = "select" | "pan" | "orbit";
 export type WeatherKind = "sun" | "cloud" | "snow" | "fog" | "storm";
 export type PisteDifficulty = "blue" | "red" | "black" | "park" | "road";
 export type BuildPhase = "idle" | "place" | "lift-a" | "lift-b" | "piste";
-export type HudSheet = "none" | "build" | "info" | "quests" | "menu";
+export type HudSheet = "none" | "build" | "info" | "quests" | "menu" | "chat" | "research";
 export type PlayerRole = "builder" | "visitor";
 
 export interface Upgrades {
@@ -42,6 +42,9 @@ export interface PlacedLift {
   builtBy?: string;
 }
 
+/** 1 schmal, 2 normal, 3 breit. Older saves have none, which means 2. */
+export type PisteWidth = 1 | 2 | 3;
+
 export interface PlacedPiste {
   id: string;
   itemId: ItemId;
@@ -50,6 +53,10 @@ export interface PlacedPiste {
   builtAt: number;
   readyAt: number;
   builtBy?: string;
+  /** Width class of the run; see PISTE_WIDTHS in config. Absent = 2. */
+  width?: PisteWidth;
+  /** A name the players gave the run, e.g. "Matterhorn-Abfahrt". */
+  name?: string;
 }
 
 export interface QuestState {
@@ -115,6 +122,12 @@ export interface SimStats {
   snowLineM: number;
   /** Ready pistes closed outright for want of snow. */
   closedPistes: number;
+  /** Guests per hour who wanted to come but found no way in (parking, bus, beds). */
+  turnedAway: number;
+  /** Guests per hour the mountain draws, before any capacity limit. */
+  marketPerHour: number;
+  /** Guests (not rides) per hour at the current rate. */
+  guestsPerHour: number;
 }
 
 export interface FlowEdgeViz {
@@ -140,6 +153,26 @@ export interface PlayerPresence {
    * person on the mountain.
    */
   focus?: Axial | null;
+  /** A marker this player put on the map for the others, while it is fresh. */
+  mark?: MapMark | null;
+}
+
+export type MarkKind = "look" | "build" | "warn";
+
+/** "Look here": a short-lived pointer one player leaves for the other. */
+export interface MapMark {
+  hex: Axial;
+  kind: MarkKind;
+  at: number;
+}
+
+/** One line of team chat. */
+export interface ChatEntry {
+  id: string;
+  at: number;
+  actor: string;
+  actorName: string;
+  text: string;
 }
 
 /** What one player has put into the resort. Survives them leaving the room. */
@@ -199,6 +232,185 @@ export interface ResortState {
   contributors: Record<string, Contributor>;
   /** Newest first, bounded. */
   activity: ActivityEntry[];
+  /** Free play, or a match of a fixed number of rounds. */
+  match: MatchState;
+  /** Finished matches in this room, best first. Survives starting a new one. */
+  hallOfFame: MatchResult[];
+  /** Team chat, oldest first, bounded. */
+  chat: ChatEntry[];
+  research: ResearchState;
+}
+
+/**
+ * Multipliers a round's event (or a permanent perk) puts on the simulation.
+ * 1 is neutral for the factors, 0 for `snow`.
+ */
+export interface RoundModifiers {
+  demand: number;
+  /** Added to the day's snow quality, -1..1. */
+  snow: number;
+  wait: number;
+  upkeep: number;
+  ticket: number;
+  /** Grades closed for the round, e.g. black runs after an avalanche warning. */
+  closed: PisteDifficulty[];
+}
+
+export type MatchPreset = "kurz" | "normal" | "lang";
+export type Medal = "gold" | "silber" | "bronze";
+
+/** What one round of a match produced. */
+export interface RoundReport {
+  round: number;
+  season: number;
+  dayFrom: number;
+  dayTo: number;
+  guests: number;
+  revenue: number;
+  upkeep: number;
+  net: number;
+  satisfaction: number;
+  /** Weather kinds over the round, one per day. */
+  weather: WeatherKind[];
+  closedPistes: number;
+  bottleneck: string;
+  coinsAfter: number;
+  /** Medal reached at a season's end, if this round closed one. */
+  medal?: Medal | null;
+  event?: string;
+  /** Who decided the round's event. */
+  eventBy?: string;
+  /** Both (all) players built something this round, and earned the bonus. */
+  teamwork?: boolean;
+  /** A VIP wish settled this round. */
+  vip?: { name: string; status: "done" | "failed" };
+  /** The event was settled as a compromise of both options. */
+  compromise?: boolean;
+  /** Duel: each player's purse after the round. */
+  wallets?: Record<string, number>;
+  /** Research points earned over the round. */
+  research?: number;
+}
+
+/** A decision put to the players at the start of a round. */
+export interface PendingEvent {
+  id: string;
+  title: string;
+  body: string;
+  options: { label: string; detail: string; cost?: number }[];
+  /** Index of the chosen option, null while undecided. */
+  chosen: number | null;
+  /** Who decided it. */
+  chosenBy?: string;
+  /** With voting on: each player's choice so far. */
+  votes?: Record<string, number>;
+  /** The players disagreed, so both options apply at half strength. */
+  compromise?: boolean;
+}
+
+/** How money is held in a match. */
+export type EconomyMode = "shared" | "roles" | "duel";
+/** How round events are decided. */
+export type EventMode = "off" | "first" | "vote";
+/** In "roles": the mountain (lifts, pistes, snow) or the valley (hotels, food, services). */
+export type TeamRole = "berg" | "tal";
+
+/**
+ * The rules of a match. Chosen when it starts; everything except `economy`
+ * can be changed between rounds and applies from the next round on.
+ */
+export interface MatchOptions {
+  economy: EconomyMode;
+  /** With "roles": percent of the income that goes to the mountain role. */
+  roleSplit: number;
+  events: EventMode;
+  secretGoals: boolean;
+  vips: boolean;
+  album: boolean;
+  research: boolean;
+  teamwork: boolean;
+}
+
+/** A VIP guest's wish: fulfil it by a round for a reward. */
+export interface VipRequest {
+  id: string;
+  name: string;
+  wish: string;
+  /** Last round in which it can be fulfilled. */
+  dueRound: number;
+  rewardCoins: number;
+  rewardStars: number;
+  /** Set when the round resolution checked it. */
+  status: "open" | "done" | "failed";
+}
+
+/** Research: what is finished, what runs, and the points to pay for it. */
+export interface ResearchState {
+  /** Finished node ids. */
+  done: string[];
+  /** The node being researched and the points already in it. */
+  active: { id: string; progress: number } | null;
+  /** Points banked and not yet spent. */
+  points: number;
+  /** Alliance nodes need every player's pledge before they can start. */
+  pledges: Record<string, string[]>;
+  /** Nodes waiting to start once the running one is finished. */
+  queue: string[];
+}
+
+export interface SeasonGoal {
+  season: number;
+  /** Guests over the season needed for each medal. */
+  bronze: number;
+  silber: number;
+  gold: number;
+  /** Guests so far this season. */
+  guests: number;
+  medal: Medal | null;
+}
+
+export interface MatchState {
+  mode: "sandbox" | "match";
+  preset: MatchPreset | null;
+  phase: "plan" | "finished";
+  round: number;
+  roundsTotal: number;
+  daysPerRound: number;
+  /** Player ids who pressed "Runde beenden". */
+  ready: string[];
+  history: RoundReport[];
+  goals: SeasonGoal[];
+  event: PendingEvent | null;
+  /** This round's effects. */
+  mods: RoundModifiers;
+  /** Effects for the rest of the match. */
+  perks: RoundModifiers;
+  score: number;
+  startedAt: number;
+  /** Player ids who built something in the current round. */
+  roundBuilders: string[];
+  options: MatchOptions;
+  /** Roles in "roles" mode, by player id. */
+  roles: Record<string, TeamRole>;
+  /** Separate purses in "roles" and "duel" mode, by player id. */
+  wallets: Record<string, number>;
+  /** One secret goal id per player, when secret goals are on. */
+  secret: Record<string, string>;
+  /** The current VIP wish, if any, and the ones already settled. */
+  vip: VipRequest | null;
+  vipHistory: VipRequest[];
+  /** Duel: guests each player's lifts carried over the match. */
+  duelGuests: Record<string, number>;
+}
+
+export interface MatchResult {
+  preset: MatchPreset;
+  score: number;
+  medals: Medal[];
+  guests: number;
+  players: string[];
+  resortName: string;
+  finishedAt: number;
 }
 
 export interface IntentError {

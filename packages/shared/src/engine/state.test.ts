@@ -72,8 +72,10 @@ test("the room migrates whatever it is handed and keeps its own id", () => {
   assert.equal(room.state.roomId, "alpina");
   assert.equal(room.state.coins, 1234);
   assert.equal(room.state.stats.demandPerHour, 0);
-  // A migrated room must be tickable without producing NaN anywhere.
-  room.tick();
+  // A migrated room must be tickable without producing NaN anywhere. The
+  // clock only runs while someone is in the room.
+  room.join("Test");
+  assert.equal(room.tick(), true);
   for (const [key, value] of Object.entries(room.state.stats)) {
     if (typeof value === "number") assert.equal(Number.isNaN(value), false, `${key} is NaN`);
   }

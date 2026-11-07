@@ -1,0 +1,50 @@
+# Ski Alpina in Coolify (Build Pack "Docker Compose", Location /docker-compose.coolify.yml).
+#
+# Domain nur beim Service `app`: http://ski.rasselbande.work:8080
+# Datenbank-Passwort und Auth-Secret erzeugt Coolify selbst (SERVICE_PASSWORD_*).
+# Von Hand nur: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, optional NTFY_URL.
+# Das Volume `ski-db` ist der Spielstand — es gehört in die Sicherung.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8080"
+      # Passwort separat (PGPASSWORD), damit Sonderzeichen die URL nicht brechen.
+      DATABASE_URL: postgres://ski@db:5432/ski
+      PGPASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://ski.rasselbande.work}
+      BETTER_AUTH_SECRET: ${SERVICE_PASSWORD_64_BETTERAUTH}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID fehlt}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET fehlt}
+      # Leer = die zwei Konten aus DEFAULT_ROSTER (src/lib/auth/allowlist.ts).
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+      # Optional: Push aufs Handy, wenn die andere Person dran ist (ntfy-Thema-URL).
+      NTFY_URL: ${NTFY_URL:-}
+    expose:
+      - "8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ski
+      POSTGRES_DB: ski
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+    volumes:
+      - ski-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ski -d ski"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  ski-db:

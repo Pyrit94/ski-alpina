@@ -145,6 +145,8 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
       lastFocusAt = now;
       send({ type: "focus", hex });
     },
+    sendChat: (text: string) => send({ type: "chat", text }),
+    sendMark: (hex: { q: number; r: number }, kind: "look" | "build" | "warn") => send({ type: "mark", hex, kind }),
     close: () => {
       closed = true;
       if (heartbeat) {

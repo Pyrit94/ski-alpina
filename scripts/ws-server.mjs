@@ -19,6 +19,7 @@ import pg from "pg";
 import { GameRoom, PERSIST_MS, TICK_MS } from "../packages/shared/src/runtime/room.ts";
 import { ClientMessageSchema } from "../packages/shared/src/protocol/intents.ts";
 import { NOT_ALLOWED_MESSAGE, rosterAdmits, rosterGate } from "../src/lib/auth/allowlist.ts";
+import { createNotifier } from "./notify.mjs";
 
 const WS_PORT = Number(process.env.WS_PORT || 8788);
 /** Where the app itself listens, for verifying sessions over loopback. */
@@ -26,6 +27,23 @@ const APP_PORT = Number(process.env.PORT || 8080);
 const DATABASE_URL = process.env.DATABASE_URL?.trim();
 
 const rooms = new Map();
+/** Push to whoever is away (ntfy). Silent without NTFY_URL. */
+const notifier = createNotifier({ url: process.env.NTFY_URL, publicUrl: process.env.BETTER_AUTH_URL?.trim() });
+/** Rounds each room has reported, to notice one being played. */
+const reportedRounds = new WeakMap();
+
+function notifyRoundIfPlayed(room) {
+  const played = room.state.match?.history?.length ?? 0;
+  const before = reportedRounds.get(room);
+  reportedRounds.set(room, played);
+  if (before !== undefined && played > before) void notifier.roundPlayed(room);
+}
+/** `seq` of each room at its last save, so an idle resort is not rewritten every few seconds. */
+const savedSeq = new Map();
+/** Last presence each room broadcast, to notice arrivals and departures. */
+const presenceSeen = new WeakMap();
+/** Saved resorts that failed to load. Never served and never overwritten. */
+const quarantined = new Set();
 /** Sockets currently in a room, so a snapshot reaches everyone in it. */
 const bindings = new Set();
 const pool = DATABASE_URL ? new pg.Pool({ connectionString: DATABASE_URL }) : null;
@@ -35,6 +53,7 @@ if (!pool) {
 }
 
 function getRoom(id) {
+  if (quarantined.has(id)) throw new Error(`resort ${id} is quarantined`);
   let room = rooms.get(id);
   if (!room) {
     room = new GameRoom(id);
@@ -43,30 +62,53 @@ function getRoom(id) {
   return room;
 }
 
+/**
+ * Load every saved resort before the socket opens.
+ *
+ * A failed read must stop the process, not be shrugged off: carrying on meant
+ * the next join created an empty resort under the same id, and the periodic
+ * save then overwrote the real one with it. Exiting lets the container restart
+ * and try again once the database is back. A single unreadable row is skipped
+ * and left untouched in the table, rather than taking every other resort down.
+ */
 async function hydrate() {
   if (!pool) return;
+  let rows;
   try {
-    const { rows } = await pool.query("select id, snapshot from resorts");
-    for (const row of rows) {
-      const snap = typeof row.snapshot === "string" ? JSON.parse(row.snapshot) : row.snapshot;
-      rooms.set(row.id, new GameRoom(row.id, snap));
-    }
-    console.info(`[ws] restored ${rows.length} resort(s)`);
+    ({ rows } = await pool.query("select id, snapshot from resorts"));
   } catch (err) {
-    console.warn("[ws] hydrate skipped", err);
+    console.error("[ws] could not load saved resorts — refusing to start with an empty world", err);
+    process.exit(1);
   }
+  for (const row of rows) {
+    try {
+      const snap = typeof row.snapshot === "string" ? JSON.parse(row.snapshot) : row.snapshot;
+      const room = new GameRoom(row.id, snap);
+      rooms.set(row.id, room);
+      savedSeq.set(row.id, room.seq);
+    } catch (err) {
+      quarantined.add(row.id);
+      console.error(`[ws] resort ${row.id} could not be loaded and stays untouched`, err);
+    }
+  }
+  console.info(`[ws] restored ${rooms.size} resort(s)`);
 }
 
+/** Write the resorts that changed since their last save. */
 async function persist() {
   if (!pool) return;
   for (const room of rooms.values()) {
+    const id = room.state.roomId;
+    if (quarantined.has(id) || savedSeq.get(id) === room.seq) continue;
+    const seq = room.seq;
     await pool.query(
       `insert into resorts (id, name, snapshot, updated_at)
        values ($1, $2, $3::jsonb, now())
        on conflict (id) do update
          set name = excluded.name, snapshot = excluded.snapshot, updated_at = now()`,
-      [room.state.roomId, room.state.resortName, JSON.stringify(room.snapshot())],
+      [id, room.state.resortName, JSON.stringify(room.snapshot())],
     );
+    savedSeq.set(id, seq);
   }
 }
 
@@ -188,6 +230,10 @@ wss.on("connection", (ws, _req, identity) => {
     }
 
     if (msg.type === "join") {
+      if (quarantined.has(msg.roomId)) {
+        send(ws, { type: "error", reason: "Dieser Spielstand konnte nicht geladen werden", code: "invalid" });
+        return;
+      }
       const room = getRoom(msg.roomId);
       // An authenticated socket takes its identity from the account, never
       // from the name and token the client supplied.
@@ -211,6 +257,22 @@ wss.on("connection", (ws, _req, identity) => {
     }
     const room = getRoom(bound.roomId);
     room.touch(bound.playerId);
+
+    if (msg.type === "chat") {
+      const entry = room.say(bound.playerId, msg.text);
+      if (entry) {
+        broadcast(bound.roomId, snapshotOf(room));
+        void notifier.chat(room, entry);
+      }
+      return;
+    }
+    if (msg.type === "mark") {
+      room.setMark(bound.playerId, msg.hex, msg.kind);
+      broadcast(bound.roomId, snapshotOf(room));
+      return;
+    }
+
+    if (!reportedRounds.has(room)) reportedRounds.set(room, room.state.match?.history?.length ?? 0);
     const result = room.submit(bound.playerId, msg.intent);
     if (!result.ok) {
       send(ws, { type: "error", intentId: msg.id, reason: result.reason, code: result.code });
@@ -225,6 +287,10 @@ wss.on("connection", (ws, _req, identity) => {
       actorName: result.event.actorName,
     });
     broadcast(bound.roomId, snapshotOf(room));
+    if (msg.intent.type === "end_round" && msg.intent.ready) {
+      void notifier.readyWaiting(room, room.players.get(bound.playerId)?.name ?? "Jemand");
+    }
+    notifyRoundIfPlayed(room);
   });
 
   ws.on("close", () => {
@@ -234,9 +300,23 @@ wss.on("connection", (ws, _req, identity) => {
 
 setInterval(() => {
   for (const room of rooms.values()) {
-    room.tick();
-    room.prunePlayers();
-    broadcast(room.state.roomId, snapshotOf(room));
+    // One resort throwing must not stop the others, nor kill the process into
+    // a restart loop that reloads the same state and throws again.
+    try {
+      room.prunePlayers();
+      if (!reportedRounds.has(room)) reportedRounds.set(room, room.state.match?.history?.length ?? 0);
+      const moved = room.tick();
+      if (moved) notifyRoundIfPlayed(room);
+      // Presence can change while nothing else does (a match has no clock),
+      // and the other player should see someone leave.
+      const who = room.presence().map((p) => p.id).join(",");
+      if (moved || presenceSeen.get(room) !== who) {
+        presenceSeen.set(room, who);
+        broadcast(room.state.roomId, snapshotOf(room));
+      }
+    } catch (err) {
+      console.error(`[ws] tick failed for ${room.state.roomId}`, err);
+    }
   }
 }, TICK_MS);
 
@@ -245,10 +325,35 @@ setInterval(() => {
   persisting = persisting.then(persist).catch((err) => console.warn("[ws] persist", err));
 }, PERSIST_MS);
 
+/**
+ * Write the resort once more before going.
+ *
+ * Every deploy stops this process; without a final save whatever happened
+ * since the last interval — up to a few seconds of building — was lost.
+ */
+let stopping = false;
+async function shutdown(signal) {
+  if (stopping) return;
+  stopping = true;
+  console.info(`[ws] ${signal} — saving and shutting down`);
+  wss.close();
+  try {
+    await persisting;
+    await persist();
+  } catch (err) {
+    console.warn("[ws] final save failed", err);
+  }
+  await pool?.end().catch(() => {});
+  process.exit(0);
+}
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => void shutdown(signal));
+}
+
 http.listen(WS_PORT, "127.0.0.1", () => {
   const gate = rosterGate(process.env);
   console.info(
-    `[ws] game socket on 127.0.0.1:${WS_PORT} — roster ${
+    `[ws] game socket on 127.0.0.1:${WS_PORT} — push ${notifier.enabled ? "on" : "off"} — roster ${
       gate.enforced ? `enforced (${gate.allowed.length} allowed)` : "open (development)"
     }`,
   );

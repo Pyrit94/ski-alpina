@@ -22,3 +22,6 @@ coverage
 
 tools/terrain/cache/*
 !tools/terrain/cache/.gitkeep
+
+# Arbeitskopien von Hintergrund-Agenten
+.claude/worktrees/
