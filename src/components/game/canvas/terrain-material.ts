@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
+import type { TexturePack } from "./texture-pack";
 
 /**
  * Micro-detail for the ground.
@@ -108,7 +109,25 @@ export const OVERLAY_DETAIL: TerrainDetail = { octaves: 1, scale: 0.14, albedo: 
  * Built on `meshStandardMaterial` rather than a raw shader so the ground keeps
  * three's lighting, fog and — the one that matters here — shadow receiving.
  */
-export function makeTerrainMaterial(detail: TerrainDetail): THREE.MeshStandardMaterial {
+/**
+ * How the optional photo textures sit on the ground.
+ *
+ * World-space planar mapping (XZ) for snow and ground, three planes blended by
+ * the normal for rock — rock is where the slope is steep, which is exactly
+ * where planar mapping smears. Texture influence fades out with distance, so
+ * far slopes do not shimmer with a pattern too small to resolve.
+ */
+const TEX = {
+  snowScale: 0.22,
+  groundScale: 0.3,
+  rockScale: 0.11,
+  albedo: 0.55,
+  bump: 0.55,
+  near: 35,
+  far: 170,
+};
+
+export function makeTerrainMaterial(detail: TerrainDetail, pack: TexturePack | null = null): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
     // Snow is not matte: a touch of sheen on the sunward slopes is what
@@ -123,6 +142,30 @@ export function makeTerrainMaterial(detail: TerrainDetail): THREE.MeshStandardMa
     shader.uniforms.uDetailBump = { value: detail.bump };
 
     shader.uniforms.uRock = { value: detail.rock };
+
+    // Photo textures, when the pack has them and the layer is the real terrain.
+    const tex = detail.rock > 0 ? pack : null;
+    const has = (slot: "snow" | "rock" | "ground") => Boolean(tex?.[slot]);
+    const normals = detail.bump > 0 && Boolean(tex?.snow?.normal ?? tex?.ground?.normal);
+    if (tex) {
+      shader.uniforms.uSnowMap = { value: tex.snow?.color ?? null };
+      shader.uniforms.uSnowMean = { value: tex.snow?.mean ?? 1 };
+      shader.uniforms.uRockMap = { value: tex.rock?.color ?? null };
+      shader.uniforms.uGroundMap = { value: tex.ground?.color ?? null };
+      shader.uniforms.uGroundMean = { value: tex.ground?.mean ?? 1 };
+      shader.uniforms.uSnowNormal = { value: tex.snow?.normal ?? tex.ground?.normal ?? null };
+      shader.uniforms.uGroundNormal = { value: tex.ground?.normal ?? tex.snow?.normal ?? null };
+      shader.uniforms.uTexAlbedo = { value: TEX.albedo };
+      shader.uniforms.uTexBump = { value: TEX.bump };
+    }
+    const texDefines = [
+      has("snow") ? "#define SKI_TEX_SNOW" : "",
+      has("rock") ? "#define SKI_TEX_ROCK" : "",
+      has("ground") ? "#define SKI_TEX_GROUND" : "",
+      normals ? "#define SKI_TEX_NORMAL" : "",
+      // Phones sample rock from one plane instead of three.
+      detail.bump > 0 ? "#define SKI_TEX_TRIPLANAR" : "",
+    ].join("\n");
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -154,6 +197,31 @@ uniform float uRock;
 uniform float uDetailScale;
 uniform float uDetailAlbedo;
 uniform float uDetailBump;
+${texDefines}
+#if defined(SKI_TEX_SNOW) || defined(SKI_TEX_ROCK) || defined(SKI_TEX_GROUND)
+#define SKI_TEX 1
+uniform float uTexAlbedo;
+uniform float uTexBump;
+#endif
+#ifdef SKI_TEX_SNOW
+uniform sampler2D uSnowMap;
+uniform float uSnowMean;
+#endif
+#ifdef SKI_TEX_ROCK
+uniform sampler2D uRockMap;
+#endif
+#ifdef SKI_TEX_GROUND
+uniform sampler2D uGroundMap;
+uniform float uGroundMean;
+#endif
+#ifdef SKI_TEX_NORMAL
+uniform sampler2D uSnowNormal;
+uniform sampler2D uGroundNormal;
+#endif
+const vec3 SKI_LUMA = vec3(0.299, 0.587, 0.114);
+float skiTexFade() {
+  return 1.0 - smoothstep(${TEX.near.toFixed(1)}, ${TEX.far.toFixed(1)}, length(vViewPosition));
+}
 ${NOISE_GLSL}`,
       )
       // After the albedo is assembled, so this modulates the vertex colour
@@ -164,6 +232,22 @@ ${NOISE_GLSL}`,
 {
   float skiN = skiFbm(vSkiWorld * uDetailScale);
   diffuseColor.rgb *= 1.0 + (skiN - 0.5) * uDetailAlbedo;
+#ifdef SKI_TEX
+  // Snow is whatever the vertex colour says is bright; the rest is ground.
+  float skiFade = skiTexFade();
+  float skiSnowness = smoothstep(0.5, 0.78, dot(diffuseColor.rgb, SKI_LUMA));
+#ifdef SKI_TEX_SNOW
+  float skiSL = dot(texture2D(uSnowMap, vSkiWorld.xz * ${TEX.snowScale}).rgb, SKI_LUMA) / uSnowMean;
+  diffuseColor.rgb *= mix(1.0, skiSL, uTexAlbedo * skiSnowness * skiFade);
+#endif
+#ifdef SKI_TEX_GROUND
+  vec3 skiGC = texture2D(uGroundMap, vSkiWorld.xz * ${TEX.groundScale}).rgb;
+  float skiGL = dot(skiGC, SKI_LUMA) / uGroundMean;
+  // Mostly the light-dark pattern, a little of the texture's own hue.
+  vec3 skiGround = diffuseColor.rgb * mix(vec3(skiGL), skiGC / max(uGroundMean, 0.05), 0.25);
+  diffuseColor.rgb = mix(diffuseColor.rgb, skiGround, uTexAlbedo * (1.0 - skiSnowness) * skiFade);
+#endif
+#endif
 #if SKI_ROCK
   // Steepness from the interpolated normal. The DEM's vertical scale is about
   // twice its horizontal, so 0.5 here is roughly a 41 degree real slope —
@@ -174,6 +258,22 @@ ${NOISE_GLSL}`,
   float skiRock = smoothstep(0.54 + skiJag, 0.6 + skiJag, skiSteep) * uRock;
   // Warm grey-brown gneiss, banded by the same noise so it is not one flat tone.
   vec3 skiStone = mix(vec3(0.12, 0.10, 0.085), vec3(0.27, 0.235, 0.2), skiN);
+#ifdef SKI_TEX_ROCK
+  {
+    vec3 skiRY = texture2D(uRockMap, vSkiWorld.xz * ${TEX.rockScale}).rgb;
+#ifdef SKI_TEX_TRIPLANAR
+    vec3 skiAN = abs(normalize(vSkiUp));
+    skiAN /= (skiAN.x + skiAN.y + skiAN.z);
+    vec3 skiRX = texture2D(uRockMap, vSkiWorld.zy * ${TEX.rockScale}).rgb;
+    vec3 skiRZ = texture2D(uRockMap, vSkiWorld.xy * ${TEX.rockScale}).rgb;
+    vec3 skiRT = skiRX * skiAN.x + skiRY * skiAN.y + skiRZ * skiAN.z;
+#else
+    vec3 skiRT = skiRY;
+#endif
+    // Warmed and darkened towards gneiss, so a grey photo still sits in the palette.
+    skiStone = mix(skiStone, skiRT * vec3(0.78, 0.72, 0.66), 0.35 + 0.5 * skiTexFade());
+  }
+#endif
   diffuseColor.rgb = mix(diffuseColor.rgb, skiStone, skiRock);
 #endif
   // A little of the occlusion in the albedo itself, so a gully reads even
@@ -190,6 +290,25 @@ ${NOISE_GLSL}`,
 reflectedLight.indirectDiffuse *= vSkiAO;
 reflectedLight.indirectSpecular *= vSkiAO;`,
       );
+
+    if (normals) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <normal_fragment_maps>",
+        `#include <normal_fragment_maps>
+#ifdef SKI_TEX_NORMAL
+{
+  float skiNF = skiTexFade();
+  float skiSnow2 = smoothstep(0.5, 0.78, dot(vColor.rgb, SKI_LUMA));
+  vec3 skiNS = texture2D(uSnowNormal, vSkiWorld.xz * ${TEX.snowScale}).xyz * 2.0 - 1.0;
+  vec3 skiNG = texture2D(uGroundNormal, vSkiWorld.xz * ${TEX.groundScale}).xyz * 2.0 - 1.0;
+  vec3 skiNT = mix(skiNG, skiNS, skiSnow2);
+  // Planar XZ mapping: u runs along +x, v (the green channel) along +z.
+  vec3 skiWorldPert = vec3(skiNT.x, 0.0, skiNT.y) * uTexBump * skiNF;
+  normal = normalize(normal + mat3(viewMatrix) * skiWorldPert);
+}
+#endif`,
+      );
+    }
 
     if (detail.bump > 0) {
       shader.fragmentShader = shader.fragmentShader.replace(
@@ -212,17 +331,18 @@ reflectedLight.indirectSpecular *= vSkiAO;`,
   // Two materials whose programs differ only inside onBeforeCompile still hash
   // to the same program without this, so the second one silently renders with
   // the first one's shader.
+  const texKey = pack ? (["snow", "rock", "ground"] as const).map((k) => (pack[k] ? k[0] : "-")).join("") : "none";
   material.customProgramCacheKey = () =>
-    `ski-terrain-${detail.octaves}-${detail.bump > 0 ? "bump" : "flat"}-${detail.rock > 0 ? "rock" : "bare"}`;
+    `ski-terrain-${detail.octaves}-${detail.bump > 0 ? "bump" : "flat"}-${detail.rock > 0 ? "rock" : "bare"}-${texKey}`;
 
   return material;
 }
 
 /** `makeTerrainMaterial` as a hook, disposed with the component. */
-export function useTerrainMaterial(quality: "low" | "high" | "overlay") {
+export function useTerrainMaterial(quality: "low" | "high" | "overlay", pack: TexturePack | null = null) {
   const material = useMemo(
-    () => makeTerrainMaterial(quality === "overlay" ? OVERLAY_DETAIL : TERRAIN_DETAIL[quality]),
-    [quality],
+    () => makeTerrainMaterial(quality === "overlay" ? OVERLAY_DETAIL : TERRAIN_DETAIL[quality], pack),
+    [quality, pack],
   );
   useEffect(() => () => material.dispose(), [material]);
   return material;

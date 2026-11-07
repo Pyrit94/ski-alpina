@@ -39,6 +39,8 @@ export interface UiState {
   sheet: HudSheet;
   started: boolean;
   quality: "low" | "high";
+  /** Photo textures from public/textures/pbr, when present. Per device. */
+  photoTextures: boolean;
   connected: boolean;
   players: PlayerPresence[];
   playerId: string | null;
@@ -87,6 +89,7 @@ export interface GameStore extends ResortState, UiState {
   endRound: (ready: boolean) => void;
   chooseEvent: (option: number) => void;
   setMatchSetupOpen: (open: boolean) => void;
+  setPhotoTextures: (on: boolean) => void;
   markReportSeen: (round: number) => void;
   clearCelebration: () => void;
 }
@@ -125,6 +128,23 @@ function flatten(s: ResortState): Partial<ResortState> {
 
 const empty = emptyResort("zermatt");
 
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const v = typeof window === "undefined" ? null : localStorage.getItem(key);
+    return v === null ? fallback : v === "1";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeFlag(key: string, on: boolean) {
+  try {
+    localStorage.setItem(key, on ? "1" : "0");
+  } catch {
+    /* private mode */
+  }
+}
+
 function isPhone() {
   return typeof window !== "undefined" && window.innerWidth < 1024;
 }
@@ -144,6 +164,7 @@ export const useGame = create<GameStore>((set, get) => ({
   sheet: "none",
   started: false,
   quality: isPhone() ? "low" : "high",
+  photoTextures: readFlag("ski-alpina-photo-textures", true),
   connected: false,
   players: [],
   playerId: null,
@@ -245,6 +266,10 @@ export const useGame = create<GameStore>((set, get) => ({
   endRound: (ready) => net?.sendIntent({ type: "end_round", ready }),
   chooseEvent: (option) => net?.sendIntent({ type: "choose_event", option }),
   setMatchSetupOpen: (open) => set({ matchSetupOpen: open }),
+  setPhotoTextures: (on) => {
+    writeFlag("ski-alpina-photo-textures", on);
+    set({ photoTextures: on });
+  },
   markReportSeen: (round) => set({ seenReportRound: round }),
   clearCelebration: () => set({ celebrate: null }),
   setSheet: (v) => set({ sheet: v }),

@@ -33,6 +33,7 @@ import {
   paintGround,
 } from "./landscape";
 import { useTerrainMaterial } from "./terrain-material";
+import { useTexturePack } from "./texture-pack";
 import { QUALITY, type QualityTier } from "./quality";
 import { useStableGame } from "./use-stable-game";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
@@ -76,7 +77,10 @@ function Terrain() {
   const quality = useGame((s) => s.quality);
   const down = useRef<THREE.Vector2 | null>(null);
   const stamp = stampMode && phase !== "idle";
-  const material = useTerrainMaterial(layer === "3d" || layer === "pistes" ? quality : "overlay");
+  // Photo detail from public/textures/pbr, when Get-Textures.ps1 has been run.
+  const photoTextures = useGame((s) => s.photoTextures);
+  const texturePack = useTexturePack(photoTextures);
+  const material = useTerrainMaterial(layer === "3d" || layer === "pistes" ? quality : "overlay", texturePack);
   const shadows = QUALITY[quality].shadows;
 
   return (

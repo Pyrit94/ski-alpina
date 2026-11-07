@@ -37,6 +37,7 @@ import { TERRAIN } from "@ski/config";
 import { PENDING_READY } from "@ski/shared";
 import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
+import { useCardImages } from "@/lib/game/card-images";
 import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
 import { Celebration, EventCard, FinalScreen, MatchGoalsPanel, MatchSetupModal, RoundBar, RoundReportModal, Toasts } from "./MatchHUD";
 import { useGame } from "@/lib/game/store";
@@ -227,6 +228,26 @@ export function GameHUD() {
       <FinalScreen />
       <Celebration />
     </div>
+  );
+}
+
+/**
+ * A photo for an item when Get-Textures.ps1 has fetched one, else its icon.
+ * A photo that fails to load falls back to the icon too.
+ */
+function ItemThumb({ id, className, iconClass = "size-4" }: { id: ItemId; className: string; iconClass?: string }) {
+  const images = useCardImages();
+  const [broken, setBroken] = useState(false);
+  const item = BY_ID[id];
+  const img = images[id];
+  if (img && !broken) {
+    return <img src={img.url} alt="" title={img.title} onError={() => setBroken(true)} className={`${className} object-cover`} />;
+  }
+  const Icon = ITEM_ICON[id] ?? CAT_ICON[item.category];
+  return (
+    <span className={`${className} grid place-items-center bg-ice`} style={{ color: item.color }}>
+      <Icon className={iconClass} />
+    </span>
   );
 }
 
@@ -463,7 +484,6 @@ function LeftColumn() {
             const locked = lvl < it.unlockLevel;
             const tooExpensive = coins < it.cost;
             const active = buildItem === it.id;
-            const Icon = ITEM_ICON[it.id] ?? CAT_ICON[it.category];
             return (
               <button
                 key={it.id}
@@ -472,12 +492,13 @@ function LeftColumn() {
                 title={it.blurb}
                 className={`flex items-center gap-2.5 rounded-[14px] px-2 py-1.5 text-left transition-colors ${active ? "bg-accent text-panel" : locked ? "opacity-60 hover:bg-snow" : "hover:bg-snow"}`}
               >
-                <span
-                  className={`grid size-9 shrink-0 place-items-center rounded-[11px] ${active ? "bg-panel/20" : locked ? "bg-snow text-subtle" : "bg-ice text-navy"}`}
-                  style={!active && !locked ? { color: it.color } : undefined}
-                >
-                  {locked ? <Lock className="size-4" /> : <Icon className="size-4" />}
-                </span>
+                {locked ? (
+                  <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-snow text-subtle">
+                    <Lock className="size-4" />
+                  </span>
+                ) : (
+                  <ItemThumb id={it.id} className={`size-9 shrink-0 rounded-[11px] ${active ? "ring-2 ring-panel/70" : ""}`} />
+                )}
                 <span className="min-w-0 flex-1">
                   <span className={`block truncate text-[12px] font-semibold ${active ? "text-panel" : "text-navy"}`}>
                     {it.name}
@@ -722,7 +743,7 @@ function InfoPanel() {
   return (
     <Panel className="p-3">
       <div className="flex items-start gap-2">
-        <img src="/textures/station.jpg" alt="" className="size-12 rounded-[12px] object-cover" />
+        <ItemThumb id={item.id} className="size-12 shrink-0 rounded-[12px]" iconClass="size-5" />
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
           <div className="mt-0.5 inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
@@ -1616,7 +1637,7 @@ function MobileFloats() {
           onClick={() => setSheet("info")}
           className="toast-in pointer-events-auto flex w-full items-center gap-3 rounded-[18px] bg-panel/95 p-3 text-left shadow-[var(--shadow-panel)]"
         >
-          <img src="/textures/station.jpg" alt="" className="size-11 rounded-[12px] object-cover" />
+          <ItemThumb id={selectedItem.id} className="size-11 shrink-0 rounded-[12px]" iconClass="size-5" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-semibold text-navy">{selectedItem.name}</span>
             <span className="block text-[11px] text-muted">Details und Upgrades</span>
@@ -1722,24 +1743,29 @@ function MobileBuildGrid() {
       <div className="grid grid-cols-2 gap-2">
         {items.map((it) => {
           const locked = lvl < it.unlockLevel;
-          const Icon = ITEM_ICON[it.id] ?? CAT_ICON[it.category];
           return (
             <button
               key={it.id}
               type="button"
               onClick={() => setBuildItem(it.id)}
-              className={`min-h-[5.5rem] rounded-[16px] bg-snow p-3 text-left ${locked ? "opacity-55" : ""}`}
+              className={`min-h-[5.5rem] overflow-hidden rounded-[16px] bg-snow text-left ${locked ? "opacity-55" : ""}`}
             >
-              <div className="mb-1 flex items-center gap-2">
-                <span className="grid size-8 place-items-center rounded-[10px] bg-ice" style={{ color: locked ? undefined : it.color }}>
-                  {locked ? <Lock className="size-4 text-subtle" /> : <Icon className="size-4" />}
-                </span>
-                {locked && <span className="text-[10px] font-semibold text-subtle">Ab Level {it.unlockLevel}</span>}
+              <div className="relative">
+                <ItemThumb id={it.id} className="h-20 w-full" iconClass="size-7" />
+                {locked && (
+                  <span className="absolute inset-0 grid place-items-center bg-snow/70 text-[11px] font-semibold text-subtle">
+                    <span className="flex items-center gap-1">
+                      <Lock className="size-4" /> Ab Level {it.unlockLevel}
+                    </span>
+                  </span>
+                )}
               </div>
+              <div className="p-3 pt-2">
               <div className="text-[13px] font-semibold text-navy">{it.name}</div>
               <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted">{it.blurb}</div>
               <div className="mt-2 flex items-center gap-1 text-[12px] font-semibold text-coin">
                 <Coin className="size-3.5" /> {fmt(it.cost)}
+              </div>
               </div>
             </button>
           );
@@ -1809,11 +1835,22 @@ function SoundToggle({ className }: { className: string }) {
   );
 }
 
+function PhotoTextureToggle({ className }: { className: string }) {
+  const on = useGame((s) => s.photoTextures);
+  const set = useGame((s) => s.setPhotoTextures);
+  return (
+    <button type="button" className={className} onClick={() => set(!on)}>
+      Fotostrukturen: {on ? "An" : "Aus"}
+    </button>
+  );
+}
+
 function MobileMenuBody() {
   const quality = useGame((s) => s.quality);
   return (
     <div className="flex flex-col gap-3 pb-2">
       <MatchMenuButtons />
+      <PhotoTextureToggle className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy" />
       <SoundToggle className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy" />
       <LayerTabs />
       <button
@@ -1841,6 +1878,7 @@ function MenuSheet() {
     <div className="absolute right-3 top-14 z-30 flex w-72 flex-col gap-1.5 rounded-[20px] bg-panel p-3 shadow-[var(--shadow-panel)]">
       <MatchMenuButtons />
       <SoundToggle className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy" />
+      <PhotoTextureToggle className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy" />
       <button
         type="button"
         className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy"
