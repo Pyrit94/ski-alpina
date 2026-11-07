@@ -61,6 +61,7 @@ export function sandboxMatch(): MatchState {
     perks: { ...NO_MODS },
     score: 0,
     startedAt: 0,
+    roundBuilders: [],
   };
 }
 
@@ -113,6 +114,7 @@ export function emptyResort(roomId = "zermatt"): ResortState {
     activity: [],
     match: sandboxMatch(),
     hallOfFame: [],
+    chat: [],
   };
 }
 
@@ -203,8 +205,9 @@ export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): 
     unlocked: snapshot.unlocked ?? [],
     contributors: snapshot.contributors ?? {},
     activity: snapshot.activity ?? [],
-    match,
+    match: { ...match, roundBuilders: match.roundBuilders ?? [] },
     hallOfFame: snapshot.hallOfFame ?? [],
+    chat: snapshot.chat ?? [],
   };
 }
 

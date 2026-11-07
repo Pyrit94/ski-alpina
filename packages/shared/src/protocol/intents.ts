@@ -99,6 +99,17 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("focus"),
     hex: AxialSchema.nullable(),
   }),
+  // A line of team chat. Not an intent either: it changes nothing built.
+  z.object({
+    type: z.literal("chat"),
+    text: z.string().trim().min(1).max(200),
+  }),
+  // "Look here": a marker on the map for the other player, gone after a while.
+  z.object({
+    type: z.literal("mark"),
+    hex: AxialSchema,
+    kind: z.enum(["look", "build", "warn"]),
+  }),
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -121,6 +132,10 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
         role: z.enum(["builder", "visitor"]),
         lastSeen: z.number(),
         focus: AxialSchema.nullable().optional(),
+        mark: z
+          .object({ hex: AxialSchema, kind: z.enum(["look", "build", "warn"]), at: z.number() })
+          .nullable()
+          .optional(),
       }),
     ),
   }),

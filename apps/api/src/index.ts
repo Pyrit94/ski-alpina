@@ -73,6 +73,14 @@ app.get("/ws", { websocket: true }, (socket) => {
       return;
     }
     const r = room(roomId);
+    if (msg.type === "chat") {
+      r.say(playerId, msg.text);
+      return;
+    }
+    if (msg.type === "mark") {
+      r.setMark(playerId, msg.hex, msg.kind);
+      return;
+    }
     const result = r.submit(playerId, msg.intent);
     if (!result.ok) {
       socket.send(JSON.stringify({ type: "error", intentId: msg.id, reason: result.reason, code: result.code }));

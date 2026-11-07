@@ -55,6 +55,10 @@ export interface UiState {
   seenReportRound: number;
   /** The match setup dialog. */
   matchSetupOpen: boolean;
+  /** Chat lines already read, by count. */
+  chatSeen: number;
+  /** Next map click places a marker of this kind instead of selecting. */
+  markMode: "look" | "build" | "warn" | null;
   /** Bumped when something deserves a celebration; the value says what. */
   celebrate: { id: number; title: string; body: string } | null;
 }
@@ -90,6 +94,9 @@ export interface GameStore extends ResortState, UiState {
   chooseEvent: (option: number) => void;
   setMatchSetupOpen: (open: boolean) => void;
   setPhotoTextures: (on: boolean) => void;
+  sendChat: (text: string) => void;
+  markChatRead: () => void;
+  setMarkMode: (kind: "look" | "build" | "warn" | null) => void;
   markReportSeen: (round: number) => void;
   clearCelebration: () => void;
 }
@@ -123,6 +130,7 @@ function flatten(s: ResortState): Partial<ResortState> {
     activity: s.activity,
     match: s.match,
     hallOfFame: s.hallOfFame,
+    chat: s.chat ?? [],
   };
 }
 
@@ -175,6 +183,8 @@ export const useGame = create<GameStore>((set, get) => ({
   lastStampAt: 0,
   lastStampHex: null,
   seenReportRound: -1,
+  chatSeen: 0,
+  markMode: null,
   matchSetupOpen: false,
   celebrate: null,
 
@@ -223,12 +233,24 @@ export const useGame = create<GameStore>((set, get) => ({
         // or level-up from before you arrived is not news.
         const first = !prev.connectedOnce;
         const reports = state.match?.history.length ?? 0;
+        const chat = state.chat ?? [];
         set({
           ...flatten(state),
           players,
           connectedOnce: true,
           ...(first ? { seenReportRound: reports } : {}),
         });
+        // A new line from someone else: a toast and a soft click, unless the
+        // chat is open anyway.
+        const fresh = chat.slice(prev.chat?.length ?? 0).filter((c) => c.actor !== prev.playerId);
+        if (!first && fresh.length > 0) {
+          const lastLine = fresh[fresh.length - 1]!;
+          if (get().sheet !== "chat") {
+            play("click");
+            get().pushNote(lastLine.actorName, lastLine.text, "info");
+          }
+        }
+        if (first || get().sheet === "chat") set({ chatSeen: chat.length });
         if (!first && reports > prev.match.history.length) {
           play(state.match.history[reports - 1]?.medal ? "medal" : "round");
         }
@@ -266,6 +288,13 @@ export const useGame = create<GameStore>((set, get) => ({
   endRound: (ready) => net?.sendIntent({ type: "end_round", ready }),
   chooseEvent: (option) => net?.sendIntent({ type: "choose_event", option }),
   setMatchSetupOpen: (open) => set({ matchSetupOpen: open }),
+  sendChat: (text) => {
+    const clean = text.trim().slice(0, 200);
+    if (clean) net?.sendChat(clean);
+  },
+  markChatRead: () => set((s) => ({ chatSeen: s.chat.length })),
+  setMarkMode: (kind) =>
+    set({ markMode: kind, buildItem: null, phase: "idle", pisteDraft: [], liftStart: null, selectedId: null, sheet: "none" }),
   setPhotoTextures: (on) => {
     writeFlag("ski-alpina-photo-textures", on);
     set({ photoTextures: on });
@@ -359,6 +388,12 @@ export const useGame = create<GameStore>((set, get) => ({
 
   clickHex: (q, r) => {
     const s = get();
+    if (s.markMode) {
+      net?.sendMark({ q, r }, s.markMode);
+      play("click");
+      set({ markMode: null });
+      return;
+    }
     if (s.phase === "idle" || !s.buildItem) {
       // Pistes were not selectable at all, so a run could never be inspected
       // or torn down. Buildings and stations win the hex; a run is what is

@@ -21,6 +21,7 @@ import { scoreBreakdown, weatherForDay, type Medal, type RoundReport, type Weath
 import { fmt, fmtSigned } from "@/lib/game/format";
 import { peerColor } from "@/lib/game/players";
 import { useGame } from "@/lib/game/store";
+import { AwardsPanel } from "./TeamHUD";
 
 const WEATHER_ICON: Record<WeatherKind, typeof Sun> = {
   sun: Sun,
@@ -263,6 +264,16 @@ export function RoundBar({ mobile = false }: { mobile?: boolean }) {
           {!mobile && <SeasonGoalBar compact />}
         </div>
       </div>
+      {!mobile && others.length > 0 && (
+        <span
+          title={`Bauen beide in einer Runde, gibt es ${fmt(MATCH.teamwork.coins)} CHF und ${MATCH.teamwork.stars} Stern extra.`}
+          className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${
+            new Set(match.roundBuilders).size >= 2 ? "bg-success/12 text-success" : "bg-ice text-muted"
+          }`}
+        >
+          {new Set(match.roundBuilders).size >= 2 ? "Teamwork ✓" : "Teamwork-Bonus offen"}
+        </span>
+      )}
       {readyOthers.length > 0 && !iAmReady && (
         <span className="flex shrink-0 items-center gap-1 rounded-full bg-success/12 px-2 py-1 text-[10px] font-bold text-success">
           {readyOthers.map((p) => (
@@ -366,7 +377,14 @@ export function EventCard() {
   );
 }
 
-function ReportBody({ report }: { report: RoundReport }) {
+function ReportBody({ report, history = [] }: { report: RoundReport; history?: RoundReport[] }) {
+  const earlier = history.filter((r) => r.round < report.round);
+  const records: string[] = [];
+  if (earlier.length > 0) {
+    if (report.guests > Math.max(...earlier.map((r) => r.guests))) records.push("Rekord: so viele Gäste wie noch nie!");
+    if (report.net > Math.max(...earlier.map((r) => r.net)) && report.net > 0) records.push("Rekord: bester Gewinn bisher!");
+    if (report.satisfaction > Math.max(...earlier.map((r) => r.satisfaction))) records.push("Rekord: zufriedenste Gäste bisher!");
+  }
   const tips: string[] = [];
   if (report.net < 0) tips.push("Der Unterhalt war höher als die Einnahmen. Ungenutzte Anlagen kosten jeden Tag.");
   if (report.bottleneck) tips.push(`Engpass war meist: ${report.bottleneck}. Dort lohnt der nächste Ausbau.`);
@@ -392,6 +410,20 @@ function ReportBody({ report }: { report: RoundReport }) {
           <WeatherStrip kinds={report.weather} size="md" />
         </div>
       </div>
+      {(records.length > 0 || report.teamwork) && (
+        <ul className="mt-2 flex flex-col gap-1.5">
+          {report.teamwork && (
+            <li className="rounded-[12px] bg-success/12 px-3 py-2 text-[12px] font-semibold text-success">
+              Teamwork-Bonus: ihr habt beide gebaut – +{fmt(MATCH.teamwork.coins)} CHF, +{MATCH.teamwork.stars} Stern
+            </li>
+          )}
+          {records.map((r) => (
+            <li key={r} className="rounded-[12px] bg-coin/20 px-3 py-2 text-[12px] font-semibold text-navy">
+              🏆 {r}
+            </li>
+          ))}
+        </ul>
+      )}
       {report.event && <p className="mt-2 text-[11px] text-muted">Ereignis: {report.event}</p>}
       {tips.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1.5">
@@ -433,7 +465,7 @@ export function RoundReportModal() {
         )}
       </div>
       <div className="p-4">
-        <ReportBody report={report} />
+        <ReportBody report={report} history={history} />
         <div className="mt-4">
           <PrimaryButton onClick={() => markSeen(history.length)}>
             {finished ? "Zum Endstand" : "Weiter bauen"} <ChevronRight className="size-4" />
@@ -557,6 +589,7 @@ export function FinalScreen() {
           <BigStat label="Medaillen" value={`${fmt(score.medals)}`} />
           <BigStat label="Total" value={`${fmt(score.total)}`} tone="good" />
         </div>
+        <AwardsPanel />
         {hallOfFame.length > 0 && (
           <div className="mt-4">
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Bestenliste</div>

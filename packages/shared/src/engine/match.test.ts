@@ -198,3 +198,49 @@ test("old saves lose the free upgrade step and gain an empty match", () => {
   // Migrating twice must not shift again.
   assert.deepEqual(migrateResort(s, "x").lifts[0]!.upgrades, { speed: 0, cabins: 1, capacity: 0 });
 });
+
+test("both players building in a round earns the teamwork bonus", () => {
+  const room = new GameRoom("m", undefined, dem);
+  const a = room.join("Michael", undefined, { userId: "u1", name: "Michael" });
+  const b = room.join("Johanna", undefined, { userId: "u2", name: "Johanna" });
+  room.submit(a.id, { type: "start_match", preset: "kurz" });
+  room.submit(a.id, { type: "place_lift", itemId: "tbar", a: VILLAGE_HEX, b: col(1) });
+  room.submit(b.id, { type: "place_piste", itemId: "piste", hexes: run(1, 9) });
+  assert.deepEqual([...room.state.match.roundBuilders].sort(), [a.id, b.id].sort());
+  const stars = room.state.stars;
+  room.submit(a.id, { type: "end_round", ready: true });
+  room.submit(b.id, { type: "end_round", ready: true });
+  const report = room.state.match.history[0]!;
+  assert.equal(report.teamwork, true);
+  assert.equal(room.state.stars, stars + MATCH.teamwork.stars);
+  assert.deepEqual(room.state.match.roundBuilders, [], "reset for the next round");
+});
+
+test("one player building alone earns no teamwork bonus", () => {
+  let s = starter(startMatch(emptyResort(), "kurz", NOW, dem));
+  s = { ...s, match: { ...s.match, roundBuilders: ["p1"] } };
+  assert.equal(resolveRound(s, dem, NOW + 1).match.history[0]!.teamwork, undefined);
+});
+
+test("chat is kept with the resort and bounded", () => {
+  const room = new GameRoom("m", undefined, dem);
+  const a = room.join("Michael", undefined, { userId: "u1", name: "Michael" });
+  assert.equal(room.say(a.id, "   "), null);
+  const entry = room.say(a.id, "  Schau   mal hier  ");
+  assert.equal(entry?.text, "Schau mal hier");
+  assert.equal(room.state.chat.at(-1)?.actorName, "Michael");
+  for (let i = 0; i < 100; i++) room.say(a.id, `n${i}`);
+  assert.ok(room.state.chat.length <= 60);
+  // A new match keeps the conversation.
+  room.submit(a.id, { type: "start_match", preset: "kurz" });
+  assert.ok(room.state.chat.length > 0);
+});
+
+test("a map mark shows in presence and expires", () => {
+  const room = new GameRoom("m", undefined, dem);
+  const a = room.join("Michael", undefined, { userId: "u1", name: "Michael" });
+  room.setMark(a.id, { q: 1, r: 2 }, "build", Date.now());
+  assert.deepEqual(room.presence()[0]!.mark?.hex, { q: 1, r: 2 });
+  room.setMark(a.id, { q: 1, r: 2 }, "build", Date.now() - 10 * 60_000);
+  assert.equal(room.presence()[0]!.mark, null);
+});

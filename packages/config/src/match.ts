@@ -57,6 +57,14 @@ export const MATCH = {
     perSatisfaction: 2,
     medal: { gold: 200, silber: 100, bronze: 50 },
   },
+  /**
+   * Reward when two or more players each built something in a round.
+   *
+   * A two-person game drifts into one person playing while the other
+   * watches. A small, visible bonus for both having a hand in every round
+   * nudges against that without punishing anyone.
+   */
+  teamwork: { coins: 4000, stars: 1 },
   /** How many results the hall of fame keeps. */
   hallOfFameSize: 10,
 } as const;

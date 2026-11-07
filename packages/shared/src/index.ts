@@ -28,6 +28,9 @@ export type {
   RoundModifiers,
   RoundReport,
   SeasonGoal,
+  ChatEntry,
+  MapMark,
+  MarkKind,
 } from "./types.ts";
 export { MAX_PISTE_HEXES, IntentSchema, ClientMessageSchema, ServerMessageSchema, ItemIdSchema, AxialSchema } from "./protocol/intents.ts";
 export type { Intent, ClientMessage, ServerMessage } from "./protocol/intents.ts";
@@ -96,5 +99,5 @@ export {
 } from "./engine/season.ts";
 export type { SeasonPhase } from "./engine/season.ts";
 export { weatherForDay } from "./engine/weather.ts";
-export { GameRoom, TICK_MS, PERSIST_MS } from "./runtime/room.ts";
+export { GameRoom, TICK_MS, PERSIST_MS, MARK_TTL_MS, CHAT_LIMIT } from "./runtime/room.ts";
 export type { RoomPlayer, RoomEvent } from "./runtime/room.ts";

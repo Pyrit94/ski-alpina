@@ -66,6 +66,7 @@ automatisch erlaubt, weitere über `ALLOWED_HOSTS`.
 | `GOOGLE_CLIENT_SECRET` | dito |
 | `ALLOWED_EMAILS` | optional — ohne Angabe gelten die beiden Konten aus `DEFAULT_ROSTER` |
 | `ALLOWED_HOSTS` | optional — weitere Hostnamen |
+| `NTFY_URL` | optional — ntfy-Thema für Push «du bist dran», z. B. `https://ntfy.sh/ski-alpina-<zufall>` |
 
 `GOOGLE_CLIENT_ID`/`SECRET` schalten den Login von der Grok-Broker-Federation
 auf **direktes Google OAuth** um. Der Broker existiert nur innerhalb der
@@ -131,7 +132,8 @@ alle paar Sekunden zurueck.
    zeigt Zahlen
 3. Mit einer Adresse **nicht** von der Liste anmelden → wird abgewiesen
 4. In den Container-Logs steht beim Start:
-   `[ws] game socket on 127.0.0.1:8788 — roster enforced (2 allowed)`
+   `[ws] game socket on 127.0.0.1:8788 — push on — roster enforced (2 allowed)`
+   (`push off`, solange `NTFY_URL` fehlt)
 
 ## Was hier nicht laeuft
 
@@ -139,3 +141,15 @@ alle paar Sekunden zurueck.
 `SKI_API_ALLOW_ANONYMOUS=1` gar nicht. Es gehoert zum Stack in
 `infra/docker-compose.yml`, wo nginx davor steht und der Port nicht
 veroeffentlicht wird. Fuer Coolify ist der Dockerfile-Pfad oben der richtige.
+
+## Push aufs Handy (ntfy, optional)
+
+Wenn eine Person «Runde beenden» drückt und die andere offline ist, kommt bei ihr eine
+Push-Nachricht («Michael hat Runde 3 beendet und wartet auf dich»). Ebenso nach jeder
+gespielten Runde (Gäste, Gewinn, Medaille) und bei Chat-Nachrichten (höchstens alle 2 Min.).
+
+1. In der ntfy-App (Android/iOS) ein **neues, geheimes Thema** abonnieren, z. B.
+   `ski-alpina-` plus ein langes Zufallswort. Nicht das Thema der Server-Alarme nehmen.
+2. Johanna abonniert dasselbe Thema.
+3. In Coolify `NTFY_URL=https://ntfy.sh/<thema>` setzen, **Redeploy**.
+4. Im Log steht danach `push on`. Ein Antippen der Nachricht öffnet das Spiel.

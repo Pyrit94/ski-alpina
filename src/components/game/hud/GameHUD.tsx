@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import {
   BarChart3,
+  MessageCircle,
   Cloud,
   CloudFog,
   CloudLightning,
@@ -39,6 +40,8 @@ import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
 import { useCardImages } from "@/lib/game/card-images";
 import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
+import { ChatPanel, MarkButtons, MarkHint, UnreadBadge } from "./TeamHUD";
+import { useUnreadChat } from "@/lib/game/team";
 import { Celebration, EventCard, FinalScreen, MatchGoalsPanel, MatchSetupModal, RoundBar, RoundReportModal, Toasts } from "./MatchHUD";
 import { useGame } from "@/lib/game/store";
 import type { Category, HudSheet, ItemId, MapLayer, PlacedPiste } from "@/lib/game/types";
@@ -201,6 +204,7 @@ export function GameHUD() {
             {desktop && (
               <div className="absolute inset-x-0 top-2 z-10 flex flex-col items-center gap-2 px-3">
                 <RoundBar />
+                <MarkHint />
                 <EventCard />
                 <BuildHint />
               </div>
@@ -209,6 +213,16 @@ export function GameHUD() {
             {desktop && <CenterTools />}
             {desktop && <Attribution />}
             {!desktop && <MobileFloats />}
+            {!desktop && (
+              <div className="pointer-events-auto absolute right-3 top-3 z-20 flex flex-col items-end gap-2">
+                <MarkButtons vertical />
+              </div>
+            )}
+            {!desktop && (
+              <div className="absolute inset-x-0 top-3 z-20 flex justify-center px-16">
+                <MarkHint />
+              </div>
+            )}
           </div>
           {desktop && <RightColumn />}
         </div>
@@ -607,6 +621,7 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
 function RightColumn() {
   const selectedId = useGame((s) => s.selectedId);
   const [tab, setTab] = useState<"ops" | "goals" | "team">("ops");
+  const unread = useUnreadChat();
   const tabs = [
     { id: "ops" as const, label: "Betrieb" },
     { id: "goals" as const, label: "Ziele" },
@@ -622,9 +637,10 @@ function RightColumn() {
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`h-9 rounded-full text-[12px] font-semibold transition-colors ${tab === t.id ? "bg-accent text-panel" : "text-navy hover:bg-snow"}`}
+              className={`relative h-9 rounded-full text-[12px] font-semibold transition-colors ${tab === t.id ? "bg-accent text-panel" : "text-navy hover:bg-snow"}`}
             >
               {t.label}
+              {t.id === "team" && tab !== "team" && <UnreadBadge n={unread} />}
             </button>
           ))}
         </div>
@@ -649,6 +665,10 @@ function RightColumn() {
           <Panel className="p-3">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-muted">Wer baut mit</div>
             <PlayersLine />
+          </Panel>
+          <Panel className="p-3">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Team-Chat</div>
+            <ChatPanel />
           </Panel>
           <RenamePanel />
           <ActivityPanel />
@@ -1351,6 +1371,8 @@ function CenterTools() {
     <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-1.5 lg:flex">
       <LayerTabs />
       <span className="mx-1 h-6 w-px bg-navy/15" />
+      <MarkButtons />
+      <span className="mx-1 h-6 w-px bg-navy/15" />
       <ToolBtn active={tool === "select"} onClick={() => setTool("select")} label="Auswahl">
         <MousePointer2 className="size-4" />
       </ToolBtn>
@@ -1437,6 +1459,7 @@ function BuildReticle() {
 
 function MobileDock() {
   const sheet = useGame((s) => s.sheet);
+  const unread = useUnreadChat();
   const tool = useGame((s) => s.tool);
   const setTool = useGame((s) => s.setTool);
   const phase = useGame((s) => s.phase);
@@ -1522,6 +1545,15 @@ function MobileDock() {
               className={`flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full text-[13px] font-semibold ${sheet === "build" ? "bg-accent-dark text-panel" : "bg-accent text-panel"}`}
             >
               <Hammer className="size-4" /> Bauen
+            </button>
+            <button
+              type="button"
+              aria-label="Team-Chat"
+              onClick={() => toggleSheet(sheet, "chat")}
+              className={`relative grid size-11 shrink-0 place-items-center rounded-[14px] ${sheet === "chat" ? "bg-accent text-panel" : "text-navy"}`}
+            >
+              <MessageCircle className="size-5" />
+              <UnreadBadge n={unread} />
             </button>
             <button
               type="button"
@@ -1663,7 +1695,8 @@ function MobileSheets() {
   const sheet = useGame((s) => s.sheet);
   const setSheet = useGame((s) => s.setSheet);
   if (sheet === "none") return null;
-  const title = sheet === "build" ? "Bauen" : sheet === "quests" ? "Ziele & Partie" : sheet === "info" ? "Gebiet" : "Menü";
+  const title =
+    sheet === "build" ? "Bauen" : sheet === "quests" ? "Ziele & Partie" : sheet === "info" ? "Gebiet" : sheet === "chat" ? "Team-Chat" : "Menü";
   return (
     <div className="pointer-events-none absolute inset-0 z-30 lg:hidden">
       <button
@@ -1708,6 +1741,7 @@ function MobileSheets() {
             </div>
           )}
           {sheet === "menu" && <MobileMenuBody />}
+          {sheet === "chat" && <ChatPanel compact />}
         </div>
       </div>
     </div>

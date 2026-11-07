@@ -19,6 +19,7 @@ import pg from "pg";
 import { GameRoom, PERSIST_MS, TICK_MS } from "../packages/shared/src/runtime/room.ts";
 import { ClientMessageSchema } from "../packages/shared/src/protocol/intents.ts";
 import { NOT_ALLOWED_MESSAGE, rosterAdmits, rosterGate } from "../src/lib/auth/allowlist.ts";
+import { createNotifier } from "./notify.mjs";
 
 const WS_PORT = Number(process.env.WS_PORT || 8788);
 /** Where the app itself listens, for verifying sessions over loopback. */
@@ -26,6 +27,17 @@ const APP_PORT = Number(process.env.PORT || 8080);
 const DATABASE_URL = process.env.DATABASE_URL?.trim();
 
 const rooms = new Map();
+/** Push to whoever is away (ntfy). Silent without NTFY_URL. */
+const notifier = createNotifier({ url: process.env.NTFY_URL, publicUrl: process.env.BETTER_AUTH_URL?.trim() });
+/** Rounds each room has reported, to notice one being played. */
+const reportedRounds = new WeakMap();
+
+function notifyRoundIfPlayed(room) {
+  const played = room.state.match?.history?.length ?? 0;
+  const before = reportedRounds.get(room);
+  reportedRounds.set(room, played);
+  if (before !== undefined && played > before) void notifier.roundPlayed(room);
+}
 /** `seq` of each room at its last save, so an idle resort is not rewritten every few seconds. */
 const savedSeq = new Map();
 /** Last presence each room broadcast, to notice arrivals and departures. */
@@ -245,6 +257,22 @@ wss.on("connection", (ws, _req, identity) => {
     }
     const room = getRoom(bound.roomId);
     room.touch(bound.playerId);
+
+    if (msg.type === "chat") {
+      const entry = room.say(bound.playerId, msg.text);
+      if (entry) {
+        broadcast(bound.roomId, snapshotOf(room));
+        void notifier.chat(room, entry);
+      }
+      return;
+    }
+    if (msg.type === "mark") {
+      room.setMark(bound.playerId, msg.hex, msg.kind);
+      broadcast(bound.roomId, snapshotOf(room));
+      return;
+    }
+
+    if (!reportedRounds.has(room)) reportedRounds.set(room, room.state.match?.history?.length ?? 0);
     const result = room.submit(bound.playerId, msg.intent);
     if (!result.ok) {
       send(ws, { type: "error", intentId: msg.id, reason: result.reason, code: result.code });
@@ -259,6 +287,10 @@ wss.on("connection", (ws, _req, identity) => {
       actorName: result.event.actorName,
     });
     broadcast(bound.roomId, snapshotOf(room));
+    if (msg.intent.type === "end_round" && msg.intent.ready) {
+      void notifier.readyWaiting(room, room.players.get(bound.playerId)?.name ?? "Jemand");
+    }
+    notifyRoundIfPlayed(room);
   });
 
   ws.on("close", () => {
@@ -272,7 +304,9 @@ setInterval(() => {
     // a restart loop that reloads the same state and throws again.
     try {
       room.prunePlayers();
+      if (!reportedRounds.has(room)) reportedRounds.set(room, room.state.match?.history?.length ?? 0);
       const moved = room.tick();
+      if (moved) notifyRoundIfPlayed(room);
       // Presence can change while nothing else does (a match has no clock),
       // and the other player should see someone leave.
       const who = room.presence().map((p) => p.id).join(",");
@@ -319,7 +353,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 http.listen(WS_PORT, "127.0.0.1", () => {
   const gate = rosterGate(process.env);
   console.info(
-    `[ws] game socket on 127.0.0.1:${WS_PORT} — roster ${
+    `[ws] game socket on 127.0.0.1:${WS_PORT} — push ${notifier.enabled ? "on" : "off"} — roster ${
       gate.enforced ? `enforced (${gate.allowed.length} allowed)` : "open (development)"
     }`,
   );

@@ -18,6 +18,16 @@ Was zählt:
 - **Der Schnee geht.** Gegen Saisonende steigt die Schneegrenze; Beschneiung und höher gelegene Pisten verlängern die Saison.
 - **Ticketpreis** ist der tägliche Hebel: zu teuer vertreibt Gäste, zu billig verschenkt Geld.
 
+Zu zweit:
+
+- **Team-Chat** mit Schnell-Reaktionen (Tab «Team», am Handy die Sprechblase); Nachrichten bleiben im Gebiet.
+- **Markierungen** auf der Karte: Auge / Hammer / Warnschild wählen, auf die Stelle tippen – die andere Person sieht einen Pin mit «Schau mal», «Hier bauen?» oder «Problem».
+- **Teamwork-Bonus:** Bauen beide in einer Runde etwas, gibt es 4'000 CHF und einen Stern.
+- **Push aufs Handy** (ntfy, optional): «Michael hat Runde 3 beendet und wartet auf dich» – siehe `docs/deploy-coolify.md`.
+- **Auszeichnungen** am Partie-Ende (Pistenkönig:in, Bahnbau-Profi, Gastgeber:in …) und Rekorde im Wochenbericht.
+
+**Grafiken:** freie Texturen und Fotos (CC0) lädt `tools/textures/Get-Textures.ps1` – Anleitung in [`tools/textures/README.md`](tools/textures/README.md).
+
 Daneben gibt es das **freie Spiel** ohne Ende: Die Zeit läuft in Echtzeit, aber nur, solange jemand im Raum ist.
 
 Balancing-Zahlen stehen ausschliesslich in `packages/config/src/` (`economy.ts`, `match.ts`, `items.ts`, `quests.ts`).

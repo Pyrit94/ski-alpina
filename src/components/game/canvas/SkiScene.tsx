@@ -1194,6 +1194,72 @@ function Snowfall({ on }: { on: boolean }) {
   );
 }
 
+const MARK_STYLE: Record<"look" | "build" | "warn", { icon: string; label: string }> = {
+  look: { icon: "👀", label: "Schau mal" },
+  build: { icon: "🏗️", label: "Hier bauen?" },
+  warn: { icon: "⚠️", label: "Problem" },
+};
+
+/**
+ * "Look here" markers players leave for each other.
+ *
+ * A pin that bobs, in the player's colour, with what they meant. Presence
+ * only carries a mark while it is fresh, so they clear themselves.
+ */
+function MapMarks() {
+  const players = useGame((s) => s.players);
+  const hm = getHeightmap();
+  const pins = useRef<THREE.Group>(null);
+  const marked = players.filter((p) => p.mark);
+
+  useFrame(({ clock }) => {
+    if (!pins.current) return;
+    const t = clock.elapsedTime;
+    pins.current.children.forEach((child, i) => {
+      child.position.y = (child.userData.baseY as number) + Math.abs(Math.sin(t * 3 + i)) * 0.9;
+    });
+  });
+
+  if (marked.length === 0) return null;
+  return (
+    <group ref={pins}>
+      {marked.map((p) => {
+        const mark = p.mark!;
+        const { x, z } = hexToWorld(mark.hex.q, mark.hex.r);
+        const y = surfaceY(hm, x, z) + 1.2;
+        const color = peerColor(p.id);
+        const style = MARK_STYLE[mark.kind];
+        return (
+          <group key={p.id} position={[x, y, z]} userData={{ baseY: y }}>
+            <mesh position={[0, 0.9, 0]}>
+              <coneGeometry args={[0.55, 1.8, 12]} />
+              <meshBasicMaterial color={color} />
+            </mesh>
+            <Html center distanceFactor={110} position={[0, 4, 0]} zIndexRange={LABEL_Z}>
+              <div
+                style={{
+                  background: "#fff",
+                  color: "#16305C",
+                  border: `2px solid ${color}`,
+                  padding: "3px 9px",
+                  borderRadius: 999,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  boxShadow: "0 3px 10px rgba(11,26,48,.35)",
+                  pointerEvents: "none",
+                }}
+              >
+                {style.icon} {style.label} · {p.name}
+              </div>
+            </Html>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 /**
  * Where the other builders are pointing.
  *
@@ -1709,6 +1775,7 @@ export function SkiScene() {
       <CenterStamp />
       <StampFlash />
       <PeerFocus />
+      <MapMarks />
       <PeakLabels />
       <Snowfall on={weather === "snow" || weather === "storm"} />
     </Canvas>

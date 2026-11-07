@@ -115,11 +115,13 @@ export function startMatch(state: ResortState, presetId: MatchPresetId, now: num
     perks: { ...NO_MODS },
     score: 0,
     startedAt: now,
+    roundBuilders: [],
   };
   const next: ResortState = {
     ...base,
     resortName: state.resortName,
     hallOfFame: state.hallOfFame,
+    chat: state.chat,
     tutorialOpen: state.tutorialOpen,
     tutorialStep: state.tutorialStep,
     coins: preset.startingCoins,
@@ -137,6 +139,7 @@ export function startSandbox(state: ResortState): ResortState {
     ...base,
     resortName: state.resortName,
     hallOfFame: state.hallOfFame,
+    chat: state.chat,
     tutorialOpen: state.tutorialOpen,
     tutorialStep: state.tutorialStep,
     match: sandboxMatch(),
@@ -251,6 +254,18 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     state = applyEventChoice(state, 1, "");
   }
   const eventTitle = state.match.event?.title;
+  const eventBy = state.match.event?.chosenBy || undefined;
+
+  // Everyone had a hand in this round: a small reward, before the days run,
+  // so the coins can already work.
+  const teamwork = new Set(state.match.roundBuilders).size >= 2;
+  if (teamwork) {
+    state = {
+      ...state,
+      coins: state.coins + MATCH.teamwork.coins,
+      stars: state.stars + MATCH.teamwork.stars,
+    };
+  }
 
   // Everything planned this round is finished now.
   const done = <T extends { readyAt: number }>(e: T): T => (e.readyAt > now ? { ...e, readyAt: now } : e);
@@ -340,6 +355,8 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     coinsAfter: Math.round(state.coins),
     medal: medalThisRound,
     ...(eventTitle ? { event: eventTitle } : {}),
+    ...(eventBy ? { eventBy } : {}),
+    ...(teamwork ? { teamwork: true } : {}),
   };
 
   const round = state.match.round + 1;
@@ -348,6 +365,7 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
     ...state.match,
     round: finished ? state.match.roundsTotal : round,
     ready: [],
+    roundBuilders: [],
     history: [...state.match.history, report],
     goals,
     mods: { ...NO_MODS },

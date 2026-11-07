@@ -9,7 +9,7 @@ import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import { getDem } from "../terrain/dem.ts";
 import type { Axial } from "../hex.ts";
-import type { PlayerPresence, PlayerRole, ResortState } from "../types.ts";
+import type { ChatEntry, MapMark, MarkKind, PlayerPresence, PlayerRole, ResortState } from "../types.ts";
 
 export interface RoomPlayer {
   id: string;
@@ -21,6 +21,8 @@ export interface RoomPlayer {
   userId?: string;
   /** Hex this player is pointing at, for the others' benefit. */
   focus?: Axial | null;
+  /** Marker left for the others, with when. */
+  mark?: MapMark | null;
   /**
    * Whether they are connected right now.
    *
@@ -136,6 +138,7 @@ export class GameRoom {
         role: p.role,
         lastSeen: p.lastSeen,
         focus: p.focus ?? null,
+        mark: p.mark && Date.now() - p.mark.at < MARK_TTL_MS ? p.mark : null,
       }));
   }
 
@@ -196,6 +199,26 @@ export class GameRoom {
    * a weekend away was some 25 seasons — so coming back meant finding the game
    * played without you. Returns whether anything moved.
    */
+  /** Team chat. Kept with the resort, so a message waits for whoever is away. */
+  say(playerId: string, text: string, now = Date.now()): ChatEntry | null {
+    const player = this.players.get(playerId);
+    const clean = text.replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!player || !clean) return null;
+    player.lastSeen = now;
+    const entry: ChatEntry = { id: createId("c"), at: now, actor: player.id, actorName: player.name, text: clean };
+    this.state = { ...this.state, chat: [...(this.state.chat ?? []), entry].slice(-CHAT_LIMIT) };
+    this.seq += 1;
+    return entry;
+  }
+
+  /** A short-lived "look here" for the others. Replaces this player's last one. */
+  setMark(playerId: string, hex: Axial, kind: MarkKind, now = Date.now()): void {
+    const player = this.players.get(playerId);
+    if (!player) return;
+    player.lastSeen = now;
+    player.mark = { hex, kind, at: now };
+  }
+
   tick(now = Date.now()): boolean {
     const dt = Math.min(2.5, (now - this.lastTick) / 1000);
     this.lastTick = now;
@@ -253,6 +276,10 @@ export function accountPlayerId(userId: string): string {
 }
 
 export const TICK_MS = ECONOMY.simTickMs;
+/** How long a map marker stays up. */
+export const MARK_TTL_MS = 45_000;
+/** How many chat lines a room keeps. */
+export const CHAT_LIMIT = 60;
 export const PERSIST_MS = ECONOMY.persistMs;
 /**
  * How long a silent player stays in the presence list.

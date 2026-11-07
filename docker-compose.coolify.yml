@@ -18,6 +18,8 @@ services:
       # Leer = die zwei Konten aus DEFAULT_ROSTER (src/lib/auth/allowlist.ts).
       ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+      # Optional: Push aufs Handy, wenn die andere Person dran ist (ntfy-Thema-URL).
+      NTFY_URL: ${NTFY_URL:-}
     expose:
       - "8080"
     depends_on:

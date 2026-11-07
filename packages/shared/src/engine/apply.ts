@@ -81,7 +81,13 @@ function record(
       ].slice(0, ACTIVITY_LIMIT)
     : next.activity;
 
-  return { ...applied, state: { ...next, contributors, activity } };
+  // In a match, remember who built this round for the teamwork bonus.
+  let match = next.match;
+  if (actor && isBuild && match?.mode === "match" && !match.roundBuilders.includes(actor.id)) {
+    match = { ...match, roundBuilders: [...match.roundBuilders, actor.id] };
+  }
+
+  return { ...applied, state: { ...next, contributors, activity, match } };
 }
 
 /**

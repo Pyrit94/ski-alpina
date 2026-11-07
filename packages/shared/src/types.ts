@@ -6,7 +6,7 @@ export type Tool = "select" | "pan" | "orbit";
 export type WeatherKind = "sun" | "cloud" | "snow" | "fog" | "storm";
 export type PisteDifficulty = "blue" | "red" | "black" | "park" | "road";
 export type BuildPhase = "idle" | "place" | "lift-a" | "lift-b" | "piste";
-export type HudSheet = "none" | "build" | "info" | "quests" | "menu";
+export type HudSheet = "none" | "build" | "info" | "quests" | "menu" | "chat";
 export type PlayerRole = "builder" | "visitor";
 
 export interface Upgrades {
@@ -146,6 +146,26 @@ export interface PlayerPresence {
    * person on the mountain.
    */
   focus?: Axial | null;
+  /** A marker this player put on the map for the others, while it is fresh. */
+  mark?: MapMark | null;
+}
+
+export type MarkKind = "look" | "build" | "warn";
+
+/** "Look here": a short-lived pointer one player leaves for the other. */
+export interface MapMark {
+  hex: Axial;
+  kind: MarkKind;
+  at: number;
+}
+
+/** One line of team chat. */
+export interface ChatEntry {
+  id: string;
+  at: number;
+  actor: string;
+  actorName: string;
+  text: string;
 }
 
 /** What one player has put into the resort. Survives them leaving the room. */
@@ -209,6 +229,8 @@ export interface ResortState {
   match: MatchState;
   /** Finished matches in this room, best first. Survives starting a new one. */
   hallOfFame: MatchResult[];
+  /** Team chat, oldest first, bounded. */
+  chat: ChatEntry[];
 }
 
 /**
@@ -248,6 +270,10 @@ export interface RoundReport {
   /** Medal reached at a season's end, if this round closed one. */
   medal?: Medal | null;
   event?: string;
+  /** Who decided the round's event. */
+  eventBy?: string;
+  /** Both (all) players built something this round, and earned the bonus. */
+  teamwork?: boolean;
 }
 
 /** A decision put to the players at the start of a round. */
@@ -291,6 +317,8 @@ export interface MatchState {
   perks: RoundModifiers;
   score: number;
   startedAt: number;
+  /** Player ids who built something in the current round. */
+  roundBuilders: string[];
 }
 
 export interface MatchResult {
