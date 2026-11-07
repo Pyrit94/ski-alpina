@@ -19,6 +19,38 @@ sortiert und als Arbeitsliste gedacht.
 | Kein Save beim Stoppen | bis 4 s Bauarbeit pro Deploy verloren | letzter Save bei SIGTERM |
 | Exception im Tick | Crash-Loop mit demselben Stand | try/catch pro Raum |
 
+## Umgesetzt in Runde 2
+
+| Vorschlag | Stand |
+| --- | --- |
+| Parkhaus-Exploit, Nachfrage aus Attraktivität | umgesetzt (`flow.ts`): Spam verliert jetzt Geld, siehe `match.test.ts` |
+| Upgrades ab Stufe 1, Upgrade auf Station | behoben, alte Spielstände werden migriert |
+| Pisten ohne Zusammenhang | behoben (`validatePistePath`) |
+| Vielfalt zählt auch geschlossene Pisten | behoben |
+| Sterne ohne Funktion | Sterne = Prestige, +1 % Nachfrage je Stern (max. +40 %) |
+| Tote Sommerrunden | Partie-Saison = Winter + Schneeschmelze, Sommer wird übersprungen |
+| Partie-Modus mit Runden, Bereitschaft, Bericht, Endwertung | umgesetzt (`engine/match.ts`, `hud/MatchHUD.tsx`) |
+| Ereigniskarten, Wetterprognose | 12 Karten in `config/src/match.ts`, Prognose in der Rundenleiste |
+| HUD entrümpeln, Entwickler-Sprache, Umlaute, Zahlenformat | umgesetzt |
+| Gesperrt/zu teuer sichtbar, Farben pro Typ | umgesetzt |
+| Belohnung (Level-up, Medaille, Bericht), Ton | umgesetzt |
+| Partner sichtbar (Avatare, Bereit-Status) | umgesetzt |
+| Name vereinheitlicht | «Ski Alpina» |
+| Ticketpreis und Gebietsname bedienbar | neu (vorher gab es dafür keine Bedienung) |
+
+## Noch offen / nächste Schritte
+
+- **Feintuning nach echten Partien.** Die Zahlen sind mit Simulationen kalibriert
+  (Skripte prüfen: vernünftige Strategie ≈ Bronze/Silber, Parkhaus-Spam ≈ Verlust).
+  Nach ein, zwei Abenden spielen: `MATCH.goals`, `ECONOMY.demandPerKm`, Preise.
+- **Rollen mit Budget-Split** (Bergbahnen & Pisten / Dorf & Gastro) – bewusst noch
+  nicht gebaut, erst schauen, ob ihr es vermisst.
+- **Schlanker Produktions-Container** (Nitro-Preset `node-server` statt `vite preview`):
+  spart Speicher und Image-Grösse (heute ~1,1 GB), braucht aber einen eigenen
+  WebSocket-Proxy. Lohnt sich erst, wenn der NUC knapp wird.
+
+## Ursprüngliche Befunde (Runde 1)
+
 ## Spielmechanik: Bugs und Exploits
 
 1. **Parkhaus-Spam ist die beste Strategie.** Nachfrage ist fix pro Ankunftspunkt
