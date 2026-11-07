@@ -3,7 +3,7 @@ import { isLift } from "../../../config/src/ids.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
-import type { FlowEdgeViz, ResortState, SimStats } from "../types.ts";
+import type { FlowEdgeViz, PlacedPiste, ResortState, RoundModifiers, SimStats } from "../types.ts";
 import { buildResortGraph, VILLAGE_HEX, type DemandSource } from "./graph.ts";
 import { pisteUpkeep } from "./level.ts";
 import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
@@ -52,14 +52,41 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const comfort = sum("satisfactionBonus");
   const summerDraw = sum("summerDraw");
 
-  // Everything that scales demand up or down applies to every arrival point.
+  const mods = activeModifiers(state);
+  const snowQuality = Math.max(0, Math.min(1, state.weather.snowQuality + mods.snow));
+
+  // Where the snow actually ends today, snowmaking included.
+  const line = snowLine(state.day, snowQuality, snowmakers);
+  const snowAt = (piste: PlacedPiste) => {
+    if (mods.closed.includes(piste.difficulty)) return 0;
+    const ends = [piste.hexes[0]!, piste.hexes[piste.hexes.length - 1]!];
+    const bottom = Math.min(...ends.map((h) => worldElev(dem, h.q, h.r)));
+    return pisteSnowScale(bottom, line);
+  };
+
+  // What the mountain is worth to a skier: open kilometres, weighted by how
+  // interesting they are, plus how many kinds of run there are to choose from.
+  let weightedKm = 0;
+  const gradesOpen = new Set<string>();
+  for (const p of readyPistes) {
+    if (p.difficulty === "road") continue;
+    const snow = snowAt(p);
+    if (snow <= 0) continue;
+    const km =
+      p.difficulty === "park"
+        ? ECONOMY.parkKmEquivalent
+        : Math.max(1, p.hexes.length - 1) * FLOW.kmPerSegment;
+    weightedKm += km * (ECONOMY.gradeDraw[p.difficulty] ?? 1) * snow;
+    gradesOpen.add(p.difficulty);
+  }
+  const varietyDraw = 1 + ECONOMY.varietyDemandStep * Math.max(0, gradesOpen.size - 1);
+  const comfortDraw = 1 + Math.min(ECONOMY.comfortDemandCap, comfort * ECONOMY.comfortDemandPerPoint);
+  const prestige = 1 + Math.min(ECONOMY.prestigeCap, state.stars * ECONOMY.prestigePerStar);
+
+  // When it is worth coming at all: time of day, weather, and the price.
   const nightLights = hasLights && (state.timeOfDay < 0.3 || state.timeOfDay > 0.7);
   let appetite = hourFactor(state.timeOfDay) * (nightLights ? 1 + ECONOMY.lightsDayExtension : 1);
-  appetite *= 0.72 + state.weather.snowQuality * 0.4;
-  // Nobody comes to ski a green mountain; sightseeing keeps a fraction, and a
-  // museum or a spa claws some of the rest back.
-  const inSeason = seasonDemandShare(state.day);
-  appetite *= Math.min(1, inSeason + summerDraw * (1 - inSeason));
+  appetite *= 0.72 + snowQuality * 0.4;
   // Willingness to pay: 1 at the reference price, falling away either side of
   // it steeply enough that revenue peaks at an interior price.
   appetite *=
@@ -67,29 +94,50 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   // Reputation from last tick. Queues today cost guests tomorrow.
   const reputation = Math.max(0, Math.min(1, state.stats.satisfaction / 100));
   appetite *= ECONOMY.reputationFloor + (1 - ECONOMY.reputationFloor) * reputation;
+  appetite *= mods.demand;
   appetite = Math.max(0, appetite);
 
-  // Where the snow actually ends today, snowmaking included.
-  const line = snowLine(state.day, state.weather.snowQuality, snowmakers);
+  // Skiers come for the snow; once it is gone, only cableways that run both
+  // ways, viewpoints, the spa and the museum still bring anyone up.
+  const inSeason = seasonDemandShare(state.day);
+  const cableways = readyLifts.filter((l) => (BY_ID[l.itemId].downhillShare ?? 0) > 0).length;
+  const sightseers =
+    (1 - inSeason) *
+    (Math.min(3, cableways) * ECONOMY.sightseersPerCableway + summerDraw * ECONOMY.summerDrawScale);
+  const market =
+    (ECONOMY.demandPerKm * weightedKm * varietyDraw * comfortDraw * prestige + sightseers) * appetite;
 
-  const demands: DemandSource[] = [
-    { hex: VILLAGE_HEX, perHour: ECONOMY.walkInPerHour * appetite },
+  // The doors guests come in through. Demand beyond them is turned away.
+  const arrivals: { hex: Axial; perHour: number }[] = [
+    { hex: VILLAGE_HEX, perHour: ECONOMY.villageArrivalsPerHour },
   ];
   const exits: Axial[] = [];
   for (const b of buildings) {
     const item = BY_ID[b.itemId];
     const hex = { q: b.q, r: b.r };
-    if (b.itemId === "parking") {
-      demands.push({ hex, perHour: ECONOMY.parkingDemandPerHour * appetite });
-      exits.push(hex);
-    } else if (b.itemId === "bus") {
-      demands.push({ hex, perHour: ECONOMY.busDemandPerHour * appetite });
-      exits.push(hex);
-    } else if (item.beds) {
-      demands.push({ hex, perHour: item.beds * ECONOMY.bedOvernightShare * appetite });
-      exits.push(hex);
-    }
+    let perHour = 0;
+    if (b.itemId === "parking") perHour = ECONOMY.parkingArrivalsPerHour;
+    else if (b.itemId === "bus") perHour = ECONOMY.busArrivalsPerHour;
+    else if (item.beds) perHour = item.beds * ECONOMY.bedArrivalsPerHour;
+    if (perHour <= 0) continue;
+    arrivals.push({ hex, perHour });
+    exits.push(hex);
   }
+  const doorCapacity = arrivals.reduce((n, a) => n + a.perHour, 0);
+  const admitted = Math.min(market, doorCapacity);
+  const turnedAway = Math.max(0, market - admitted);
+  // A car park or hotel next to a lift sends its guests straight there;
+  // anything farther out shuttles them into the village. Otherwise a door in
+  // the wrong spot would swallow its share of the crowd without a trace.
+  const ports: Axial[] = [
+    ...readyLifts.flatMap((l) => [l.a, l.b]),
+    ...readyPistes.flatMap((p) => [p.hexes[0]!, p.hexes[p.hexes.length - 1]!]),
+  ];
+  const linked = (hex: Axial) => ports.some((p) => hexDistance(p, hex) <= FLOW.linkRadius);
+  const demands: DemandSource[] = arrivals.map((a) => ({
+    hex: linked(a.hex) ? a.hex : VILLAGE_HEX,
+    perHour: doorCapacity > 0 ? (admitted * a.perHour) / doorCapacity : 0,
+  }));
 
   const graph = buildResortGraph({
     lifts: readyLifts,
@@ -100,6 +148,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     pisteCapacityScale: (piste, ends) => {
       // Snow first: a run standing on bare ground carries nobody, whatever
       // else is built next to it.
+      if (mods.closed.includes(piste.difficulty)) return 0;
       let scale = pisteSnowScale(worldElev(dem, ends.bottom.q, ends.bottom.r), line);
       if (scale <= 0) return 0;
       if (piste.difficulty === "blue" && hasSchool) scale *= 1 + ECONOMY.schoolBonus;
@@ -171,16 +220,23 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const wait = Math.min(
     FLOW.maxWaitMinutes,
     (FLOW.baseWaitMinutes + congestion * FLOW.saturationWaitMinutes) *
-      (groomers > 0 ? 1 - ECONOMY.groomerWaitCut : 1),
+      (groomers > 0 ? 1 - ECONOMY.groomerWaitCut : 1) *
+      mods.wait,
   );
 
   const pisteKm = graph.pistes.reduce((n, p) => n + p.km, 0);
-  const variety = new Set(graph.pistes.map((p) => p.piste.difficulty)).size;
+  // Only runs guests actually ski count as variety: a black run joined to
+  // nothing, or one buried under the snow line, offers nobody anything.
+  const variety = new Set(
+    pisteFlow
+      .filter(({ edge, used }) => used > 0 && edge.capacity > 0 && edge.piste.difficulty !== "road")
+      .map(({ edge }) => edge.piste.difficulty),
+  ).size;
   let sat: number = ECONOMY.targetSatisfaction;
   sat += variety * ECONOMY.varietyBonus;
   sat -= wait * ECONOMY.waitPenaltyPerMinute;
   sat +=
-    Math.min(1, state.weather.snowQuality + snowmakers * ECONOMY.snowmakerQuality) *
+    Math.min(1, snowQuality + snowmakers * ECONOMY.snowmakerQuality) *
     ECONOMY.snowSatisfactionWeight;
   sat += comfort;
   // Guests who came to ski and only got a cabin ride down are not satisfied
@@ -190,15 +246,22 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   sat -= (1 - skiedShare) * inSeason * ECONOMY.noSkiingPenalty;
   sat -=
     Math.max(0, state.ticketPrice - ECONOMY.ticketReference) * ECONOMY.pricePenaltyPerFranc;
+  // Full car parks are remembered too, if less sharply than a queue.
+  if (market > 0) sat -= Math.min(8, (turnedAway / market) * 10);
   sat = Math.max(ECONOMY.minSatisfaction, Math.min(ECONOMY.maxSatisfaction, sat));
 
   // Food and retail are capacity businesses: an unbuilt restaurant sells nothing
   // and one hut cannot feed a whole mountain.
-  const occupancy = beds <= 0 ? 0 : Math.min(1, (served * ECONOMY.occupancyPerVisitor) / beds);
-  const ticketIncome = served * state.ticketPrice * (1 + tickets * ECONOMY.ticketOfficeIncomeBonus);
-  const hotelIncome = beds * occupancy * ECONOMY.hotelRatePerBedPerHour;
-  const fb = Math.min(served, seats) * ECONOMY.fbPerVisitor;
-  const retail = Math.min(served, retailCapacity) * ECONOMY.shopPerVisitor;
+  // The network counts rides; a ticket is bought once per guest.
+  const guests = served / ECONOMY.ridesPerGuest;
+  // Beds fill from everyone who wanted to come, not only those who got in.
+  const occupancy =
+    beds <= 0 ? 0 : Math.min(1, ((market / ECONOMY.ridesPerGuest) * ECONOMY.overnightShare) / beds);
+  const ticketIncome =
+    guests * state.ticketPrice * (1 + tickets * ECONOMY.ticketOfficeIncomeBonus) * mods.ticket;
+  const hotelIncome = beds * occupancy * ECONOMY.hotelRatePerBed;
+  const fb = Math.min(guests, seats) * ECONOMY.fbPerGuest;
+  const retail = Math.min(guests, retailCapacity) * ECONOMY.shopPerGuest;
   const revenue = ticketIncome + hotelIncome + fb + retail;
 
   // Upkeep runs whether or not anyone shows up, which is what makes an
@@ -216,7 +279,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   // Grooming a steep run costs more than a gentle one, so upkeep follows the
   // grade the ground gave it rather than one catalogue number.
   const runUpkeep = readyPistes.reduce((n, p) => n + pisteUpkeep(p), 0);
-  const upkeepPerHour = liftUpkeep + buildingUpkeep + runUpkeep;
+  const upkeepPerHour = (liftUpkeep + buildingUpkeep + runUpkeep) * mods.upkeep;
   const incomePerHour = revenue - upkeepPerHour;
 
   const stats: SimStats = {
@@ -225,8 +288,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     incomePerHour: Math.round(incomePerHour),
     revenuePerHour: Math.round(revenue),
     upkeepPerHour: Math.round(upkeepPerHour),
-    visitorsToday: state.stats.visitorsToday + served * dtHours,
-    visitorsTotal: state.stats.visitorsTotal + served * dtHours,
+    visitorsToday: state.stats.visitorsToday + guests * dtHours,
+    visitorsTotal: state.stats.visitorsTotal + guests * dtHours,
     occupancy,
     waitMinutes: Math.round(wait * 10) / 10,
     pisteKm: Math.round(pisteKm * 10) / 10,
@@ -242,9 +305,37 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     bottleneckUse: Math.round(bottleneckUse * 100) / 100,
     snowLineM: Math.round(line),
     closedPistes: graph.pistes.filter((p) => p.capacity <= 0).length,
+    turnedAway: Math.round(turnedAway),
+    marketPerHour: Math.round(market),
+    guestsPerHour: Math.round(guests),
   };
 
   return { stats, coinsDelta: incomePerHour * dtHours, flow };
+}
+
+export const NEUTRAL_MODS: RoundModifiers = {
+  demand: 1,
+  snow: 0,
+  wait: 1,
+  upkeep: 1,
+  ticket: 1,
+  closed: [],
+};
+
+/** This round's event effects combined with the match's lasting perks. */
+export function activeModifiers(state: ResortState): RoundModifiers {
+  const match = state.match;
+  if (!match || match.mode !== "match") return NEUTRAL_MODS;
+  const a = match.mods ?? NEUTRAL_MODS;
+  const b = match.perks ?? NEUTRAL_MODS;
+  return {
+    demand: a.demand * b.demand,
+    snow: a.snow + b.snow,
+    wait: a.wait * b.wait,
+    upkeep: a.upkeep * b.upkeep,
+    ticket: a.ticket * b.ticket,
+    closed: [...a.closed, ...b.closed],
+  };
 }
 
 export function nearestStation(state: ResortState, q: number, r: number, max = 2): string | null {

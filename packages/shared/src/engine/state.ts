@@ -2,6 +2,9 @@ import { ECONOMY } from "../../../config/src/economy.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import type {
+  MatchState,
+  RoundModifiers,
+  Upgrades,
   PisteDifficulty,
   PlacedBuilding,
   PlacedLift,
@@ -34,7 +37,35 @@ export const DEFAULT_STATS: SimStats = {
   bottleneckUse: 0,
   snowLineM: 0,
   closedPistes: 0,
+  turnedAway: 0,
+  marketPerHour: 0,
+  guestsPerHour: 0,
 };
+
+export const NO_MODS: RoundModifiers = { demand: 1, snow: 0, wait: 1, upkeep: 1, ticket: 1, closed: [] };
+
+/** Free play: no rounds, no end, the clock runs while someone is here. */
+export function sandboxMatch(): MatchState {
+  return {
+    mode: "sandbox",
+    preset: null,
+    phase: "plan",
+    round: 0,
+    roundsTotal: 0,
+    daysPerRound: 0,
+    ready: [],
+    history: [],
+    goals: [],
+    event: null,
+    mods: { ...NO_MODS },
+    perks: { ...NO_MODS },
+    score: 0,
+    startedAt: 0,
+  };
+}
+
+/** The save shape. 3: upgrades count from 0, matches. */
+export const SAVE_VERSION = 3;
 
 export const DEFAULT_WEATHER: WeatherState = {
   kind: "sun",
@@ -46,9 +77,9 @@ export const DEFAULT_WEATHER: WeatherState = {
 
 export function emptyResort(roomId = "zermatt"): ResortState {
   return {
-    version: 2,
+    version: SAVE_VERSION,
     roomId,
-    resortName: "Ski Builder",
+    resortName: "Alpina",
     coins: ECONOMY.startingCoins,
     gems: ECONOMY.startingGems,
     stars: ECONOMY.startingStars,
@@ -80,6 +111,8 @@ export function emptyResort(roomId = "zermatt"): ResortState {
     unlocked: [],
     contributors: {},
     activity: [],
+    match: sandboxMatch(),
+    hallOfFame: [],
   };
 }
 
@@ -115,6 +148,28 @@ function migratePiste(piste: PlacedPiste): PlacedPiste {
  */
 export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): ResortState {
   const base = emptyResort(roomId ?? snapshot.roomId ?? "zermatt");
+  // Before version 3 every upgrade track started at 1, which gave each lift a
+  // free +38 % and made the first paid step unreachable.
+  const shiftUpgrades = (snapshot.version ?? 1) < 3;
+  const shift = <T extends { upgrades: Upgrades }>(e: T): T =>
+    shiftUpgrades
+      ? {
+          ...e,
+          upgrades: {
+            speed: Math.max(0, (e.upgrades?.speed ?? 1) - 1),
+            cabins: Math.max(0, (e.upgrades?.cabins ?? 1) - 1),
+            capacity: Math.max(0, (e.upgrades?.capacity ?? 1) - 1),
+          },
+        }
+      : e;
+  const match = snapshot.match
+    ? {
+        ...base.match,
+        ...snapshot.match,
+        mods: { ...NO_MODS, ...snapshot.match.mods },
+        perks: { ...NO_MODS, ...snapshot.match.perks },
+      }
+    : base.match;
   return {
     ...base,
     ...snapshot,
@@ -141,13 +196,15 @@ export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): 
         tier,
       };
     }),
-    buildings: snapshot.buildings ?? [],
-    lifts: snapshot.lifts ?? [],
+    buildings: (snapshot.buildings ?? []).map(shift),
+    lifts: (snapshot.lifts ?? []).map(shift),
     pistes: (snapshot.pistes ?? []).map(migratePiste),
     flow: snapshot.flow ?? [],
     unlocked: snapshot.unlocked ?? [],
     contributors: snapshot.contributors ?? {},
     activity: snapshot.activity ?? [],
+    match,
+    hallOfFame: snapshot.hallOfFame ?? [],
   };
 }
 

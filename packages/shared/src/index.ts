@@ -20,8 +20,16 @@ export type {
   PlayerPresence,
   ResortState,
   IntentResult,
+  MatchState,
+  MatchResult,
+  MatchPreset,
+  Medal,
+  PendingEvent,
+  RoundModifiers,
+  RoundReport,
+  SeasonGoal,
 } from "./types.ts";
-export { IntentSchema, ClientMessageSchema, ServerMessageSchema, ItemIdSchema, AxialSchema } from "./protocol/intents.ts";
+export { MAX_PISTE_HEXES, IntentSchema, ClientMessageSchema, ServerMessageSchema, ItemIdSchema, AxialSchema } from "./protocol/intents.ts";
 export type { Intent, ClientMessage, ServerMessage } from "./protocol/intents.ts";
 export { generateDem, getDem, encodeTerrainRgb, decodeTerrainRgbSample } from "./terrain/dem.ts";
 export type { Dem } from "./terrain/dem.ts";
@@ -61,6 +69,22 @@ export { buildResortGraph, clusterPorts, VILLAGE_HEX } from "./engine/graph.ts";
 export type { DemandSource, GraphInput, LiftEdge, PisteEdge, ResortGraph } from "./engine/graph.ts";
 export { FlowNetwork, UNCAPPED } from "./engine/maxflow.ts";
 export { tickResort } from "./engine/tick.ts";
+export {
+  PENDING_READY,
+  applyEventChoice,
+  assetValue,
+  drawEvent,
+  eventDef,
+  inMatch,
+  resolveRound,
+  roundsPerSeason,
+  scoreBreakdown,
+  startMatch,
+  startSandbox,
+  withPreview,
+} from "./engine/match.ts";
+export type { ScoreBreakdown } from "./engine/match.ts";
+export { activeModifiers, NEUTRAL_MODS } from "./engine/flow.ts";
 export { syncQuestProgress } from "./engine/quests.ts";
 export {
   naturalSnowLine,

@@ -3,6 +3,7 @@ import { applyIntent } from "../engine/apply.ts";
 import { tickResort } from "../engine/tick.ts";
 import { validateIntent } from "../engine/validate.ts";
 import { emptyResort, migrateResort } from "../engine/state.ts";
+import { inMatch, resolveRound, withPreview } from "../engine/match.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
@@ -153,6 +154,15 @@ export class GameRoom {
       this.dem,
     );
     this.state = applied.state;
+    if (inMatch(this.state)) {
+      // Planning has no clock, so show what the change will do right away.
+      this.state = withPreview(this.state, this.dem);
+      const resolved = this.resolveIfReady(now);
+      if (resolved) {
+        this.seq += 1;
+        return { ok: true, event: resolved };
+      }
+    }
     this.seq += 1;
     return {
       ok: true,
@@ -190,9 +200,46 @@ export class GameRoom {
     const dt = Math.min(2.5, (now - this.lastTick) / 1000);
     this.lastTick = now;
     if (![...this.players.values()].some((p) => p.online)) return false;
+    if (inMatch(this.state)) {
+      // A match has no clock. The only thing that can move it is everyone
+      // who is still here being ready — which can become true when the one
+      // player who was not ready leaves.
+      if (this.resolveIfReady(now)) {
+        this.seq += 1;
+        return true;
+      }
+      return false;
+    }
     this.state = tickResort(this.state, this.dem, dt, now);
     this.seq += 1;
     return true;
+  }
+
+  /**
+   * Play the round out once every online player has pressed ready.
+   *
+   * Online, not every player ever seen: a partner who is away must not block
+   * the other, so a round can be played alone and the absent one catches up
+   * through the weekly report.
+   */
+  private resolveIfReady(now: number): RoomEvent | null {
+    const match = this.state.match;
+    if (match.mode !== "match" || match.phase !== "plan" || match.ready.length === 0) return null;
+    const online = [...this.players.values()].filter((p) => p.online && p.role === "builder");
+    if (online.length === 0 || !online.every((p) => match.ready.includes(p.id))) return null;
+    const round = match.round;
+    this.state = resolveRound(this.state, this.dem, now);
+    const report = this.state.match.history[this.state.match.history.length - 1];
+    const finished = this.state.match.phase === "finished";
+    return {
+      title: finished ? "Partie beendet" : `Runde ${round} gespielt`,
+      body: finished
+        ? `Endstand: ${this.state.match.score} Punkte.`
+        : `${report?.guests ?? 0} Gäste, ${report && report.net >= 0 ? "+" : ""}${report?.net ?? 0} CHF.`,
+      kind: "ok",
+      actorId: "",
+      actorName: "Saison",
+    };
   }
 
   snapshot(): ResortState {

@@ -7,6 +7,8 @@ import type { Intent } from "../protocol/intents.ts";
 import type { IntentResult, PlayerRole, ResortState } from "../types.ts";
 import { findEntity, occupiedSet } from "./state.ts";
 import { levelFromXp, measurePiste } from "./level.ts";
+import { eventDef } from "./match.ts";
+import { MAX_PISTE_HEXES } from "../protocol/intents.ts";
 
 export function validateHex(
   state: ResortState,
@@ -89,6 +91,17 @@ export function validatePistePath(
     const v = validateHex(state, dem, hex.q, hex.r, itemId);
     if (!v.ok) return v;
   }
+  if (hexes.length > MAX_PISTE_HEXES) {
+    return { ok: false, code: "invalid", reason: `Höchstens ${MAX_PISTE_HEXES - 1} Segmente am Stück` };
+  }
+  // Every step one hex. Checking only the points a client sent let a run of
+  // two far-apart points jump the whole slope: priced as one segment, the
+  // ground in between never graded.
+  for (let i = 1; i < hexes.length; i++) {
+    if (hexDistance(hexes[i - 1]!, hexes[i]!) !== 1) {
+      return { ok: false, code: "invalid", reason: "Piste muss zusammenhängen" };
+    }
+  }
   if (itemId === "road") return { ok: true };
   for (let i = 1; i < hexes.length; i++) {
     const prev = hexes[i - 1]!;
@@ -110,6 +123,28 @@ export function validateIntent(
   now: number,
 ): IntentResult {
   if (role !== "builder") return { ok: false, code: "rights", reason: "Keine Baurechte" };
+
+  const match = state.match;
+  if (intent.type === "start_match") return { ok: true };
+  if (intent.type === "end_round") {
+    if (match?.mode !== "match" || match.phase !== "plan") {
+      return { ok: false, code: "invalid", reason: "Keine laufende Partie" };
+    }
+    return { ok: true };
+  }
+  if (intent.type === "choose_event") {
+    const pending = match?.mode === "match" ? match.event : null;
+    if (!pending) return { ok: false, code: "invalid", reason: "Kein Ereignis offen" };
+    if (pending.chosen !== null) return { ok: false, code: "locked", reason: "Schon entschieden" };
+    const option = eventDef(pending.id)?.options[intent.option];
+    if (!option) return { ok: false, code: "invalid", reason: "Unbekannte Wahl" };
+    if ((option.cost ?? 0) > state.coins) return { ok: false, code: "budget", reason: "Zu teuer" };
+    return { ok: true };
+  }
+  // A finished match is a result to look at, not a resort to keep building.
+  if (match?.mode === "match" && match.phase === "finished" && intent.type !== "rename") {
+    return { ok: false, code: "locked", reason: "Partie ist beendet" };
+  }
 
   if (intent.type === "place_building") {
     const item = BY_ID[intent.itemId];
@@ -161,10 +196,11 @@ export function validateIntent(
   if (intent.type === "upgrade") {
     const def = UPGRADES.find((u) => u.key === intent.key);
     if (!def) return { ok: false, code: "invalid", reason: "Kein Upgrade" };
-    const target =
-      state.lifts.find((l) => l.id === intent.entityId) ??
-      state.buildings.find((b) => b.id === intent.entityId);
-    if (!target) return { ok: false, code: "invalid", reason: "Objekt fehlt" };
+    // Only cableways have upgrade tracks the simulation reads. A station id
+    // resolves to its lift, so tapping the station upgrades the lift.
+    const entity = findEntity(state, intent.entityId);
+    if (!entity || entity.kind !== "lift") return { ok: false, code: "invalid", reason: "Nur Bahnen lassen sich ausbauen" };
+    const target = entity.lift;
     if (now < target.readyAt) return { ok: false, code: "locked", reason: "Noch im Bau" };
     const cur = target.upgrades[intent.key];
     if (cur >= def.max) return { ok: false, code: "locked", reason: "Maximalstufe" };

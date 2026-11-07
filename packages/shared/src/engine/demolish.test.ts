@@ -163,8 +163,14 @@ test("a run may roll but not climb", () => {
   if (!uphill.ok) assert.equal(uphill.code, "slope");
 });
 
+test("a run must be one contiguous line of hexes", () => {
+  const state = { ...emptyResort(), xp: 999_999 };
+  const jump = validatePistePath(state, dem, "piste", [col(1), col(9)]);
+  assert.equal(jump.ok, false);
+});
+
 test("a road may climb, because it is not a run", () => {
   const state = { ...emptyResort(), xp: 999_999 };
-  const uphill = validatePistePath(state, dem, "road", [col(11), col(9)]);
+  const uphill = validatePistePath(state, dem, "road", [col(11), col(10), col(9)]);
   assert.equal(uphill.ok, true);
 });

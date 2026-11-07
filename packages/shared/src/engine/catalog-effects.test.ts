@@ -104,12 +104,13 @@ test("a museum draws guests into a green valley", () => {
   const summerDay = SEASON.daysPerYear - 2;
   const quiet = stats(busy(summerDay));
   const drawing = stats(busy(summerDay, [{ itemId: "cablecar-museum", q: -4, r: 9 }]));
-  assert.ok(drawing.demandPerHour > quiet.demandPerHour);
-  // And it changes nothing in deep winter, when everyone is coming anyway.
-  assert.equal(
-    stats(busy(10, [{ itemId: "cablecar-museum", q: -4, r: 9 }])).demandPerHour,
-    stats(busy(10)).demandPerHour,
-  );
+  assert.ok(drawing.marketPerHour > quiet.marketPerHour);
+  // In deep winter it is only a little comfort; in the green season it is
+  // what brings anyone up at all.
+  const winterGain =
+    stats(busy(10, [{ itemId: "cablecar-museum", q: -4, r: 9 }])).marketPerHour / stats(busy(10)).marketPerHour;
+  const summerGain = drawing.marketPerHour / Math.max(1, quiet.marketPerHour);
+  assert.ok(summerGain > winterGain);
 });
 
 test("a glacier lift cannot be planted in the valley", () => {

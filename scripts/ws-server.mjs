@@ -28,6 +28,8 @@ const DATABASE_URL = process.env.DATABASE_URL?.trim();
 const rooms = new Map();
 /** `seq` of each room at its last save, so an idle resort is not rewritten every few seconds. */
 const savedSeq = new Map();
+/** Last presence each room broadcast, to notice arrivals and departures. */
+const presenceSeen = new WeakMap();
 /** Saved resorts that failed to load. Never served and never overwritten. */
 const quarantined = new Set();
 /** Sockets currently in a room, so a snapshot reaches everyone in it. */
@@ -270,7 +272,14 @@ setInterval(() => {
     // a restart loop that reloads the same state and throws again.
     try {
       room.prunePlayers();
-      if (room.tick()) broadcast(room.state.roomId, snapshotOf(room));
+      const moved = room.tick();
+      // Presence can change while nothing else does (a match has no clock),
+      // and the other player should see someone leave.
+      const who = room.presence().map((p) => p.id).join(",");
+      if (moved || presenceSeen.get(room) !== who) {
+        presenceSeen.set(room, who);
+        broadcast(room.state.roomId, snapshotOf(room));
+      }
     } catch (err) {
       console.error(`[ws] tick failed for ${room.state.roomId}`, err);
     }

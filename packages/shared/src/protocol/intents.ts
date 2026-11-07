@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { ITEM_IDS } from "../../../config/src/ids.ts";
 
+/** Longest run one stroke may draw. The client stops the draft here too. */
+export const MAX_PISTE_HEXES = 48;
+
 export const AxialSchema = z.object({
   q: z.number().int().min(-80).max(80),
   r: z.number().int().min(-80).max(80),
@@ -26,7 +29,7 @@ export const IntentSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("place_piste"),
     itemId: ItemIdSchema,
-    hexes: z.array(AxialSchema).min(2).max(48),
+    hexes: z.array(AxialSchema).min(2).max(MAX_PISTE_HEXES),
   }),
   z.object({
     type: z.literal("upgrade"),
@@ -54,6 +57,21 @@ export const IntentSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("dismiss_tutorial"),
+  }),
+  // Start a match of the given length, or go back to free play. Either one
+  // clears the valley; the client asks before sending it.
+  z.object({
+    type: z.literal("start_match"),
+    preset: z.enum(["kurz", "normal", "lang", "sandbox"]),
+  }),
+  // "I'm done with this round" — or, with ready false, "wait, not yet".
+  z.object({
+    type: z.literal("end_round"),
+    ready: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("choose_event"),
+    option: z.number().int().min(0).max(1),
   }),
 ]);
 

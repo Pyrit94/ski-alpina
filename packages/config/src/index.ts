@@ -16,3 +16,5 @@ export {
   MAX_PISTE_SLOPE,
 } from "./terrain.ts";
 export type { PisteGrade } from "./terrain.ts";
+export { MATCH, EVENTS } from "./match.ts";
+export type { MatchPresetId, MatchPresetDef, EventDef, EventEffect, EventOption } from "./match.ts";

@@ -70,6 +70,14 @@ export type TerrainDetail = {
    * is a full-screen surface and this is a per-fragment cost.
    */
   bump: number;
+  /**
+   * How strongly bare rock breaks through on steep faces, evaluated per
+   * fragment from the surface normal. The vertex colours already carry rock
+   * by slope, but at 1.2 units a vertex that boundary is a soft smear; this
+   * puts a ragged, noise-broken edge on it — the crags and ribs that make a
+   * face read as a mountain. Zero drops it (the data overlays).
+   */
+  rock: number;
 };
 
 /**
@@ -84,9 +92,15 @@ export const TERRAIN_DETAIL: Record<"low" | "high", TerrainDetail> = {
   // Albedo break-up only. The ground covers most of the screen, so the two
   // extra samples a normal gradient costs are the difference between a phone
   // holding its frame rate and not.
-  low: { octaves: 2, scale: 0.13, albedo: 0.14, bump: 0 },
-  high: { octaves: 3, scale: 0.14, albedo: 0.17, bump: 0.85 },
+  low: { octaves: 2, scale: 0.13, albedo: 0.14, bump: 0, rock: 0.85 },
+  high: { octaves: 3, scale: 0.14, albedo: 0.17, bump: 0.85, rock: 1 },
 };
+
+/**
+ * The height and heat overlays are read as data, so they get no detail at all:
+ * noise on a legend is just noise.
+ */
+export const OVERLAY_DETAIL: TerrainDetail = { octaves: 1, scale: 0.14, albedo: 0, bump: 0, rock: 0 };
 
 /**
  * A standard material with the detail shader patched in.
@@ -97,8 +111,10 @@ export const TERRAIN_DETAIL: Record<"low" | "high", TerrainDetail> = {
 export function makeTerrainMaterial(detail: TerrainDetail): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.88,
-    metalness: 0.02,
+    // Snow is not matte: a touch of sheen on the sunward slopes is what
+    // separates it from white plaster.
+    roughness: 0.8,
+    metalness: 0,
   });
 
   material.onBeforeCompile = (shader) => {
@@ -106,11 +122,23 @@ export function makeTerrainMaterial(detail: TerrainDetail): THREE.MeshStandardMa
     shader.uniforms.uDetailAlbedo = { value: detail.albedo };
     shader.uniforms.uDetailBump = { value: detail.bump };
 
+    shader.uniforms.uRock = { value: detail.rock };
+
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vSkiWorld;")
+      .replace(
+        "#include <common>",
+        `#include <common>
+attribute float skiAO;
+varying vec3 vSkiWorld;
+varying vec3 vSkiUp;
+varying float vSkiAO;`,
+      )
       .replace(
         "#include <begin_vertex>",
-        "#include <begin_vertex>\nvSkiWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+        `#include <begin_vertex>
+vSkiWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vSkiUp = normalize(mat3(modelMatrix) * objectNormal);
+vSkiAO = skiAO;`,
       );
 
     shader.fragmentShader = shader.fragmentShader
@@ -118,7 +146,11 @@ export function makeTerrainMaterial(detail: TerrainDetail): THREE.MeshStandardMa
         "#include <common>",
         `#include <common>
 #define SKI_OCTAVES ${Math.max(1, Math.round(detail.octaves))}
+#define SKI_ROCK ${detail.rock > 0 ? 1 : 0}
 varying vec3 vSkiWorld;
+varying vec3 vSkiUp;
+varying float vSkiAO;
+uniform float uRock;
 uniform float uDetailScale;
 uniform float uDetailAlbedo;
 uniform float uDetailBump;
@@ -132,7 +164,31 @@ ${NOISE_GLSL}`,
 {
   float skiN = skiFbm(vSkiWorld * uDetailScale);
   diffuseColor.rgb *= 1.0 + (skiN - 0.5) * uDetailAlbedo;
+#if SKI_ROCK
+  // Steepness from the interpolated normal. The DEM's vertical scale is about
+  // twice its horizontal, so 0.45 here is roughly a 37 degree real slope —
+  // where snow stops holding. The noise shifts the threshold so the edge is
+  // ragged crag rather than a contour line.
+  float skiSteep = 1.0 - clamp(normalize(vSkiUp).y, 0.0, 1.0);
+  float skiJag = (skiN - 0.5) * 0.32;
+  float skiRock = smoothstep(0.4 + skiJag, 0.56 + skiJag, skiSteep) * uRock;
+  // Warm grey-brown gneiss, banded by the same noise so it is not one flat tone.
+  vec3 skiStone = mix(vec3(0.12, 0.10, 0.085), vec3(0.27, 0.235, 0.2), skiN);
+  diffuseColor.rgb = mix(diffuseColor.rgb, skiStone, skiRock);
+#endif
+  // A little of the occlusion in the albedo itself, so a gully reads even
+  // where the sky light is weak; the rest goes on the sky light below.
+  diffuseColor.rgb *= mix(1.0, vSkiAO, 0.3);
 }`,
+      )
+      // Occlusion belongs on the light that comes from the whole sky, not on
+      // the sun: a couloir in full sun is bright, the same couloir in shade is
+      // darker and bluer than the open slope beside it.
+      .replace(
+        "#include <aomap_fragment>",
+        `#include <aomap_fragment>
+reflectedLight.indirectDiffuse *= vSkiAO;
+reflectedLight.indirectSpecular *= vSkiAO;`,
       );
 
     if (detail.bump > 0) {
@@ -157,15 +213,15 @@ ${NOISE_GLSL}`,
   // to the same program without this, so the second one silently renders with
   // the first one's shader.
   material.customProgramCacheKey = () =>
-    `ski-terrain-${detail.octaves}-${detail.bump > 0 ? "bump" : "flat"}`;
+    `ski-terrain-${detail.octaves}-${detail.bump > 0 ? "bump" : "flat"}-${detail.rock > 0 ? "rock" : "bare"}`;
 
   return material;
 }
 
 /** `makeTerrainMaterial` as a hook, disposed with the component. */
-export function useTerrainMaterial(quality: "low" | "high") {
+export function useTerrainMaterial(quality: "low" | "high" | "overlay") {
   const material = useMemo(
-    () => makeTerrainMaterial(TERRAIN_DETAIL[quality]),
+    () => makeTerrainMaterial(quality === "overlay" ? OVERLAY_DETAIL : TERRAIN_DETAIL[quality]),
     [quality],
   );
   useEffect(() => () => material.dispose(), [material]);

@@ -117,12 +117,25 @@ test("stranded lifts add no income however many you build", () => {
   assert.equal(padded2.stats.idleLifts, 8);
 });
 
-test("demand that cannot be routed is reported as queued, not as served", () => {
-  let state = circuit(VILLAGE_HEX, 1, 9);
-  // Car parks in the village pour in far more guests than one chair can lift.
-  for (let i = 0; i < 12; i++) {
+/**
+ * More mountain than one T-bar can lift: three runs from its top station back
+ * to the village, and enough car parks to let the crowd in.
+ */
+function crowded(): ResortState {
+  let state: ResortState = { ...emptyResort(), timeOfDay: MIDDAY, stats: { ...emptyResort().stats, satisfaction: 95 } };
+  state = applyIntent(state, { type: "place_lift", itemId: "tbar", a: VILLAGE_HEX, b: col(1) }, BUILT).state;
+  for (const dq of [0, 1, -1]) {
+    const hexes = run(1, 9).map((h) => ({ q: h.q + dq, r: h.r }));
+    state = applyIntent(state, { type: "place_piste", itemId: "piste", hexes }, BUILT).state;
+  }
+  for (let i = 0; i < 6; i++) {
     state = applyIntent(state, { type: "place_building", itemId: "parking", q: -6, r: 10 }, BUILT).state;
   }
+  return state;
+}
+
+test("demand that cannot be routed is reported as queued, not as served", () => {
+  const state = crowded();
   const flowed = tickFlow(state, dem, 0.2, NOW);
   assert.ok(flowed.stats.demandPerHour > flowed.stats.peoplePerHour);
   assert.equal(
@@ -132,10 +145,7 @@ test("demand that cannot be routed is reported as queued, not as served", () => 
 });
 
 test("a saturated edge is named so the player knows what to widen", () => {
-  let state = circuit(VILLAGE_HEX, 1, 9);
-  for (let i = 0; i < 12; i++) {
-    state = applyIntent(state, { type: "place_building", itemId: "parking", q: -6, r: 10 }, BUILT).state;
-  }
+  const state = crowded();
   const flowed = tickFlow(state, dem, 0.2, NOW);
   assert.ok(flowed.stats.bottleneckUse >= 0.92);
   assert.notEqual(flowed.stats.bottleneckLabel, "");
@@ -160,26 +170,43 @@ test("food and retail revenue needs the buildings that serve it", () => {
 });
 
 test("a restaurant has to earn its keep before it pays", () => {
-  // At 4.20 a head it needs a real crowd to cover 260 a day, which is the
-  // decision: build it too early and it is a drain.
+  // With nobody on the mountain it is pure upkeep; with guests it pays.
   const withRestaurant = (state: ResortState) =>
     applyIntent(state, { type: "place_building", itemId: "restaurant", q: -5, r: 8 }, BUILT).state;
-  const quiet = circuit(VILLAGE_HEX, 1, 9);
+  const empty = { ...emptyResort(), timeOfDay: MIDDAY };
   assert.ok(
-    tickFlow(withRestaurant(quiet), dem, 0.2, NOW).stats.incomePerHour <
-      tickFlow(quiet, dem, 0.2, NOW).stats.incomePerHour,
-    "a restaurant for 38 guests a day should not pay for itself",
+    tickFlow(withRestaurant(empty), dem, 0.2, NOW).stats.incomePerHour <
+      tickFlow(empty, dem, 0.2, NOW).stats.incomePerHour,
+    "a restaurant in an empty valley should be a drain",
   );
-
-  let busy = quiet;
-  for (let i = 0; i < 10; i++) {
-    busy = applyIntent(busy, { type: "place_building", itemId: "parking", q: -6, r: 9 }, BUILT).state;
-  }
+  const busy = crowded();
   assert.ok(
     tickFlow(withRestaurant(busy), dem, 0.2, NOW).stats.incomePerHour >
       tickFlow(busy, dem, 0.2, NOW).stats.incomePerHour,
-    "with a full mountain it should",
+    "with a full mountain it should pay",
   );
+});
+
+test("car parks alone do not create guests", () => {
+  // The old exploit: a valley paved with parking and one T-bar. Doors let
+  // guests in; only the mountain makes them want to come.
+  let few = circuit(VILLAGE_HEX, 1, 9);
+  few = applyIntent(few, { type: "place_building", itemId: "parking", q: -6, r: 10 }, BUILT).state;
+  let many = few;
+  for (let i = 0; i < 8; i++) {
+    many = applyIntent(many, { type: "place_building", itemId: "parking", q: -6, r: 10 }, BUILT).state;
+  }
+  const a = tickFlow(few, dem, 0.2, NOW).stats;
+  const b = tickFlow(many, dem, 0.2, NOW).stats;
+  // Equal up to rounding of how arrivals are split between the doors.
+  assert.ok(b.peoplePerHour <= a.peoplePerHour * 1.02, `${b.peoplePerHour} vs ${a.peoplePerHour}`);
+  assert.ok(b.incomePerHour < a.incomePerHour, "eight idle car parks only cost upkeep");
+});
+
+test("more open piste draws more guests", () => {
+  const one = tickFlow(circuit(VILLAGE_HEX, 1, 9), dem, 0.2, NOW).stats;
+  const three = tickFlow(crowded(), dem, 0.2, NOW).stats;
+  assert.ok(three.marketPerHour > one.marketPerHour * 2);
 });
 
 test("upkeep is charged whether or not anyone comes", () => {
@@ -245,7 +272,7 @@ test("reputation from the last tick moves today's demand", () => {
   const base = circuit(VILLAGE_HEX, 1, 9);
   const loved = tickFlow({ ...base, stats: { ...base.stats, satisfaction: 99 } }, dem, 0.2, NOW);
   const loathed = tickFlow({ ...base, stats: { ...base.stats, satisfaction: 30 } }, dem, 0.2, NOW);
-  assert.ok(loved.stats.demandPerHour > loathed.stats.demandPerHour);
+  assert.ok(loved.stats.marketPerHour > loathed.stats.marketPerHour);
 });
 
 test("vertical transported grows with the height a lift climbs", () => {
