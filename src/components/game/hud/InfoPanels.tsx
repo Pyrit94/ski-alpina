@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Move, Trash2 } from "lucide-react";
+import { MapPin, Move, Trash2 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { BY_ID, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, liftThroughput, seasonPhase } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
 import { BUILDING_LEVELS, PISTE_LEVELS, TERRAIN } from "@ski/config";
-import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, scorePiste, siteAt, siteContext, siteKind, widthDef } from "@ski/shared";
+import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, midStationSpots, scorePiste, siteAt, siteContext, siteKind, widthDef, type ResortState } from "@ski/shared";
 import { RatingChip, RatingParts } from "./PisteRating";
 import { ReshapeOne } from "./Reshape";
 import { pct, siteTone } from "@/lib/game/placement";
@@ -94,7 +94,7 @@ export function InfoPanel() {
   const coins = useMyMoney().mine;
   // A station stands for its lift: that is what carries guests and what
   // upgrades act on.
-  const lift = lifts.find((l) => l.id === selectedId || l.stationA === selectedId || l.stationB === selectedId);
+  const lift = lifts.find((l) => l.id === selectedId || l.stationA === selectedId || l.stationB === selectedId || l.stationMid === selectedId);
   const b = lift ? undefined : buildings.find((x) => x.id === selectedId);
   const piste = pistes.find((p) => p.id === selectedId);
   const item = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : piste ? BY_ID[piste.itemId] : null;
@@ -175,6 +175,7 @@ export function InfoPanel() {
       )}
       {lift && <LinkStatus id={lift.id} kind="lift" />}
       {lift && <AutoPistesButton liftId={lift.id} variant="link" className="mt-1" />}
+      {lift && !lift.mid && <MidStationOffer liftId={lift.id} />}
       {lift && edge && edge.link === "ok" && load < LOW_USE && <LowUseHint />}
       {isLift(item.id) && (
         <div className="mt-3">
@@ -789,6 +790,59 @@ function SiteRow({ id, itemId, q, r }: { id: string; itemId: string; q: number; 
           ? "Ein gewöhnlicher Platz."
           : report.effects.map((e) => `${e.label} ${e.delta > 0 ? "+" : "−"}${Math.round(Math.abs(e.delta) * 100)} %`).join(" · ")}
       </p>
+    </div>
+  );
+}
+
+/**
+ * «Mittelstation»: a stop part-way up, where guests get on and off and runs
+ * can start or end. Three places along the line to choose from.
+ */
+function MidStationOffer({ liftId }: { liftId: string }) {
+  const lifts = useStableGame((s) => s.lifts);
+  const buildings = useStableGame((s) => s.buildings);
+  const pistes = useStableGame((s) => s.pistes);
+  const [open, setOpen] = useState(false);
+  const spots = useMemo(() => {
+    if (!open) return [];
+    const all = midStationSpots({ ...useGame.getState(), lifts, buildings, pistes } as unknown as ResortState, getDem(), liftId);
+    if (all.length <= 3) return all;
+    return [all[Math.floor(all.length * 0.25)]!, all[Math.floor(all.length / 2)]!, all[Math.floor(all.length * 0.75)]!];
+  }, [open, lifts, buildings, pistes, liftId]);
+  const lift = lifts.find((l) => l.id === liftId);
+  if (!lift) return null;
+  const cost = Math.round(BY_ID[lift.itemId].cost * ECONOMY.midStationShare);
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="mt-1 flex min-h-11 items-center gap-1.5 text-[12px] font-semibold text-accent">
+        <MapPin className="size-4" /> Mittelstation bauen
+      </button>
+    );
+  }
+  const labels = ["Weiter unten", "In der Mitte", "Weiter oben"];
+  return (
+    <div className="mt-2 rounded-[14px] bg-ice p-2.5 text-[12px] text-navy">
+      <div className="font-semibold">Mittelstation · {fmt(cost)}</div>
+      <p className="text-[11px] leading-snug text-muted">Gäste steigen unterwegs ein und aus, Pisten können dort beginnen und enden.</p>
+      {spots.length === 0 ? (
+        <p className="mt-1 text-[11px] text-warn">Auf dieser Linie ist kein Platz für eine Station – zu steil oder zu kurz.</p>
+      ) : (
+        <div className="mt-1.5 grid gap-1" style={{ gridTemplateColumns: `repeat(${spots.length}, minmax(0, 1fr))` }}>
+          {spots.map((h, i) => (
+            <button
+              key={`${h.q},${h.r}`}
+              type="button"
+              onClick={() => {
+                useGame.getState().sendPlan([{ type: "add_mid_station", liftId, q: h.q, r: h.r }]);
+                setOpen(false);
+              }}
+              className="min-h-11 rounded-full bg-accent px-2 text-[11px] font-bold text-panel"
+            >
+              {spots.length === 3 ? labels[i] : `Platz ${i + 1}`}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

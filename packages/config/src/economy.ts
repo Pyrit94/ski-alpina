@@ -109,6 +109,10 @@ export const ECONOMY = {
   openingDemand: 1.6,
   parkingArrivalsPerHour: 320,
   busArrivalsPerHour: 280,
+  /** A middle station costs this share of its lift's price. */
+  midStationShare: 0.35,
+  /** …and must stand at least this many hexes from either end. */
+  midStationGap: 3,
   /** A station brings a whole train of day guests. */
   trainArrivalsPerHour: 520,
   /** Arrivals per hour per hotel bed: hotel guests are already here. */

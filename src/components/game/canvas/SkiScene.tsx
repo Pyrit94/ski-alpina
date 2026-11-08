@@ -611,6 +611,7 @@ function Structures() {
       const b = hexToWorld(l.b.q, l.b.r);
       out.set(l.stationA, stationYaw(a, b));
       out.set(l.stationB, stationYaw(b, a));
+      if (l.stationMid) out.set(l.stationMid, stationYaw(a, b));
     }
     return out;
   }, [lifts]);
@@ -788,20 +789,36 @@ function liftLine(l: PlacedLift, hm: Heightmap): LiftLine {
   const a = new THREE.Vector3(aw.x, surfaceY(hm, aw.x, aw.z), aw.z);
   const b = new THREE.Vector3(bw.x, surfaceY(hm, bw.x, bw.z), bw.z);
   const span = Math.hypot(b.x - a.x, b.z - a.z);
-  const count = Math.max(1, Math.round(span / PYLON_SPACING) - 1);
-  const towers: THREE.Vector3[] = [];
-  for (let i = 1; i <= count; i++) {
-    const t = i / (count + 1);
-    const x = a.x + (b.x - a.x) * t;
-    const z = a.z + (b.z - a.z) * t;
-    towers.push(new THREE.Vector3(x, surfaceY(hm, x, z), z));
-  }
   const stationTop = STATION_CABLE_Y;
-  const tops = [
-    new THREE.Vector3(a.x, a.y + stationTop, a.z),
-    ...towers.map((t) => new THREE.Vector3(t.x, t.y + PYLON_HEIGHT, t.z)),
-    new THREE.Vector3(b.x, b.y + stationTop, b.z),
-  ];
+  // Towers between two points, planted on the ground beneath.
+  const between = (p: THREE.Vector3, q: THREE.Vector3) => {
+    const bay = Math.hypot(q.x - p.x, q.z - p.z);
+    const count = Math.max(1, Math.round(bay / PYLON_SPACING) - 1);
+    const out: THREE.Vector3[] = [];
+    for (let i = 1; i <= count; i++) {
+      const t = i / (count + 1);
+      const x = p.x + (q.x - p.x) * t;
+      const z = p.z + (q.z - p.z) * t;
+      out.push(new THREE.Vector3(x, surfaceY(hm, x, z), z));
+    }
+    return out;
+  };
+  const top = (v: THREE.Vector3) => new THREE.Vector3(v.x, v.y + stationTop, v.z);
+  const mast = (t: THREE.Vector3) => new THREE.Vector3(t.x, t.y + PYLON_HEIGHT, t.z);
+  let towers: THREE.Vector3[];
+  let tops: THREE.Vector3[];
+  if (l.mid) {
+    // The rope runs through the middle station like through the others.
+    const mw = hexToWorld(l.mid.q, l.mid.r);
+    const m = new THREE.Vector3(mw.x, surfaceY(hm, mw.x, mw.z), mw.z);
+    const lower = between(a, m);
+    const upper = between(m, b);
+    towers = [...lower, ...upper];
+    tops = [top(a), ...lower.map(mast), top(m), ...upper.map(mast), top(b)];
+  } else {
+    towers = between(a, b);
+    tops = [top(a), ...towers.map(mast), top(b)];
+  }
   const dir = new THREE.Vector3(b.x - a.x, 0, b.z - a.z).normalize();
   const side = new THREE.Vector3(-dir.z, 0, dir.x);
   return { a, b, towers, tops, side, span };
@@ -1322,7 +1339,7 @@ function Pistes() {
     }
     const runLines = pistes.filter((p) => p.difficulty !== "road" && lines.has(p.id)).map((p) => lines.get(p.id)!);
     // Lift stations a run may start or end beside, in world units.
-    const stations = lifts.flatMap((l) => [l.a, l.b]);
+    const stations = lifts.flatMap((l) => [l.a, l.b, ...(l.mid ? [l.mid] : [])]);
     const stationNear = (hex: { q: number; r: number }) => {
       let best: { q: number; r: number } | null = null;
       let bestD = Infinity;

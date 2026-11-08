@@ -26,6 +26,7 @@ import { validateEditPiste } from "./piste-edit.ts";
 import { villageMovable } from "./site.ts";
 import { accessAt } from "./access.ts";
 import { validateLevel } from "./terraform.ts";
+import { validateMidStation } from "./mid-station.ts";
 import { withEdits } from "../terrain/edits.ts";
 import { validateProposalIntent } from "./proposals.ts";
 import { validateReshape } from "./piste-reshape.ts";
@@ -381,6 +382,7 @@ export function validateIntent(
   if (intent.type === "edit_piste") return validateEditPiste(state, dem, intent, actorId);
   if (intent.type === "reshape_piste") return validateReshape(state, dem, intent, money);
   if (intent.type === "level_ground") return validateLevel(state, dem, intent.q, intent.r, money);
+  if (intent.type === "add_mid_station") return validateMidStation(state, dem, intent, money);
 
 
   if (isResearchIntent(intent)) return validateResearch(state, intent, ctx);

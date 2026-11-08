@@ -40,8 +40,10 @@ export type PisteLink = "ok" | "dead-end" | "unreached";
 
 export interface LiftEdge {
   lift: PlacedLift;
-  /** Metered edge for the ride up. */
+  /** Metered edge for the ride up (to the middle station, when there is one). */
   uphill: number;
+  /** Middle station to top, when the lift has a middle station. */
+  upper?: number;
   /**
    * Metered edge for the ride down, once descents are open. Null until then,
    * and null for a lift whose guests can only ride it uphill.
@@ -239,7 +241,9 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
   const villagePort = addPort(dem.region.villageHex);
   const liftPorts = lifts.map((lift) => {
     const [base, top] = byElevation(dem, lift.a, lift.b);
-    return { lift, base, top, basePort: addPort(base), topPort: addPort(top) };
+    // A middle station splits the ride: guests board and leave there too.
+    const midPort = lift.mid ? addPort(lift.mid) : null;
+    return { lift, base, top, basePort: addPort(base), topPort: addPort(top), midPort };
   });
   const runs = pistes.filter((p) => p.difficulty !== "road");
   const roads = pistes.filter((p) => p.difficulty === "road");
@@ -262,7 +266,7 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
   const runEnds = oriented.flatMap((o) => [o.hexes[0]!, o.hexes[o.hexes.length - 1]!]);
   const fixed = [
     dem.region.villageHex,
-    ...liftPorts.flatMap((p) => [p.base, p.top]),
+    ...liftPorts.flatMap((p) => [p.base, p.top, ...(p.lift.mid ? [p.lift.mid] : [])]),
     ...runEnds,
     ...demands.map((d) => d.hex),
     ...exits,
@@ -298,6 +302,8 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
     return { into: at, out: at + 1 };
   };
   const liftGadgets = liftPorts.map(() => gadget());
+  // The upper half of a lift with a middle station: its own metered stretch.
+  const upperGadgets = liftPorts.map((p) => (p.midPort === null ? null : gadget()));
   const descentGadgets = liftPorts.map(() => gadget());
   const segmentGadgets = pistePorts.map((p) => p.nodes.slice(1).map(() => gadget()));
 
@@ -339,10 +345,25 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
     net.addEdge(up(baseCluster), g.into, UNCAPPED);
     net.addEdge(down(baseCluster), g.into, UNCAPPED);
     const uphill = net.addEdge(g.into, g.out, capacity);
-    net.addEdge(g.out, up(topCluster), UNCAPPED);
+    let upper: number | undefined;
+    const ug = upperGadgets[i];
+    if (ug && p.midPort !== null) {
+      // Base to middle, then middle to top: each stretch carries the lift's
+      // capacity, and the middle is a place like any station.
+      const midCluster = cluster[p.midPort]!;
+      net.addEdge(g.out, up(midCluster), UNCAPPED);
+      net.addEdge(up(midCluster), ug.into, UNCAPPED);
+      net.addEdge(ground(midCluster), ug.into, UNCAPPED);
+      net.addEdge(down(midCluster), ug.into, UNCAPPED);
+      upper = net.addEdge(ug.into, ug.out, capacity);
+      net.addEdge(ug.out, up(topCluster), UNCAPPED);
+    } else {
+      net.addEdge(g.out, up(topCluster), UNCAPPED);
+    }
     const edge: LiftEdge = {
       lift: p.lift,
       uphill,
+      ...(upper !== undefined ? { upper } : {}),
       downhill: null,
       capacity,
       base: p.base,
