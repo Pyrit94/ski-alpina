@@ -26,6 +26,7 @@ export function GamePicker({ playerName }: { playerName: string }) {
   const [busy, setBusy] = useState(false);
   const [newName, setNewName] = useState("");
   const [region, setRegion] = useState(REGIONS[0]!.id);
+  const [newOpen, setNewOpen] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -90,9 +91,29 @@ export function GamePicker({ playerName }: { playerName: string }) {
 
   const shared = games.filter((g) => g.kind === "shared");
   const own = games.filter((g) => g.kind === "own");
+  // The game last played, one tap away: what most visits are for.
+  const last = [...games].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const showNew = newOpen || games.length === 0;
   return (
     <div className="mt-6 flex w-full flex-col gap-4 sm:max-w-md">
       {error && <p className="text-[13px] font-medium text-[#ffd18a]">{error}</p>}
+      {last && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => play(last.id)}
+          className="flex min-h-14 w-full items-center gap-3 rounded-full bg-accent py-2 pl-5 pr-3 text-left text-panel shadow-lg disabled:opacity-60"
+        >
+          <Play className="size-5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-bold leading-tight">Weiterspielen</span>
+            <span className="block truncate text-[12px] opacity-85">
+              {last.name} · {REGION_BY_ID[last.region]?.name ?? "Alpina"}
+            </span>
+          </span>
+          <ChevronRight className="size-5 shrink-0" />
+        </button>
+      )}
       <GameGroup
         title="Gemeinsame Spiele"
         icon={<Users className="size-4" />}
@@ -107,6 +128,15 @@ export function GamePicker({ playerName }: { playerName: string }) {
         empty="Noch kein eigenes Spiel."
         {...{ open, setOpen, confirm, setConfirm, busy, play, load, remove }}
       />
+      {!showNew ? (
+        <button
+          type="button"
+          onClick={() => setNewOpen(true)}
+          className="flex h-12 w-full items-center justify-center gap-1.5 rounded-full bg-snow/10 text-[14px] font-semibold text-snow ring-1 ring-snow/20"
+        >
+          <Plus className="size-4" /> Neues Spiel
+        </button>
+      ) : (
       <div className="rounded-[20px] bg-snow/10 p-3 ring-1 ring-snow/15">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-ice">Neues Spiel · Wo wollt ihr bauen?</div>
         <div className="mt-2">
@@ -139,6 +169,7 @@ export function GamePicker({ playerName }: { playerName: string }) {
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 }

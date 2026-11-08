@@ -6,8 +6,6 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { loadName } from "@/lib/game/net";
 import { GamePicker } from "./GamePicker";
 
-const FEATURES = ["Zu zweit", "Echtes Matterhorn-Gelände", "Lifte · Pisten · Hotels"];
-
 /** Better Auth sends refused sign-ins back with `?error=…`. */
 function signInError(): string | null {
   if (typeof window === "undefined") return null;
@@ -50,7 +48,7 @@ export function StartScreen() {
           </svg>
           <div>
             <div className="text-base font-bold tracking-wide lg:text-lg">SKI ALPINA</div>
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-ice">Wallis · Zermatt</div>
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-ice">Echte Skigebiete der Alpen</div>
           </div>
         </div>
 
@@ -59,18 +57,8 @@ export function StartScreen() {
             Gemeinsam ein Skigebiet bauen
           </h1>
           <p className="mt-3 max-w-md text-[15px] leading-relaxed text-ice lg:mt-4">
-            Lifte spannen, Pisten ziehen, das Dorf wachsen lassen — zu zweit auf echtem Alpengelände rund ums Matterhorn.
+            Lifte spannen, Pisten ziehen – zu zweit, von Zermatt bis St. Anton.
           </p>
-          <div className="mt-4 flex flex-wrap gap-1.5">
-            {FEATURES.map((f) => (
-              <span
-                key={f}
-                className="rounded-full bg-snow/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ice ring-1 ring-snow/15"
-              >
-                {f}
-              </span>
-            ))}
-          </div>
           {needsSignIn ? (
             <div className="mt-6 flex w-full flex-col gap-3 sm:max-w-md">
               <button

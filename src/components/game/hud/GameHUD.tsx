@@ -15,11 +15,9 @@ import {
   ChevronRight,
   Gem,
   Hammer,
-  Hand,
   Hotel,
   ListChecks,
   Mountain,
-  MousePointer2,
   RotateCw,
   Snowflake,
   Star,
@@ -30,7 +28,9 @@ import {
   X,
   FlaskConical,
   Settings,
+  Smile,
   Sparkles,
+  Users,
 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
@@ -236,16 +236,10 @@ export function GameHUD() {
             {!desktop && <BuildHint />}
             {desktop && <CenterTools />}
             {desktop && <Attribution />}
-            {desktop && <DesktopTutorial />}
             <ActionRail />
             {desktop && <DesktopPanel />}
             {desktop && <DesktopCorners />}
             {!desktop && <MobileFloats />}
-            {!desktop && (
-              <div className="pointer-events-auto absolute left-3 top-3 z-20 flex flex-col items-start gap-2">
-                <MarkButtons vertical />
-              </div>
-            )}
             {!desktop && (
               <div className="absolute inset-x-0 top-3 z-20 flex justify-center px-16">
                 <MarkHint />
@@ -324,7 +318,10 @@ function TopBar() {
       <div className="flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto lg:justify-center lg:gap-2">
         <MyPurseChip coin={<Coin />} />
         <Currency n={gems} icon={<Gem className="size-4 text-gem" />} label="Edelsteine" />
-        <Currency n={stars} icon={<Star className="size-4 fill-star text-star" />} label="Prestige: jeder Stern +1 % Gäste" />
+        <span className="hidden lg:contents">
+          <Currency n={stars} icon={<Star className="size-4 fill-star text-star" />} label="Prestige: jeder Stern +1 % Gäste" />
+        </span>
+        <GuestsChip />
         <LevelChip />
         <div className="hidden items-center gap-2 rounded-full bg-panel/92 px-3 py-1.5 text-[11px] font-medium text-muted shadow-[var(--shadow-chip)] lg:flex">
           <WeatherIcon className="size-3.5 text-accent" />
@@ -336,6 +333,30 @@ function TopBar() {
         <Avatars />
       </div>
     </header>
+  );
+}
+
+/**
+ * Guests and how happy they are, up top where a city builder shows its
+ * population and happiness. Tapping opens Betrieb.
+ */
+function GuestsChip() {
+  const guests = useGame((s) => s.stats.guestsPerHour);
+  const happy = useGame((s) => s.stats.satisfaction);
+  const setSheet = useGame((s) => s.setSheet);
+  const tone = happy < 55 ? "text-danger" : happy < 75 ? "text-warn" : "text-success";
+  return (
+    <button
+      type="button"
+      onClick={() => setSheet("info")}
+      aria-label={`${guests} Gäste pro Stunde, ${happy} % zufrieden`}
+      className="value flex shrink-0 items-center gap-1.5 rounded-full bg-panel/92 px-2.5 py-1.5 text-[12px] font-bold text-navy shadow-[var(--shadow-chip)]"
+    >
+      <Users className="size-3.5 text-accent" />
+      {fmtCompact(guests)}
+      <Smile className={`size-3.5 ${tone}`} />
+      <span className={tone}>{happy}%</span>
+    </button>
   );
 }
 
@@ -435,90 +456,6 @@ function Currency({ n, icon, label }: { n: number; icon: ReactNode; label: strin
   );
 }
 
-
-
-/**
- * The tutorial, collapsible.
- *
- * On a phone this card took some forty per cent of the height, over the map it
- * is telling you to build on — so it can be folded down to a single line and
- * reopened. Collapsing is not dismissing: the step is kept, so folding it away
- * to look at the mountain does not cost you the rest of the tutorial.
- */
-function TutorialCard({ compact = false }: { compact?: boolean }) {
-  const open = useGame((s) => s.tutorialOpen);
-  const step = useGame((s) => s.tutorialStep);
-  const next = useGame((s) => s.nextTutorial);
-  const dismiss = useGame((s) => s.dismissTutorial);
-  const [folded, setFolded] = useState(false);
-  if (!open) return null;
-  const copy = [
-    { t: "Lift rauf", b: "Wähle «Sessellift». Tippe die Talstation beim Dorf, dann die Bergstation oben am Hang." },
-    { t: "Piste runter", b: "Tippe «Abfahrt anlegen». Die Piste folgt dem Hang zur nächsten Talstation, ins Dorf oder auf eine Piste. «Bauen» – fertig." },
-    { t: "Gäste fahren", b: "Zeigt der Lift «Verbunden ✓», kommen Gäste. Mehr Pisten in allen Farben bringen mehr Gäste." },
-  ];
-  const last = copy.length - 1;
-  const shown = Math.min(step, last);
-  const c = copy[shown]!;
-
-  if (folded) {
-    return (
-      <Panel className="overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setFolded(false)}
-          className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wide text-accent">Tutorial</span>
-          <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-navy">{c.t}</span>
-          <span className="value shrink-0 text-[10px] font-bold text-muted">{shown + 1}/{copy.length}</span>
-          <ChevronRight className="size-4 shrink-0 -rotate-90 text-muted" />
-        </button>
-      </Panel>
-    );
-  }
-
-  return (
-    <Panel className="overflow-hidden">
-      <div className={compact ? "p-2.5" : "p-3"}>
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-accent">
-              Tutorial {shown + 1}/{copy.length}
-            </div>
-            <div className={`mt-0.5 font-semibold text-navy ${compact ? "text-[13px]" : "text-[14px]"}`}>{c.t}</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFolded(true)}
-            aria-label="Tutorial einklappen"
-            className="grid size-8 shrink-0 place-items-center rounded-full bg-ice text-muted"
-          >
-            <ChevronRight className="size-4 rotate-90" />
-          </button>
-        </div>
-        <p className="mt-1 text-[11px] leading-snug text-muted">{c.b}</p>
-        <div className={`flex gap-1.5 ${compact ? "mt-2" : "mt-3"}`}>
-          <button
-            type="button"
-            onClick={dismiss}
-            className="btn-3d btn-3d-light h-10 shrink-0 rounded-full bg-ice px-4 text-[12px] font-bold text-navy"
-          >
-            Überspringen
-          </button>
-          <button
-            type="button"
-            onClick={step >= last ? dismiss : next}
-            className="btn-3d flex h-10 flex-1 items-center justify-center gap-1 rounded-full bg-accent text-[13px] font-bold text-panel"
-            style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
-          >
-            {step >= last ? "Loslegen" : "Weiter"} <ChevronRight className="size-4" />
-          </button>
-        </div>
-      </div>
-    </Panel>
-  );
-}
 
 
 /** Copernicus attribution, required wherever the terrain is shown. */
@@ -1277,32 +1214,16 @@ function MobileAlert() {
 
 /** Difficulty colours, matching the run edges drawn on the mountain. */
 function CenterTools() {
-  const tool = useGame((s) => s.tool);
-  const setTool = useGame((s) => s.setTool);
   const phase = useGame((s) => s.phase);
+  const sheet = useGame((s) => s.sheet);
   const cancel = useGame((s) => s.cancelBuild);
   const building = phase !== "idle";
+  if (sheet === "build") return null;
   // While building the editor card carries Bauen/Zurück/Abbrechen; the map
-  // layers and markers make room so the bar never runs over itself.
+  // layers make room so the bar never runs over itself.
   return (
     <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 hidden max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1.5 lg:flex">
-      {!building && (
-        <>
-          <LayerTabs />
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-navy/15" />
-          <MarkButtons />
-          <span className="mx-0.5 h-6 w-px shrink-0 bg-navy/15" />
-        </>
-      )}
-      <ToolBtn active={tool === "select"} onClick={() => setTool("select")} label="Auswahl">
-        <MousePointer2 className="size-4" />
-      </ToolBtn>
-      <ToolBtn active={tool === "pan"} onClick={() => setTool("pan")} label="Verschieben">
-        <Hand className="size-4" />
-      </ToolBtn>
-      <ToolBtn active={tool === "orbit"} onClick={() => setTool("orbit")} label="Drehen">
-        <Mountain className="size-4" />
-      </ToolBtn>
+      {!building && <LayerTabs />}
       {building && phase !== "piste" && (
         <button
           type="button"
@@ -1314,19 +1235,6 @@ function CenterTools() {
         </button>
       )}
     </div>
-  );
-}
-
-function ToolBtn({ active, onClick, children, label }: { active: boolean; onClick: () => void; children: ReactNode; label: string }) {
-  return (
-    <button
-      type="button"
-      title={label}
-      onClick={onClick}
-      className={`grid size-10 place-items-center rounded-[14px] shadow-[var(--shadow-chip)] ${active ? "bg-accent text-panel" : "bg-panel/92 text-navy"}`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -1383,8 +1291,6 @@ function MobileDock() {
   const confirm = useGame((s) => s.confirmHover);
   const buildItem = useGame((s) => s.buildItem);
   const hover = useGame((s) => s.hover);
-  const weather = useGame((s) => s.weather);
-  const stats = useGame((s) => s.stats);
   const item = buildItem ? BY_ID[buildItem] : null;
   const building = phase !== "idle";
   const ok = hover?.valid === true;
@@ -1415,9 +1321,6 @@ function MobileDock() {
         <div className="flex min-w-0 items-center gap-1.5">
           <MobileAlert />
           <MobilePresence />
-        </div>
-        <div className="value shrink-0 rounded-full bg-panel/92 px-2.5 py-1 text-[11px] font-bold text-navy shadow-[var(--shadow-chip)]">
-          {weather.tempC}° · {fmtCompact(stats.guestsPerHour)} Gäste · {stats.satisfaction}%
         </div>
       </div>
       {building && (phase === "piste" ? <PisteEditor compact /> : <StampTray />)}
@@ -1468,17 +1371,12 @@ function MobileDock() {
 
 /** Idle phone dock: menu and camera bottom left, the big Bauen bottom right. */
 function MobileCorners() {
-  const tool = useGame((s) => s.tool);
-  const setTool = useGame((s) => s.setTool);
   const sheet = useGame((s) => s.sheet);
   return (
     <div className="flex items-end justify-between gap-2">
       <div className="flex items-end gap-2">
         <RoundButton label="Menü" onClick={() => toggleSheet(sheet, "menu")} active={sheet === "menu"}>
           <Settings className="size-5" />
-        </RoundButton>
-        <RoundButton label={tool === "pan" ? "Schieben" : "Drehen"} onClick={() => setTool(tool === "pan" ? "orbit" : "pan")}>
-          {tool === "pan" ? <Hand className="size-5" /> : <RotateCw className="size-5" />}
         </RoundButton>
       </div>
       <BigBuildButton />
@@ -1591,14 +1489,15 @@ function DesktopCorners() {
   );
 }
 
-/** Desktop: the tutorial, top left, where the build list used to be. */
-function DesktopTutorial() {
-  const open = useGame((s) => s.tutorialOpen);
-  const phase = useGame((s) => s.phase);
-  if (!open || phase !== "idle") return null;
+/** Pings for the other player: tap one, then the spot on the map. */
+function TeamMarks() {
+  const setSheet = useGame((s) => s.setSheet);
   return (
-    <div className="pointer-events-auto absolute left-3 top-2 z-20 w-[292px]">
-      <TutorialCard />
+    <div className="rounded-[16px] bg-ice/70 p-2.5">
+      <div className="mb-1.5 text-[11px] font-semibold text-navy">Etwas auf der Karte zeigen</div>
+      <div onClickCapture={() => setTimeout(() => setSheet("none"), 0)}>
+        <MarkButtons />
+      </div>
     </div>
   );
 }
@@ -1667,6 +1566,7 @@ function DesktopPanel() {
           {kind === "chat" && (
             <div className="flex flex-col gap-2">
               <PlayersLine />
+              <TeamMarks />
               <ChatPanel />
             </div>
           )}
@@ -1837,14 +1737,12 @@ function StampTray() {
 function MobileFloats() {
   const sheet = useGame((s) => s.sheet);
   const selectedId = useGame((s) => s.selectedId);
-  const tutorialOpen = useGame((s) => s.tutorialOpen);
   const phase = useGame((s) => s.phase);
   const buildings = useGame((s) => s.buildings);
   const lifts = useGame((s) => s.lifts);
   const pistes = useGame((s) => s.pistes);
   const selectEntity = useGame((s) => s.selectEntity);
   const setSheet = useGame((s) => s.setSheet);
-  const showTutorial = tutorialOpen && sheet === "none" && phase === "idle" && !selectedId;
   const showSelected = !!selectedId && sheet === "none" && phase === "idle";
   const lift = lifts.find((l) => l.id === selectedId);
   const b = buildings.find((x) => x.id === selectedId);
@@ -1869,19 +1767,10 @@ function MobileFloats() {
           <AutoPistesPanel />
         </div>
       )}
-      {phase !== "piste" && (
-        <div className="flex justify-center">
-          <DescentOffer />
-        </div>
-      )}
+      <DescentOffer />
       <div className="flex justify-center empty:hidden">
         <NextStepChip />
       </div>
-      {showTutorial && (
-        <div className="toast-in pointer-events-auto">
-          <TutorialCard compact />
-        </div>
-      )}
       {showSelected && selectedItem && (
         <button
           type="button"
@@ -1927,6 +1816,7 @@ function MobileFloats() {
 
 function MobileSheets() {
   const sheet = useGame((s) => s.sheet);
+  const selectedId = useGame((s) => s.selectedId);
   const setSheet = useGame((s) => s.setSheet);
   if (sheet === "none" || sheet === "build") return null;
   const title =
@@ -1968,13 +1858,6 @@ function MobileSheets() {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
           {sheet === "quests" && (
             <div className="flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={() => useGame.getState().setSheet("research")}
-                className="flex min-h-11 items-center justify-between rounded-[14px] bg-accent-soft/40 px-3 text-[13px] font-semibold text-navy"
-              >
-                Forschung öffnen <ChevronRight className="size-4" />
-              </button>
               <MatchGoalsPanel />
               <VipCard />
               <SecretGoalCard />
@@ -1985,7 +1868,7 @@ function MobileSheets() {
           )}
           {sheet === "info" && (
             <div className="flex flex-col gap-2">
-              <InfoPanel />
+              {selectedId && <InfoPanel />}
               <OperationsPanel />
               <TicketPricePanel />
               <WalletPanel />
@@ -1994,7 +1877,12 @@ function MobileSheets() {
             </div>
           )}
           {sheet === "menu" && <MobileMenuBody />}
-          {sheet === "chat" && <ChatPanel compact />}
+          {sheet === "chat" && (
+            <div className="flex flex-col gap-3">
+              <TeamMarks />
+              <ChatPanel compact />
+            </div>
+          )}
           {sheet === "research" && <ResearchPanel compact />}
         </div>
       </div>

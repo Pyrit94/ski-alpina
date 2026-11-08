@@ -21,9 +21,7 @@ export function NextStepChip({ className = "" }: { className?: string }) {
   const flow = useGame((s) => s.flow);
   const coins = useGame((s) => s.coins);
   const phase = useGame((s) => s.phase);
-  const tutorialOpen = useGame((s) => s.tutorialOpen);
   const selectedId = useGame((s) => s.selectedId);
-  const descentOffer = useGame((s) => s.descentOffer);
   const autoOpen = useGame((s) => s.autoPistes !== null);
   const links = useResortLinks();
   const [, setTick] = useState(0);
@@ -42,9 +40,7 @@ export function NextStepChip({ className = "" }: { className?: string }) {
       }),
     [lifts, pistes, buildings, stats, flow, links, coins],
   );
-  if (!step || phase !== "idle" || tutorialOpen || selectedId || autoOpen || dismissed.has(step.id)) return null;
-  // A lift built a moment ago already has its own offer card for the descent.
-  if (step.action?.kind === "descent" && step.action.liftId === descentOffer) return null;
+  if (!step || phase !== "idle" || selectedId || autoOpen || dismissed.has(step.id)) return null;
   const Icon = step.tone === "fix" ? Wrench : Lightbulb;
   return (
     <div

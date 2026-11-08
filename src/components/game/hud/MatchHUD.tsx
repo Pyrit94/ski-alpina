@@ -211,31 +211,14 @@ export function RoundBar({ mobile = false }: { mobile?: boolean }) {
   const players = useGame((s) => s.players);
   const me = useGame((s) => s.playerId);
   const endRound = useGame((s) => s.endRound);
-  const openSetup = useGame((s) => s.setMatchSetupOpen);
   const forecast = useForecast();
 
   const shell = mobile
     ? "pointer-events-auto mb-1.5 flex w-full items-center gap-2 rounded-[20px] bg-panel/95 p-1.5 pl-3 shadow-[var(--shadow-panel)] backdrop-blur-md"
     : "pointer-events-auto flex items-center gap-3 rounded-full bg-panel/95 py-1.5 pl-4 pr-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md";
 
-  if (match.mode !== "match") {
-    return (
-      <div className={shell}>
-        <div className="min-w-0 flex-1 leading-tight">
-          <div className="text-[12px] font-bold text-navy">Freies Spiel</div>
-          <div className="text-[10px] text-muted">Die Zeit läuft, solange jemand da ist.</div>
-        </div>
-        <button
-          type="button"
-          onClick={() => openSetup(true)}
-          className="btn-3d flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-accent px-4 text-[12px] font-bold text-panel"
-          style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
-        >
-          <Flag className="size-4" /> Partie starten
-        </button>
-      </div>
-    );
-  }
+  // Free play needs no bar: «Partie starten» lives in the menu and in Ziele.
+  if (match.mode !== "match") return null;
 
   if (match.phase === "finished") {
     return (
@@ -645,15 +628,15 @@ export function MatchSetupModal() {
         <ul className="mt-4 flex flex-col gap-2 text-[12px] leading-snug text-muted">
           <li className="flex gap-2">
             <Users className="mt-0.5 size-4 shrink-0 text-accent" />
-            Ihr baut gleichzeitig. Wenn alle Anwesenden «Runde beenden» drücken, rechnet das Spiel zehn Tage durch.
+            Gleichzeitig bauen, dann «Runde beenden»: 10 Tage laufen.
           </li>
           <li className="flex gap-2">
             <Sparkles className="mt-0.5 size-4 shrink-0 text-coin" />
-            Viele Runden bringen ein Ereignis mit zwei Optionen – Weltcup, Föhnsturm, Lawinengefahr …
+            Ereignisse mit zwei Wahlen, z. B. Weltcup oder Föhnsturm.
           </li>
           <li className="flex gap-2">
             <Trophy className="mt-0.5 size-4 shrink-0 text-star" />
-            Pro Saison gibt es Bronze, Silber oder Gold für eure Gäste. Am Ende zählen Kasse, Anlagen, Gäste, Zufriedenheit und Medaillen.
+            Medaillen pro Saison, am Schluss eine Punktzahl.
           </li>
         </ul>
         <div className="mt-4 rounded-[18px] bg-snow/60 p-2">
