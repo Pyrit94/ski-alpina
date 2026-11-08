@@ -18,6 +18,7 @@ import { applyProposalIntent } from "./proposals.ts";
 import { scorePiste } from "./piste-score.ts";
 import { applyReshape } from "./piste-reshape.ts";
 import { applyLevel } from "./terraform.ts";
+import { applyMidStation } from "./mid-station.ts";
 
 export interface Applied {
   state: ResortState;
@@ -324,7 +325,7 @@ function applyOne(
           gems: state.gems + (item.gemCost ?? 0),
           xp: Math.max(0, state.xp - item.xp),
           lifts: state.lifts.filter((l) => l.id !== lift.id),
-          buildings: state.buildings.filter((b) => b.id !== lift.stationA && b.id !== lift.stationB),
+          buildings: state.buildings.filter((b) => b.id !== lift.stationA && b.id !== lift.stationB && b.id !== lift.stationMid),
         },
         title: "Rückgängig",
         body: `${item.name} zurückgenommen, voller Preis zurück.`,
@@ -415,7 +416,7 @@ function applyOne(
       state: {
         ...state,
         lifts: state.lifts.map((l) => {
-          if (l.id !== intent.entityId && l.stationA !== intent.entityId && l.stationB !== intent.entityId) return l;
+          if (l.id !== intent.entityId && l.stationA !== intent.entityId && l.stationB !== intent.entityId && l.stationMid !== intent.entityId) return l;
           const { name: _old, ...rest } = l;
           void _old;
           return name ? { ...rest, name } : rest;
@@ -447,7 +448,7 @@ function applyOne(
           lifts: state.lifts.filter((l) => l.id !== lift.id),
           // The two station buildings go with the cableway they belong to.
           buildings: state.buildings.filter(
-            (b) => b.id !== lift.stationA && b.id !== lift.stationB,
+            (b) => b.id !== lift.stationA && b.id !== lift.stationB && b.id !== lift.stationMid,
           ),
         },
         title: "Abgerissen",
@@ -627,6 +628,7 @@ function applyOne(
   if (intent.type === "edit_piste") return applyEditPiste(state, intent, dem);
   if (intent.type === "reshape_piste") return applyReshape(state, dem, intent);
   if (intent.type === "level_ground") return applyLevel(state, dem, intent);
+  if (intent.type === "add_mid_station") return applyMidStation(state, intent, now, actor);
 
   if (intent.type === "dismiss_tutorial") {
     return {

@@ -202,13 +202,16 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const served = skiedDown + graph.net.maxFlow(graph.source, graph.sink);
   const unserved = Math.max(0, graph.offered - served);
 
-  const liftFlow = graph.lifts.map((l) => ({ edge: l, used: graph.net.flowOn(l.uphill) }));
+  // A lift with a middle station is as busy as its busier half.
+  const riders = (l: (typeof graph.lifts)[number]) =>
+    Math.max(graph.net.flowOn(l.uphill), l.upper !== undefined ? graph.net.flowOn(l.upper) : 0);
+  const liftFlow = graph.lifts.map((l) => ({ edge: l, used: riders(l) }));
   const pisteFlow = graph.pistes.map((p) => ({ edge: p, used: pisteUse(graph.net, p) }));
   // Then the laps guests ride on top. They show where people actually are —
   // a lift fed by another lift's run is busy, not idle — but takings, queues
   // and the bottleneck stay with the guests who came in.
   graph.addLaps(Math.round(served * FLOW.lapShare));
-  const liftShown = graph.lifts.map((l) => graph.net.flowOn(l.uphill));
+  const liftShown = graph.lifts.map((l) => riders(l));
   const pisteShown = graph.pistes.map((p) => pisteUse(graph.net, p));
 
   const flow: FlowEdgeViz[] = [

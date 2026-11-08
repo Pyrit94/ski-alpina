@@ -269,7 +269,7 @@ export type ResortEntity =
 export function findEntity(state: ResortState, id: string): ResortEntity | null {
   const lift =
     state.lifts.find((l) => l.id === id) ??
-    state.lifts.find((l) => l.stationA === id || l.stationB === id);
+    state.lifts.find((l) => l.stationA === id || l.stationB === id || l.stationMid === id);
   if (lift) return { kind: "lift", lift };
   const building = state.buildings.find((b) => b.id === id);
   if (building) return { kind: "building", building };
@@ -391,6 +391,7 @@ export function occupiedSet(state: ResortState): Set<string> {
   for (const l of state.lifts) {
     set.add(`${l.a.q},${l.a.r}`);
     set.add(`${l.b.q},${l.b.r}`);
+    if (l.mid) set.add(`${l.mid.q},${l.mid.r}`);
   }
   return set;
 }

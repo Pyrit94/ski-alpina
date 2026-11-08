@@ -112,6 +112,7 @@ export { planVillage } from "./engine/village.ts";
 export { withEdits } from "./terrain/edits.ts";
 export type { TerrainEdits } from "./terrain/edits.ts";
 export { validateLevel } from "./engine/terraform.ts";
+export { midStationCost, midStationSpots } from "./engine/mid-station.ts";
 export { accessAt, accessNeed, onPiste, onRoad } from "./engine/access.ts";
 export { bestReshape, reshapeAll } from "./engine/piste-reshape.ts";
 export type { Reshape } from "./engine/piste-reshape.ts";

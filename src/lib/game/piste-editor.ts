@@ -117,7 +117,7 @@ function startDraft(hex: Axial): boolean {
 /** Hexes a suggested route should go around: buildings, and the draft itself. */
 function routeAvoid(draft: readonly Axial[]): Set<string> {
   const g = useGame.getState();
-  const stations = new Set(g.lifts.flatMap((l) => [l.stationA, l.stationB]));
+  const stations = new Set(g.lifts.flatMap((l) => [l.stationA, l.stationB, ...(l.stationMid ? [l.stationMid] : [])]));
   const out = new Set<string>();
   for (const b of g.buildings) if (!stations.has(b.id)) out.add(`${b.q},${b.r}`);
   for (const h of draft.slice(0, -1)) out.add(key(h));

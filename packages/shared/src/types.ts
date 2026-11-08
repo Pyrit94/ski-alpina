@@ -38,6 +38,9 @@ export interface PlacedLift {
   b: Axial;
   stationA: string;
   stationB: string;
+  /** A middle station, where guests get on and off and runs may start or end. */
+  mid?: Axial;
+  stationMid?: string;
   level: number;
   builtAt: number;
   readyAt: number;

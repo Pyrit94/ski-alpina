@@ -29,6 +29,7 @@ export function onRoad(state: Layout, dem: Dem, hex: Axial): boolean {
 export function onPiste(state: Layout, hex: Axial): boolean {
   for (const l of state.lifts) {
     if (hexDistance(l.a, hex) <= ACCESS.pisteReach || hexDistance(l.b, hex) <= ACCESS.pisteReach) return true;
+    if (l.mid && hexDistance(l.mid, hex) <= ACCESS.pisteReach) return true;
   }
   for (const p of state.pistes) {
     if (p.difficulty === "road") continue;

@@ -88,6 +88,11 @@ export function pisteAnchors(state: ResortState, dem: Dem): Anchor[] {
     const aHigh = elevAt(dem, l.a) > elevAt(dem, l.b);
     out.push({ hex: aHigh ? l.a : l.b, kind: "lift-top", id: l.id });
     out.push({ hex: aHigh ? l.b : l.a, kind: "lift-base", id: l.id });
+    // A middle station is both: runs leave from it and end at it.
+    if (l.mid) {
+      out.push({ hex: l.mid, kind: "lift-top", id: l.id });
+      out.push({ hex: l.mid, kind: "lift-base", id: l.id });
+    }
   }
   for (const p of state.pistes) {
     if (p.difficulty === "road" || p.hexes.length < 2) continue;

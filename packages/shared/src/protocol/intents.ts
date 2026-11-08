@@ -53,6 +53,13 @@ export const IntentSchema = z.discriminatedUnion("type", [
     name: z.string().trim().max(32).optional(),
     width: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   }),
+  // A middle station on a lift already built.
+  z.object({
+    type: z.literal("add_mid_station"),
+    liftId: z.string().min(2).max(48),
+    q: z.number().int(),
+    r: z.number().int(),
+  }),
   // «Gelände ebnen»: make one hex of valley floor level.
   z.object({
     type: z.literal("level_ground"),
