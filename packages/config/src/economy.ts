@@ -61,6 +61,18 @@ export const ECONOMY = {
    */
   demolishRefund: 0.45,
   /**
+   * «Rückgängig»: for this many seconds after building, the builder can take
+   * it back for the full price. A mis-tap on a phone should not cost money.
+   * In a match, everything planned for the round counts as still undoable.
+   */
+  undoSeconds: 30,
+  /** Moving a building costs this share of its price. */
+  moveCostShare: 0.1,
+  /** Free-play speeds: pause, normal, fast. */
+  speeds: [0, 1, 3] as readonly number[],
+  /** Days of history kept for the charts in Betrieb. */
+  historyDays: 30,
+  /**
    * Guests per hour that one weighted kilometre of open piste draws.
    *
    * Demand comes from what the mountain offers, not from how many car parks

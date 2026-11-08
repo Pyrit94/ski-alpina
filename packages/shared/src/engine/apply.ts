@@ -6,9 +6,9 @@ import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { QuestState, ResortState } from "../types.ts";
 import { GRADE_LABEL, pisteDifficulty } from "./level.ts";
-import { buildingLevel, entityCost, expansionCost, findEntity, pisteExpansionCost, pisteLevel, TUTORIAL_STEPS } from "./state.ts";
+import { buildingLevel, entityCost, expansionCost, findEntity, moveCost, pisteExpansionCost, pisteLevel, TUTORIAL_STEPS } from "./state.ts";
 import { followTutorial } from "./tutorial.ts";
-import { surveyPiste } from "./validate.ts";
+import { pisteCost, surveyPiste } from "./validate.ts";
 import { applyEditPiste } from "./piste-edit.ts";
 import { continueFree, inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
 import { applyEventWeights, recordVote, settleActorCoins, walletKey } from "./rules.ts";
@@ -299,6 +299,98 @@ function applyOne(
       title: "Freies Spiel",
       body: "Keine Runden mehr: Das Tal läuft weiter, solange jemand da ist.",
       kind: "ok",
+    };
+  }
+
+  if (intent.type === "undo") {
+    const entity = findEntity(state, intent.entityId)!;
+    // The full price back, and the XP it gave: as if it had never been built.
+    if (entity.kind === "lift") {
+      const { lift } = entity;
+      const item = BY_ID[lift.itemId];
+      return {
+        state: {
+          ...state,
+          coins: state.coins + buildCost(state, lift.itemId),
+          gems: state.gems + (item.gemCost ?? 0),
+          xp: Math.max(0, state.xp - item.xp),
+          lifts: state.lifts.filter((l) => l.id !== lift.id),
+          buildings: state.buildings.filter((b) => b.id !== lift.stationA && b.id !== lift.stationB),
+        },
+        title: "Rückgängig",
+        body: `${item.name} zurückgenommen, voller Preis zurück.`,
+        kind: "info",
+      };
+    }
+    if (entity.kind === "building") {
+      const b = entity.building;
+      const item = BY_ID[b.itemId];
+      return {
+        state: {
+          ...state,
+          coins: state.coins + buildCost(state, b.itemId),
+          gems: state.gems + (item.gemCost ?? 0),
+          xp: Math.max(0, state.xp - item.xp),
+          buildings: state.buildings.filter((x) => x.id !== b.id),
+        },
+        title: "Rückgängig",
+        body: `${item.name} zurückgenommen, voller Preis zurück.`,
+        kind: "info",
+      };
+    }
+    const p = entity.piste;
+    const item = BY_ID[p.itemId];
+    const segs = Math.max(1, p.hexes.length - 1);
+    const paid = discounted(state, dem ? pisteCost(dem, p.itemId, p.hexes, p.width) : item.cost * segs);
+    return {
+      state: {
+        ...state,
+        coins: state.coins + paid,
+        xp: Math.max(0, state.xp - item.xp * segs),
+        pistes: state.pistes.filter((x) => x.id !== p.id),
+      },
+      title: "Rückgängig",
+      body: `${p.name ?? item.name} zurückgenommen, voller Preis zurück.`,
+      kind: "info",
+    };
+  }
+
+  if (intent.type === "move_building") {
+    const entity = findEntity(state, intent.entityId);
+    const b = entity?.kind === "building" ? entity.building : null;
+    if (!b) return { state, title: "Verschieben", body: "Nichts zu verschieben.", kind: "warn" };
+    return {
+      state: {
+        ...state,
+        coins: state.coins - discounted(state, moveCost(state, b.itemId)),
+        buildings: state.buildings.map((x) => (x.id === b.id ? { ...x, q: intent.q, r: intent.r } : x)),
+      },
+      title: "Verschoben",
+      body: `${BY_ID[b.itemId].name} steht jetzt am neuen Platz.`,
+      kind: "ok",
+    };
+  }
+
+  if (intent.type === "set_speed") {
+    const label = intent.speed === 0 ? "Pausiert" : intent.speed === 1 ? "Normales Tempo" : "Schnell (3×)";
+    return { state: { ...state, speed: intent.speed }, title: "Spieltempo", body: label, kind: "info" };
+  }
+
+  if (intent.type === "name_lift") {
+    const name = intent.name.trim();
+    return {
+      state: {
+        ...state,
+        lifts: state.lifts.map((l) => {
+          if (l.id !== intent.entityId && l.stationA !== intent.entityId && l.stationB !== intent.entityId) return l;
+          const { name: _old, ...rest } = l;
+          void _old;
+          return name ? { ...rest, name } : rest;
+        }),
+      },
+      title: "Umbenannt",
+      body: name ? `Die Bahn heisst jetzt «${name}».` : "Name entfernt.",
+      kind: "info",
     };
   }
 

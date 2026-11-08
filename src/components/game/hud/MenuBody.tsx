@@ -25,6 +25,7 @@ export function MobileMenuBody() {
       <MenuSection title="Partie">
         <MobileMatchRows />
       </MenuSection>
+      <SpeedSection />
       <MenuSection title="Karte">
         <div className="p-1.5">
           <LayerTabs />
@@ -48,6 +49,35 @@ export function MobileMenuBody() {
       </MenuSection>
       <p className="px-1 text-[10px] leading-snug text-subtle">{TERRAIN.attribution}</p>
     </div>
+  );
+}
+
+/** Free play only: pause, normal, fast. A match runs by rounds instead. */
+function SpeedSection() {
+  const mode = useGame((s) => s.match.mode);
+  const speed = useGame((s) => s.speed ?? 1);
+  const setSpeed = useGame((s) => s.setSpeed);
+  if (mode === "match") return null;
+  const options: { v: 0 | 1 | 3; label: string }[] = [
+    { v: 0, label: "Pause" },
+    { v: 1, label: "Normal" },
+    { v: 3, label: "Schnell 3×" },
+  ];
+  return (
+    <MenuSection title="Spieltempo">
+      <div className="grid grid-cols-3 gap-1 p-1.5">
+        {options.map((o) => (
+          <button
+            key={o.v}
+            type="button"
+            onClick={() => setSpeed(o.v)}
+            className={`min-h-11 rounded-full text-[13px] font-semibold ${speed === o.v ? "bg-accent text-panel" : "text-navy"}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </MenuSection>
   );
 }
 

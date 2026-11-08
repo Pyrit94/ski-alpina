@@ -5,7 +5,7 @@ import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { IntentResult, PlayerRole, ResortState } from "../types.ts";
-import { expandable, expansionCost, findEntity, occupiedSet, pisteExpandable, pisteExpansionCost } from "./state.ts";
+import { expandable, expansionCost, findEntity, moveCost, occupiedSet, pisteExpandable, pisteExpansionCost, undoable } from "./state.ts";
 import { measurePiste } from "./level.ts";
 import { eventDef } from "./match.ts";
 import { roleAllows, spendable, walletKey, walletMode } from "./rules.ts";
@@ -290,6 +290,40 @@ export function validateIntent(
   if (intent.type === "demolish") {
     const entity = findEntity(state, intent.entityId);
     if (!entity) return { ok: false, code: "invalid", reason: "Objekt fehlt" };
+    return { ok: true };
+  }
+
+  if (intent.type === "undo") {
+    const entity = findEntity(state, intent.entityId);
+    if (!entity) return { ok: false, code: "invalid", reason: "Objekt fehlt" };
+    if (!undoable(state, entity, actorId, now)) {
+      return { ok: false, code: "locked", reason: "Zu spät zum Rückgängigmachen – abreissen geht noch" };
+    }
+    return { ok: true };
+  }
+
+  if (intent.type === "move_building") {
+    const entity = findEntity(state, intent.entityId);
+    if (!entity || entity.kind !== "building" || isLift(entity.building.itemId)) {
+      return { ok: false, code: "invalid", reason: "Nur Gebäude lassen sich verschieben" };
+    }
+    const b = entity.building;
+    const allowed = roleAllows(state, actorId, b.itemId);
+    if (!allowed.ok) return { ok: false, code: "rights", reason: allowed.reason };
+    if (money < discounted(state, moveCost(state, b.itemId))) return { ok: false, code: "budget", reason: purse };
+    // The building's own hex does not count as taken while it moves.
+    const without = { ...state, buildings: state.buildings.filter((x) => x.id !== b.id) };
+    return validateHex(without, dem, intent.q, intent.r, b.itemId);
+  }
+
+  if (intent.type === "set_speed") {
+    if (match?.mode === "match") return { ok: false, code: "invalid", reason: "In einer Partie gibt es Runden statt Tempo" };
+    return { ok: true };
+  }
+
+  if (intent.type === "name_lift") {
+    const entity = findEntity(state, intent.entityId);
+    if (!entity || entity.kind !== "lift") return { ok: false, code: "invalid", reason: "Keine Bahn" };
     return { ok: true };
   }
 

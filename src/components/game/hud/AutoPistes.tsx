@@ -64,7 +64,7 @@ function useLiftNames(): Map<string, string> {
       const n = (seen.get(l.itemId) ?? 0) + 1;
       seen.set(l.itemId, n);
       const name = BY_ID[l.itemId].name;
-      out.set(l.id, (total.get(l.itemId) ?? 0) > 1 ? `${name} ${n}` : name);
+      out.set(l.id, l.name ?? ((total.get(l.itemId) ?? 0) > 1 ? `${name} ${n}` : name));
     }
     return out;
   }, [lifts]);

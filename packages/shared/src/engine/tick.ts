@@ -7,13 +7,30 @@ import { weatherForDay } from "./weather.ts";
 import { accrueResearch } from "./research.ts";
 import { followTutorial } from "./tutorial.ts";
 
-export function tickResort(state: ResortState, dem: Dem, dtSeconds: number, now: number): ResortState {
+export function tickResort(state: ResortState, dem: Dem, realSeconds: number, now: number): ResortState {
+  // Free play can be paused or sped up; a match has no clock of its own.
+  const speed = state.match?.mode === "match" ? 1 : (state.speed ?? 1);
+  const dtSeconds = realSeconds * speed;
   const timeOfDay = (state.timeOfDay + dtSeconds / ECONOMY.daySecondsReal) % 1;
   let day = state.day;
   let season = state.season;
   let visitorsToday = state.stats.visitorsToday;
   let weather = state.weather;
+  let daily = state.daily;
+  let todayIncome = state.todayIncome ?? 0;
   if (timeOfDay < state.timeOfDay) {
+    // The day just ended: keep one line of it for the charts.
+    daily = [
+      ...(state.daily ?? []),
+      {
+        season: state.season,
+        day: state.day,
+        guests: Math.round(state.stats.visitorsToday),
+        income: Math.round(todayIncome),
+        satisfaction: state.stats.satisfaction,
+      },
+    ].slice(-ECONOMY.historyDays);
+    todayIncome = 0;
     day += 1;
     visitorsToday = 0;
     if (day > SEASON.daysPerYear) {
@@ -43,6 +60,8 @@ export function tickResort(state: ResortState, dem: Dem, dtSeconds: number, now:
     coins: Math.max(0, state.coins + flowed.coinsDelta),
     stats: flowed.stats,
     flow: flowed.flow,
+    ...(daily ? { daily } : {}),
+    todayIncome: todayIncome + flowed.coinsDelta,
   };
   return followTutorial(syncQuestProgress(accrueResearch(next, flowed.stats, dtHours, now)));
 }
