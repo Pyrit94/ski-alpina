@@ -492,3 +492,49 @@ export const TERRAFORM = {
   /** Hexes a resort may level in all. */
   maxEdits: 150,
 } as const;
+
+/**
+ * Neighbour ski areas run by the game: another valley station a few
+ * kilometres off, its own lifts and runs, growing slowly from what it earns.
+ * «Gemütlich»: they share the region's guests with you and never touch your
+ * area. All numbers here; the engine is `engine/neighbours.ts`.
+ */
+export const NEIGHBOURS = {
+  /** Neighbour areas a map gets, at most (fewer where the ground has no room). */
+  count: 2,
+  /** Hexes between a neighbour's valley station and the players' village, at least. */
+  minDistance: 15,
+  /** Hexes between two neighbours' valley stations, at least. */
+  apart: 12,
+  /** Rise a valley station needs within `reliefRadius` hexes, gameplay metres. */
+  minRelief: 650,
+  reliefRadius: 10,
+  /**
+   * Where a valley station may lie: at most this high above the village, and
+   * on ground that drops no more than `floorDrop` metres right beside it.
+   * Tried in order; the looser rules only where the strict ones find too few
+   * places (a village at the head of its valley has no lower ground nearby).
+   */
+  siteRules: [
+    { maxAboveVillage: 500, floorDrop: 60 },
+    { maxAboveVillage: 1000, floorDrop: 160 },
+  ],
+  /** Hexes a neighbour keeps clear of the players' lifts, runs and buildings. */
+  clearance: 2,
+  /** Lifts a neighbour has when it appears, and at most. */
+  startLifts: 2,
+  maxLifts: 6,
+  /** Days between two new lifts, at the soonest. */
+  growEveryDays: 8,
+  /** Money a neighbour starts with. */
+  startCoins: 15000,
+  /** Guests a neighbour draws per km of run and day, in season. */
+  guestsPerKmDay: 450,
+  /** What a guest leaves there after costs, CHF. */
+  marginPerGuest: 12,
+  /** «Gemütlich»: the share of your guests all neighbours together take, at most. */
+  maxCut: 0.15,
+  /** Shortest and longest lift a neighbour builds, in hexes, and the rise it wants. */
+  liftSpan: [7, 13] as const,
+  minRise: 250,
+} as const;

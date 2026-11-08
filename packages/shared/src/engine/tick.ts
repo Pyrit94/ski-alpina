@@ -2,6 +2,7 @@ import { ECONOMY, SEASON } from "../../../config/src/economy.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { ResortState } from "../types.ts";
 import { tickFlow } from "./flow.ts";
+import { neighboursDayEnded } from "./neighbours.ts";
 import { syncQuestProgress } from "./quests.ts";
 import { weatherForDay } from "./weather.ts";
 import { accrueResearch } from "./research.ts";
@@ -18,7 +19,10 @@ export function tickResort(state: ResortState, dem: Dem, realSeconds: number, no
   let weather = state.weather;
   let daily = state.daily;
   let todayIncome = state.todayIncome ?? 0;
+  let neighbours = state.neighbours;
   if (timeOfDay < state.timeOfDay) {
+    // The neighbours close their day too: takings, and now and then a new lift.
+    neighbours = neighboursDayEnded(state, dem, now);
     // The day just ended: keep one line of it for the charts.
     daily = [
       ...(state.daily ?? []),
@@ -62,6 +66,7 @@ export function tickResort(state: ResortState, dem: Dem, realSeconds: number, no
     flow: flowed.flow,
     ...(daily ? { daily } : {}),
     todayIncome: todayIncome + flowed.coinsDelta,
+    ...(neighbours ? { neighbours } : {}),
   };
   return followTutorial(syncQuestProgress(accrueResearch(next, flowed.stats, dtHours, now)));
 }

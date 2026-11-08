@@ -2,7 +2,7 @@ export { ITEM_IDS, LIFT_IDS, PISTE_IDS, HOTEL_IDS, CATEGORY_IDS, isLift, isPiste
 export type { ItemId, Category } from "./ids.ts";
 export { CATALOG, BY_ID, CATEGORIES, QUICK } from "./items.ts";
 export type { CatalogItem } from "./items.ts";
-export { BUILDING_LEVELS, ECONOMY, FLOW, LEVEL, PISTE_LEVELS, ACCESS, PISTE_PLANNER, PISTE_SCORE, SITE, TEAMPLAY, TERRAFORM, UPGRADES } from "./economy.ts";
+export { BUILDING_LEVELS, ECONOMY, FLOW, LEVEL, NEIGHBOURS, PISTE_LEVELS, ACCESS, PISTE_PLANNER, PISTE_SCORE, SITE, TEAMPLAY, TERRAFORM, UPGRADES } from "./economy.ts";
 export type { UpgradeKey } from "./economy.ts";
 export { QUEST_DEFS } from "./quests.ts";
 export type { QuestDef } from "./quests.ts";
@@ -18,7 +18,7 @@ export {
   DEFAULT_PISTE_WIDTH,
 } from "./terrain.ts";
 export type { PisteGrade } from "./terrain.ts";
-export { REGIONS, REGION_BY_ID, CLASSIC_REGION, VILLAGE_GAME_ELEV, ALPS_MAP, LANDSCAPE } from "./regions.ts";
+export { REGIONS, REGION_BY_ID, CLASSIC_REGION, VILLAGE_GAME_ELEV, ALPS_MAP, LANDSCAPE, NEIGHBOUR_NAMES } from "./regions.ts";
 export type { RegionDef, RegionPlace } from "./regions.ts";
 export { MATCH, EVENTS } from "./match.ts";
 export type { MatchPresetId, MatchPresetDef, EventDef, EventEffect, EventOption } from "./match.ts";

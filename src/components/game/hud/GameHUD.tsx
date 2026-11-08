@@ -14,6 +14,7 @@ import { DescentButton, DescentOffer } from "./LinkStatus";
 import { AutoPistesPanel } from "./AutoPistes";
 import { NextStepChip } from "./NextStepChip";
 import { NeedsStrip, VillagePanel } from "./Needs";
+import { NeighbourCard, NeighboursPanel } from "./Neighbours";
 import { AwayModal, ProposalCard } from "./Together";
 import { UndoChip } from "./UndoChip";
 import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
@@ -49,6 +50,7 @@ export function GameHUD() {
                 <PisteEditor />
                 <AutoPistesPanel />
                 <VillagePanel />
+                <NeighbourCard />
                 <DescentOffer />
                 <PausedChip />
                 <UndoChip />
@@ -650,6 +652,9 @@ function MobileFloats() {
       <div className="flex justify-center empty:hidden">
         <VillagePanel />
       </div>
+      <div className="flex justify-center empty:hidden">
+        <NeighbourCard />
+      </div>
       <DescentOffer />
       <div className="flex justify-center gap-2 empty:hidden">
         <PausedChip />
@@ -764,6 +769,7 @@ function MobileSheets() {
               {selectedId && <InfoPanel />}
               <OperationsPanel />
               <TicketPricePanel />
+              <NeighboursPanel />
               <WalletPanel />
               <RenamePanel />
               <ActivityPanel />

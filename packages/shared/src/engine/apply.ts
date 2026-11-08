@@ -1,3 +1,4 @@
+import { setNeighbourMode } from "./neighbours.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { BUILDING_LEVELS, ECONOMY, PISTE_LEVELS, PISTE_SCORE, UPGRADES } from "../../../config/src/economy.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
@@ -403,6 +404,19 @@ function applyOne(
       body: `${to.size} ${to.size === 1 ? "Gebäude steht" : "Gebäude stehen"} jetzt an besseren Plätzen.`,
       kind: "ok",
     };
+  }
+
+  if (intent.type === "set_neighbours") {
+    if (!dem) return { state, title: "Nachbarn", body: "", kind: "info" };
+    const next = setNeighbourMode(state, dem, intent.mode, now);
+    const names = (next.neighbours?.list ?? []).map((n) => n.name);
+    const body =
+      intent.mode === "off"
+        ? "Die Nachbar-Skigebiete ruhen."
+        : names.length === 0
+          ? "Auf dieser Karte ist kein Platz für ein Nachbargebiet."
+          : `${names.join(" und ")} ${names.length === 1 ? "betreibt" : "betreiben"} jetzt Lifte in der Gegend.`;
+    return { state: next, title: "Nachbarn", body, kind: "info" };
   }
 
   if (intent.type === "set_speed") {

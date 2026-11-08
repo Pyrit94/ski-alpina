@@ -8,6 +8,7 @@ import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
 import { SavesPanel } from "./SavesPanel";
 import { useGame } from "@/lib/game/store";
 import { LayerTabs } from "./HudBits";
+import { NeighbourSetting } from "./Neighbours";
 
 /**
  * The phone menu: sections like a settings screen, one row per thing, every
@@ -27,6 +28,9 @@ export function MobileMenuBody() {
         <MobileMatchRows />
       </MenuSection>
       <SpeedSection />
+      <MenuSection title="Nachbar-Skigebiete">
+        <NeighbourSetting />
+      </MenuSection>
       <ProposalSection />
       <MenuSection title="Karte">
         <div className="p-1.5">

@@ -92,6 +92,8 @@ export interface WeatherState {
 }
 
 export interface SimStats {
+  /** Share of the region's guests the neighbour areas take from you, 0 … 1. Absent: none. */
+  neighbourCut?: number;
   peoplePerHour: number;
   satisfaction: number;
   /** Net of upkeep: what actually lands in the account. */
@@ -292,6 +294,33 @@ export interface ResortState {
   daily?: DailyRecord[];
   /** What today has earned so far, for the next DailyRecord. */
   todayIncome?: number;
+  /** Neighbour ski areas the game runs. Absent in older saves: none. */
+  neighbours?: NeighbourState;
+}
+
+export type NeighbourMode = "off" | "gemuetlich";
+
+/** A neighbour ski area: its own valley station, lifts and runs. */
+export interface Neighbour {
+  /** "nb1", "nb2"; its lifts, runs and stations are "nb1:…". */
+  id: string;
+  name: string;
+  /** Its valley station. */
+  base: Axial;
+  coins: number;
+  lifts: PlacedLift[];
+  pistes: PlacedPiste[];
+  /** Its lift stations. */
+  buildings: PlacedBuilding[];
+  /** Absolute day (see `absDay`) it last built a lift. */
+  lastBuilt: number;
+  /** Guests on its slopes the day before. */
+  guestsYesterday: number;
+}
+
+export interface NeighbourState {
+  mode: NeighbourMode;
+  list: Neighbour[];
 }
 
 /** A finished day, for the charts in Betrieb. */
