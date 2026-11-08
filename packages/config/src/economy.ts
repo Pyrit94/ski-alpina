@@ -451,3 +451,25 @@ export const PISTE_SCORE = {
   /** A new line must be at least this many points better to be offered. */
   reshapeMinGain: 8,
 } as const;
+
+/**
+ * Where a building may stand. In the valley, along a road or in the village
+ * streets; on the mountain, beside a run or a lift station — nobody builds a
+ * hotel in the middle of a meadow or a hut where no skier passes. Some, like
+ * a restaurant, work in either place. Buildings already standing keep their
+ * place when the rules change.
+ */
+export const ACCESS = {
+  /** Within this many hexes of a road (or the village streets) counts as on it. */
+  roadReach: 1,
+  /** The village's own streets: this many hexes around its centre. */
+  villageStreets: 4,
+  /** Within this many hexes of a run or a lift station counts as beside it. */
+  pisteReach: 1,
+  road: [
+    "hotel1", "hotel3", "hotel5", "hotel-resort", "shop", "skischool", "ticket", "spa",
+    "parking", "bus", "train", "workshop", "depot", "cablecar-museum",
+  ] as string[],
+  piste: ["hut", "viewpoint", "snowmaker", "lights"] as string[],
+  either: ["restaurant", "apres", "gastro-hall", "groomer", "clinic"] as string[],
+};

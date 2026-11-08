@@ -24,6 +24,7 @@ import {
 import type { PisteWidth } from "../types.ts";
 import { validateEditPiste } from "./piste-edit.ts";
 import { villageMovable } from "./site.ts";
+import { accessAt } from "./access.ts";
 import { validateProposalIntent } from "./proposals.ts";
 import { validateReshape } from "./piste-reshape.ts";
 import { hexKey } from "../hex.ts";
@@ -45,6 +46,9 @@ export function validateHex(
   if (!isPiste(itemId) && occupiedSet(state).has(`${q},${r}`)) {
     return { ok: false, code: "collision", reason: "Belegt" };
   }
+  // Valley buildings on a road, mountain buildings beside a run (see ACCESS).
+  const access = accessAt(state, dem, itemId, { q, r });
+  if (!access.ok) return { ok: false, code: "invalid", reason: access.reason };
   return { ok: true };
 }
 
@@ -395,7 +399,7 @@ export function validateIntent(
  * ground, off the runs' stations, and no two buildings on one hex.
  */
 export function checkRearrange(
-  state: Pick<ResortState, "lifts" | "buildings">,
+  state: Pick<ResortState, "lifts" | "buildings" | "pistes">,
   dem: Dem,
   moves: readonly { entityId: string; q: number; r: number }[],
 ): { ok: true } | { ok: false; reason: string } {
@@ -407,6 +411,8 @@ export function checkRearrange(
     if (!b || !villageMovable(b.itemId)) return { ok: false, reason: "Dieses Gebäude lässt sich nicht neu anordnen" };
     const ground = validateGround(dem, m.q, m.r, b.itemId);
     if (!ground.ok) return { ok: false, reason: `${BY_ID[b.itemId].name}: ${ground.reason}` };
+    const access = accessAt(state, dem, b.itemId, m);
+    if (!access.ok) return { ok: false, reason: `${BY_ID[b.itemId].name}: ${access.reason}` };
   }
   const taken = new Set<string>();
   for (const l of state.lifts) {

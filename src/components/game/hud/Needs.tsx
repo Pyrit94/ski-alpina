@@ -136,7 +136,11 @@ export function VillagePanel() {
   }, [open, lifts, pistes, buildings]);
 
   useEffect(() => {
-    useGame.setState({ villagePreview: result ? result.plan.moves.map((m) => ({ from: m.from, to: m.to })) : [] });
+    useGame.setState({
+      villagePreview: result ? result.plan.moves.map((m) => ({ from: m.from, to: m.to })) : [],
+      // The new roads, dashed like a planned run.
+      autoPreview: result ? result.plan.roads.map((hexes) => ({ hexes, grade: "road" })) : [],
+    });
   }, [result]);
   // Glide to the proposal once, so the arrows are in view.
   const moves = result?.plan.moves;
@@ -152,13 +156,17 @@ export function VillagePanel() {
     }
     useGame.getState().focusOn(x / moves.length, z / moves.length);
   }, [moves]);
-  useEffect(() => () => useGame.setState({ villagePreview: [] }), []);
+  useEffect(() => () => useGame.setState({ villagePreview: [], autoPreview: [] }), []);
 
   if (!open || !result) return null;
   const { plan } = result;
   const close = () => useGame.setState({ villageOpen: false });
   const apply = () => {
-    useGame.getState().sendPlan([{ type: "rearrange", moves: plan.moves.map((m) => ({ entityId: m.id, q: m.to.q, r: m.to.r })) }]);
+    // Roads first: the moved buildings need them to stand where they go.
+    useGame.getState().sendPlan([
+      ...plan.roads.map((hexes) => ({ type: "place_piste" as const, itemId: "road" as const, hexes })),
+      { type: "rearrange" as const, moves: plan.moves.map((m) => ({ entityId: m.id, q: m.to.q, r: m.to.r })) },
+    ]);
     play("build");
     close();
   };
@@ -227,7 +235,10 @@ export function VillagePanel() {
               {tooPoor ? "Zu wenig Geld" : `${plan.moves.length} verschieben · ${fmt(plan.cost)}`}
             </button>
           </div>
-          <p className="mt-1 text-center text-[10px] text-muted">Pfeile auf der Karte zeigen, wohin was kommt</p>
+          <p className="mt-1 text-center text-[10px] text-muted">
+            Pfeile auf der Karte zeigen, wohin was kommt
+            {plan.roads.length > 0 ? ` · ${plan.roads.length} ${plan.roads.length === 1 ? "neue Strasse" : "neue Strassen"} gestrichelt` : ""}
+          </p>
         </>
       )}
     </div>

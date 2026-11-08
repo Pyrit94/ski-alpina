@@ -1,7 +1,11 @@
-import { SITE } from "../../../config/src/economy.ts";
+import { ACCESS, SITE } from "../../../config/src/economy.ts";
 import type { ItemId } from "../../../config/src/ids.ts";
 import { BY_ID } from "../../../config/src/items.ts";
-import { hexDistance, hexesInRange, hexKey, type Axial } from "../hex.ts";
+import { hexDistance, hexesInRange, hexKey, hexLine, type Axial } from "../hex.ts";
+import { accessNeed, onPiste, onRoad } from "./access.ts";
+
+/** Longest road the optimiser lays to reach a better place, in hexes. */
+const ACCESS_SPUR = 3;
 import type { Dem } from "../terrain/dem.ts";
 import type { PlacedBuilding, ResortState } from "../types.ts";
 import { siteContext, siteFactorOf, siteFixed, siteKind, siteNeighbours, villageMovable, type SiteKind } from "./site.ts";
@@ -27,6 +31,11 @@ export interface VillageMove {
 
 export interface VillagePlan {
   moves: VillageMove[];
+  /**
+   * Short roads the moves need: a building that should stand off the streets
+   * gets a spur from the nearest road or village street. Built before the moves.
+   */
+  roads: Axial[][];
   /** List price of all moves, before research discounts. */
   cost: number;
   /** Value-weighted mean location factor, now and after the moves. */
@@ -68,12 +77,52 @@ export function planVillage(state: Layout, dem: Dem): VillagePlan {
   for (const s of ctx.starts.slice(1)) for (const h of hexesInRange(s, SITE.stationRadius)) add(h);
   places.sort((a, b) => a.q - b.q || a.r - b.r);
 
+  // A spur road to a place off the streets: a straight line from the nearest
+  // street or road, at most ACCESS_SPUR long, over ground a road may cross.
+  const network: Axial[] = [
+    ...hexesInRange(ctx.village, ACCESS.villageStreets),
+    ...state.pistes.filter((p) => p.difficulty === "road").flatMap((p) => p.hexes),
+  ];
+  const spurCache = new Map<string, Axial[] | null>();
+  const spurTo = (h: Axial): Axial[] | null => {
+    const k = hexKey(h.q, h.r);
+    if (spurCache.has(k)) return spurCache.get(k)!;
+    let from: Axial | null = null;
+    let best = Infinity;
+    for (const n of network) {
+      const d = hexDistance(n, h);
+      if (d < best) {
+        best = d;
+        from = n;
+      }
+    }
+    let line: Axial[] | null = null;
+    if (from && best > ACCESS.roadReach && best <= ACCESS_SPUR + ACCESS.roadReach) {
+      // From the street up to the hex beside the building.
+      const path = hexLine(from, h).slice(0, -1);
+      const clear = path.every(
+        (x, i) =>
+          (i === 0 || (!fixedHexes.has(hexKey(x.q, x.r)) && !onRun.has(hexKey(x.q, x.r)))) &&
+          validateGround(dem, x.q, x.r, "road").ok,
+      );
+      line = clear && path.length >= 2 ? path : null;
+    }
+    spurCache.set(k, line);
+    return line;
+  };
   const groundOk = new Map<string, boolean>();
   const fits = (itemId: string, h: Axial) => {
     const k = `${itemId}@${h.q},${h.r}`;
     let ok = groundOk.get(k);
     if (ok === undefined) {
       ok = validateGround(dem, h.q, h.r, itemId as ItemId).ok;
+      if (ok) {
+        // The building rules: a street (or a road we can build), or a run.
+        const need = accessNeed(itemId);
+        const road = onRoad(state, dem, h) || spurTo(h) !== null;
+        const piste = onPiste(state, h);
+        ok = need === null || (need === "road" ? road : need === "piste" ? piste : road || piste);
+      }
       groundOk.set(k, ok);
     }
     return ok;
@@ -171,9 +220,24 @@ export function planVillage(state: Layout, dem: Dem): VillagePlan {
     moves.push({ id: b.id, itemId: b.itemId, from: { q: b.q, r: b.r }, to });
   }
   const after = totalWeight > 0 ? scoreAll() / totalWeight : 1;
+  // The spurs the chosen places need, each road hex only once.
+  const roads: Axial[][] = [];
+  const paved = new Set<string>();
+  for (const m of moves) {
+    const need = accessNeed(m.itemId);
+    if (need === null || need === "piste") continue;
+    if (onRoad(state, dem, m.to) || (need === "either" && onPiste(state, m.to))) continue;
+    const spur = spurTo(m.to);
+    if (!spur) continue;
+    const fresh = spur.filter((h) => !paved.has(hexKey(h.q, h.r)));
+    for (const h of spur) paved.add(hexKey(h.q, h.r));
+    if (fresh.length > 0) roads.push(spur);
+  }
+  const roadCost = roads.reduce((n, r) => n + BY_ID.road.cost * Math.max(1, r.length - 1), 0);
   return {
     moves,
-    cost: moves.reduce((n, m) => n + moveCost(state as ResortState, m.itemId), 0),
+    roads,
+    cost: moves.reduce((n, m) => n + moveCost(state as ResortState, m.itemId), 0) + roadCost,
     before: Math.round(before * 1000) / 1000,
     after: Math.round(after * 1000) / 1000,
   };

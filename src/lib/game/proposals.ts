@@ -32,7 +32,11 @@ export function partners(state: View, me: string | null, online: readonly { id: 
 /** A title for what the intents do, as the other player reads it. */
 export function planTitle(intents: readonly Intent[]): string {
   const first = intents[0]!;
-  if (first.type === "rearrange") return `Dorf neu ordnen (${first.moves.length} Gebäude)`;
+  const rearrange = intents.find((i) => i.type === "rearrange");
+  if (rearrange) {
+    const roads = intents.filter((i) => i.type === "place_piste" && i.itemId === "road").length;
+    return `Dorf neu ordnen (${rearrange.moves.length} Gebäude${roads ? `, ${roads} ${roads === 1 ? "Strasse" : "Strassen"}` : ""})`;
+  }
   const pistes = intents.filter((i) => i.type === "place_piste").length;
   if (pistes > 1) return `${pistes} Pisten anlegen`;
   if (first.type === "place_building" || first.type === "place_lift") {
