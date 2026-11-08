@@ -14,6 +14,7 @@ import { liftResearchFactor, researchEffects, withResearchMods } from "./researc
 import { bedsFactor, bonusFactor, capacityFactor, cutFactor, pisteLevel, pisteUpkeepFactor, upkeepFactor } from "./state.ts";
 import { siteContext, siteFactors } from "./site.ts";
 import { pistePoints } from "./piste-score.ts";
+import { progressDemand } from "./progression.ts";
 
 export interface FlowTick {
   stats: SimStats;
@@ -133,6 +134,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   appetite *= mods.demand;
   const opening = openingBoost(state);
   appetite *= opening;
+  // A Weltcup race day in free play (see engine/progression.ts).
+  appetite *= progressDemand(state);
   appetite = Math.max(0, appetite);
 
   // Skiers come for the snow; once it is gone, only cableways that run both

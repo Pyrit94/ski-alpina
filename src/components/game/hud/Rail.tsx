@@ -13,6 +13,7 @@ import { PlayersLine, RoundButton } from "./HudBits";
 import { ActivityPanel, InfoPanel, OperationsPanel, TicketPricePanel, RenamePanel, Quests } from "./InfoPanels";
 import { MobileMenuBody } from "./MenuBody";
 import { BigBuildButton } from "./BuildDrawer";
+import { LongGoalsPanel, RankPanel } from "./Progression";
 
 /**
  * Betrieb, Ziele, Forschung, Team: round buttons down the right edge. Each
@@ -124,6 +125,7 @@ export function DesktopPanel() {
           {kind === "info" && (
             <div className="flex flex-col gap-2">
               <OperationsPanel />
+              <RankPanel />
               <TicketPricePanel />
               <NeighboursPanel />
               <WalletPanel />
@@ -139,6 +141,7 @@ export function DesktopPanel() {
               <DuelStandings />
               <MatchRulesPanel />
               <Quests />
+              <LongGoalsPanel />
             </div>
           )}
           {kind === "research" && <ResearchPanel />}

@@ -28,6 +28,7 @@ import { ActivityPanel, InfoPanel, OperationsPanel, TicketPricePanel, RenamePane
 import { MobileMenuBody } from "./MenuBody";
 import { BuildDrawer, BigBuildButton } from "./BuildDrawer";
 import { ActionRail, DesktopCorners, TeamMarks, DesktopPanel } from "./Rail";
+import { LongGoalsPanel, RankChip, RankPanel, SeasonReportModal } from "./Progression";
 
 export function GameHUD() {
   // The wide columns are not rendered at all on a phone, rather than rendered
@@ -66,6 +67,7 @@ export function GameHUD() {
             {desktop && <DesktopPanel />}
             {desktop && <DesktopCorners />}
             {!desktop && <MobileFloats />}
+            {!desktop && <MobileRank />}
             {!desktop && (
               <div className="absolute inset-x-0 top-3 z-20 flex justify-center px-16">
                 <MarkHint />
@@ -88,6 +90,7 @@ export function GameHUD() {
       <MatchSetupModal />
       <RoundReportModal />
       <AwayModal />
+      <SeasonReportModal />
       <FinalScreen />
       <Celebration />
     </div>
@@ -121,6 +124,9 @@ function TopBar() {
           <Currency n={stars} icon={<Star className="size-4 fill-star text-star" />} label="Prestige: jeder Stern +1 % Gäste" />
         </span>
         <GuestsChip />
+        <span className="hidden lg:contents">
+          <RankChip />
+        </span>
         <LevelChip />
         <div className="hidden items-center gap-2 rounded-full bg-panel/92 px-3 py-1.5 text-[11px] font-medium text-muted shadow-[var(--shadow-chip)] lg:flex">
           <WeatherIcon className="size-3.5 text-accent" />
@@ -191,6 +197,18 @@ function LevelChip() {
         </text>
       </svg>
       <span className="hidden text-[11px] font-semibold text-navy lg:inline">Level</span>
+    </div>
+  );
+}
+
+/** The rank on a phone: top left over the map, out of the way while building. */
+function MobileRank() {
+  const sheet = useGame((s) => s.sheet);
+  const phase = useGame((s) => s.phase);
+  if (phase !== "idle" || sheet !== "none") return null;
+  return (
+    <div className="absolute left-3 top-3 z-20">
+      <RankChip />
     </div>
   );
 }
@@ -762,12 +780,14 @@ function MobileSheets() {
               <DuelStandings />
               <MatchRulesPanel />
               <Quests />
+              <LongGoalsPanel />
             </div>
           )}
           {sheet === "info" && (
             <div className="flex flex-col gap-2">
               {selectedId && <InfoPanel />}
               <OperationsPanel />
+              <RankPanel />
               <TicketPricePanel />
               <NeighboursPanel />
               <WalletPanel />

@@ -11,7 +11,10 @@ import type { ResortState } from "../types.ts";
  * before it becomes one: known items only, whole hexes on the map, finite
  * numbers within reason, and no more of anything than a real resort has.
  * Everything that is history or session (chat, activity, a running match,
- * proposals, stats) starts fresh; it is not worth trusting.
+ * proposals, stats) starts fresh; it is not worth trusting. So does the
+ * free-play progression (rank, season reports, long-term goals): the clock
+ * sets it up anew, counting what the imported resort already reaches as
+ * reached without paying for it again (see engine/progression.ts).
  */
 export const IMPORT_LIMITS = {
   lifts: 300,
