@@ -1,30 +1,30 @@
-import { ClientMessageSchema, type ServerMessage } from "@ski/shared";
 import { GameRoom, PERSIST_MS, TICK_MS } from "../../../../packages/shared/src/runtime/room.ts";
 import { emptyResort } from "../../../../packages/shared/src/engine/state.ts";
 import { loadAllRegions } from "../../../../packages/shared/src/terrain/dem.ts";
+import { SqlSaveStore, type GameMeta } from "../../../../packages/shared/src/runtime/saves.ts";
 import {
-  canSee,
-  handleLobby,
-  isLobbyMessage,
-  SqlSaveStore,
-  type GameMeta,
-} from "../../../../packages/shared/src/runtime/saves.ts";
+  broadcastTo,
+  connect,
+  snapshotOf,
+  type Binding,
+  type Hub,
+} from "../../../../packages/shared/src/runtime/connection.ts";
 import { getSql } from "@/lib/db";
 import type { SocketIdentity } from "./identity.server";
+
+/**
+ * The game socket in development. The message handling is the same module
+ * production uses (packages/shared/src/runtime/connection.ts); only storage
+ * (PGLite or Postgres via getSql) and the timers live here.
+ */
 
 type Socket = {
   send: (data: string) => void;
   close?: () => void;
 };
 
-interface Bound {
-  socket: Socket;
-  playerId: string;
-  roomId: string;
-}
-
 const rooms = new Map<string, GameRoom>();
-const bindings = new Set<Bound>();
+const bindings = new Set<Binding<Socket>>();
 let timersStarted = false;
 let persistChain: Promise<void> = Promise.resolve();
 
@@ -76,12 +76,7 @@ function ensureTimers() {
       room.tick();
       // Drop players who stopped answering, or the online count only climbs.
       room.prunePlayers();
-      broadcast(room.state.roomId, {
-        type: "snapshot",
-        seq: room.seq,
-        state: room.snapshot(),
-        players: room.presence(),
-      });
+      broadcast(room.state.roomId, snapshotOf(room));
     }
   }, TICK_MS);
   setInterval(() => {
@@ -104,155 +99,33 @@ async function persistAll() {
   }
 }
 
-function send(socket: Socket, msg: ServerMessage) {
-  try {
-    socket.send(JSON.stringify(msg));
-  } catch {
-    /* closed */
-  }
-}
+const hub: Hub<Socket> = {
+  rooms,
+  bindings,
+  getRoom,
+  createRoom,
+  store: saveStore,
+  log: (label, err) => console.warn(`[ski] ${label}`, err),
+};
 
-function broadcast(roomId: string, msg: ServerMessage) {
-  for (const b of bindings) {
-    if (b.roomId === roomId) send(b.socket, msg);
-  }
+function broadcast(roomId: string, msg: Parameters<typeof broadcastTo>[2]) {
+  broadcastTo(hub, roomId, msg);
 }
 
 export function handleSocket(socket: Socket, identity?: SocketIdentity | null): void {
   ensureTimers();
-  let bound: Bound | null = null;
-
-  const onMessage = (raw: string) => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      send(socket, { type: "error", reason: "Ungueltiges JSON", code: "invalid" });
-      return;
-    }
-    const msg = ClientMessageSchema.safeParse(parsed);
-    if (!msg.success) {
-      send(socket, { type: "error", reason: "Nachricht abgelehnt", code: "invalid" });
-      return;
-    }
-    if (msg.data.type === "ping") {
-      // A ping is how a quiet player says they are still here.
-      if (bound) getRoom(bound.roomId).touch(bound.playerId);
-      send(socket, { type: "pong", at: msg.data.at });
-      return;
-    }
-
-    if (msg.data.type === "focus") {
-      // Rides the next tick's snapshot rather than broadcasting its own, so a
-      // moving pointer cannot flood the room.
-      if (bound) getRoom(bound.roomId).setFocus(bound.playerId, msg.data.hex);
-      return;
-    }
-    if (isLobbyMessage(msg.data)) {
-      const lobby = msg.data;
-      void handleLobby(lobby, {
-        store: saveStore,
-        rooms,
-        createRoom,
-        userId: identity?.userId ?? null,
-        userName:
-          identity?.name ?? (bound ? rooms.get(bound.roomId)?.players.get(bound.playerId)?.name : undefined) ?? "Gast",
-        boundRoomId: bound?.roomId ?? null,
-        send: (m) => send(socket, m),
-        broadcast,
-        snapshotOf: (r) => ({ type: "snapshot", seq: r.seq, state: r.snapshot(), players: r.presence() }),
-      }).catch((err) => {
-        console.warn("[ski] saves", err);
-        send(socket, { type: "error", reason: "Spielstände gerade nicht erreichbar", code: "invalid", reqId: lobby.reqId });
-      });
-      return;
-    }
-    if (msg.data.type === "join") {
-      const existing = rooms.get(msg.data.roomId);
-      if (existing && !canSee(existing.meta, identity?.userId ?? null)) {
-        send(socket, { type: "error", reason: "Dieses Spiel gehört jemand anderem", code: "rights" });
-        return;
-      }
-      const room = getRoom(msg.data.roomId);
-      // When the socket was authenticated the account decides who this is —
-      // the name and token in the message are only a fallback for local dev.
-      const player = room.join(msg.data.name, msg.data.token, identity ?? undefined);
-      if (bound) bindings.delete(bound);
-      bound = { socket, playerId: player.id, roomId: room.state.roomId };
-      bindings.add(bound);
-      send(socket, { type: "welcome", playerId: player.id, token: player.token, roomId: room.state.roomId });
-      send(socket, {
-        type: "snapshot",
-        seq: room.seq,
-        state: room.snapshot(),
-        players: room.presence(),
-      });
-      broadcast(room.state.roomId, {
-        type: "snapshot",
-        seq: room.seq,
-        state: room.snapshot(),
-        players: room.presence(),
-      });
-      return;
-    }
-    if (!bound) {
-      send(socket, { type: "error", reason: "Zuerst beitreten", code: "rights" });
-      return;
-    }
-    const room = getRoom(bound.roomId);
-    if (msg.data.type === "chat") {
-      if (room.say(bound.playerId, msg.data.text)) {
-        broadcast(bound.roomId, { type: "snapshot", seq: room.seq, state: room.snapshot(), players: room.presence() });
-      }
-      return;
-    }
-    if (msg.data.type === "mark") {
-      room.setMark(bound.playerId, msg.data.hex, msg.data.kind);
-      broadcast(bound.roomId, { type: "snapshot", seq: room.seq, state: room.snapshot(), players: room.presence() });
-      return;
-    }
-    const result = room.submit(bound.playerId, msg.data.intent);
-    if (!result.ok) {
-      send(socket, { type: "error", intentId: msg.data.id, reason: result.reason, code: result.code });
-      return;
-    }
-    broadcast(bound.roomId, {
-      type: "event",
-      title: result.event.title,
-      body: result.event.body,
-      kind: result.event.kind,
-      actorId: result.event.actorId,
-      actorName: result.event.actorName,
-    });
-    broadcast(bound.roomId, {
-      type: "snapshot",
-      seq: room.seq,
-      state: room.snapshot(),
-      players: room.presence(),
-    });
-  };
-
-  Object.assign(socket, {
-    ingest: onMessage,
-    drop: () => {
-      if (bound) bindings.delete(bound);
-    },
-  });
+  const conn = connect(hub, socket, identity ?? null);
+  Object.assign(socket, { ingest: conn.onMessage, drop: conn.close });
 }
 
-export function ingestSocketMessage(
-  socket: Socket,
-  raw: string,
-  identity?: SocketIdentity | null,
-) {
+export function ingestSocketMessage(socket: Socket, raw: string, identity?: SocketIdentity | null) {
   const rec = socket as Socket & { ingest?: (raw: string) => void };
   if (!rec.ingest) handleSocket(socket, identity);
   (socket as Socket & { ingest: (raw: string) => void }).ingest(raw);
 }
 
 export function dropSocket(socket: Socket) {
-  const rec = socket as Socket & { drop?: () => void };
-  rec.drop?.();
+  (socket as Socket & { drop?: () => void }).drop?.();
 }
 
 export function listRoomSnapshot(roomId: string) {

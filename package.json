@@ -2,8 +2,7 @@
   "name": "ski-builder",
   "private": true,
   "workspaces": [
-    "packages/*",
-    "apps/*"
+    "packages/*"
   ],
   "sideEffects": false,
   "type": "module",

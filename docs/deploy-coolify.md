@@ -138,13 +138,6 @@ alle paar Sekunden zurueck.
    `[ws] game socket on 127.0.0.1:8788 — push on — roster enforced (2 allowed)`
    (`push off`, solange `NTFY_URL` fehlt)
 
-## Was hier nicht laeuft
-
-`apps/api` (Fastify) authentifiziert Sockets **nicht** und startet ohne
-`SKI_API_ALLOW_ANONYMOUS=1` gar nicht. Es gehoert zum Stack in
-`infra/docker-compose.yml`, wo nginx davor steht und der Port nicht
-veroeffentlicht wird. Fuer Coolify ist der Dockerfile-Pfad oben der richtige.
-
 ## Push aufs Handy (ntfy, optional)
 
 Wenn eine Person «Runde beenden» drückt und die andere offline ist, kommt bei ihr eine

@@ -1,0 +1,635 @@
+import { useEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
+import { peerColor } from "@/lib/game/players";
+import { BY_ID, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, liftThroughput, seasonPhase } from "@/lib/game/catalog";
+import type { CatalogItem } from "@/lib/game/catalog";
+import { BUILDING_LEVELS, PISTE_LEVELS, TERRAIN } from "@ski/config";
+import { buildingLevel, expandable, expansionCost, expansionSpent, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, widthDef } from "@ski/shared";
+import { buildingLevelLabel, levelGain, pisteLevelLabel } from "@/lib/game/expansion";
+import { GRADE_COLOR } from "@/lib/game/piste-editor";
+import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
+import { useMyMoney } from "@/lib/game/team";
+import { LinkStatus } from "./LinkStatus";
+import { AutoPistesButton } from "./AutoPistes";
+import { realMetres } from "@/lib/game/real-height";
+import { PisteEditPanel } from "./PisteEditor";
+import { useBuildTerms } from "@/lib/game/research";
+import { useGame } from "@/lib/game/store";
+import type { PlacedPiste } from "@/lib/game/types";
+import { sinceLabel, LOW_USE, refundFor } from "./hud-shared";
+import { ItemThumb, Panel, Stat, Warning, PlayersLine } from "./HudBits";
+
+/**
+ * What has happened in this resort, and who did it.
+ *
+ * Events were broadcast and forgotten: coming back after an hour told you
+ * nothing about what your partner had changed, and no event named its author.
+ * The log lives in the save, so it survives a reload and a restart.
+ */
+export function ActivityPanel() {
+  const activity = useGame((s) => s.activity);
+  const contributors = useGame((s) => s.contributors);
+  const me = useGame((s) => s.playerId);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 20_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const ranked = Object.entries(contributors).sort((a, b) => b[1].builds - a[1].builds);
+  if (activity.length === 0 && ranked.length === 0) return null;
+
+  return (
+    <Panel className="p-3">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">
+        Gemeinsam gebaut
+      </div>
+      {ranked.length > 0 && (
+        <div className="mb-2.5 flex flex-col gap-1">
+          {ranked.map(([id, c]) => (
+            <div key={id} className="flex items-center gap-2 text-[11px]">
+              <span className="size-2 shrink-0 rounded-full" style={{ background: peerColor(id) }} />
+              <span className="min-w-0 flex-1 truncate font-medium text-navy">
+                {c.name}
+                {id === me && <span className="ml-1 text-muted">(du)</span>}
+              </span>
+              <span className="tabular-nums text-muted">{c.builds} Bauten</span>
+              <span className="tabular-nums text-subtle">{fmtCompact(c.coinsSpent)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5">
+        {activity.slice(0, 6).map((a) => (
+          <div key={a.id} className="flex gap-2 text-[11px] leading-snug">
+            <span
+              className="mt-1 size-1.5 shrink-0 rounded-full"
+              style={{ background: a.actor ? peerColor(a.actor) : "#7C8DA6" }}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="font-medium text-navy">{a.actorName}</span>
+              <span className="text-muted"> · {a.body}</span>
+            </span>
+            <span className="shrink-0 tabular-nums text-subtle">{sinceLabel(a.at, now)}</span>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+export function InfoPanel() {
+  const selectedId = useGame((s) => s.selectedId);
+  const buildings = useGame((s) => s.buildings);
+  const lifts = useGame((s) => s.lifts);
+  const pistes = useGame((s) => s.pistes);
+  const stats = useGame((s) => s.stats);
+  const flow = useGame((s) => s.flow);
+  const upgrade = useGame((s) => s.upgrade);
+  const coins = useMyMoney().mine;
+  // A station stands for its lift: that is what carries guests and what
+  // upgrades act on.
+  const lift = lifts.find((l) => l.id === selectedId || l.stationA === selectedId || l.stationB === selectedId);
+  const b = lift ? undefined : buildings.find((x) => x.id === selectedId);
+  const piste = pistes.find((p) => p.id === selectedId);
+  const item = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : piste ? BY_ID[piste.itemId] : null;
+  const entity = lift ?? b;
+  if (item && piste && !entity) return <PisteInfo piste={piste} item={item} />;
+  if (!item || !entity) {
+    return (
+      <Panel className="p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Info</div>
+        <p className="mt-2 text-[12px] text-muted">Tippe ein Gebäude oder eine Bahn, um Details zu sehen.</p>
+        <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+          <Stat label="Gäste" value={`${fmt(stats.guestsPerHour)}`} />
+          <Stat
+            label="Zufrieden"
+            value={`${stats.satisfaction}%`}
+            tone={stats.satisfaction < 55 ? "bad" : stats.satisfaction < 75 ? "warn" : "good"}
+          />
+          <Stat
+            label="Einnahmen"
+            value={`${stats.incomePerHour < 0 ? "−" : "+"}${fmt(Math.abs(stats.incomePerHour))}`}
+            tone={stats.incomePerHour < 0 ? "bad" : "good"}
+          />
+        </div>
+        <PlayersLine />
+        <p className="mt-3 text-[10px] leading-snug text-subtle">
+          {TERRAIN.attribution}
+        </p>
+      </Panel>
+    );
+  }
+  const cap = isLift(item.id) ? liftThroughput(item, entity.upgrades) : item.capacity;
+  const constructing = entity.readyAt > Date.now();
+  const pendingRound = entity.readyAt >= PENDING_READY;
+  // What the sim actually routed through this installation this tick.
+  const edge = flow.find((e) => e.id === entity.id);
+  const load = edge && edge.capacity > 0 ? Math.min(1, edge.flow / edge.capacity) : 0;
+  return (
+    <Panel className="p-3">
+      <div className="flex items-start gap-2">
+        <ItemThumb id={item.id} className="size-12 shrink-0 rounded-[12px]" iconClass="size-5" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
+          <div className="mt-0.5 inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
+            Level {entity.level}
+          </div>
+        </div>
+      </div>
+      {constructing && (
+        <div className="mt-2 text-[11px] text-warn">{pendingRound ? "Wird bis Ende der Runde fertig." : "Im Bau…"}</div>
+      )}
+      <BuiltByLine builtBy={entity.builtBy} />
+      {edge?.unit === "chf" ? (
+        <div className="mt-3 grid grid-cols-2 gap-1.5 text-center">
+          <Stat label="Mehrumsatz/T" value={`+${fmt(edge.flow)}`} tone="good" />
+          <Stat label="Wirkung" value={`+${Math.round(ECONOMY.ticketOfficeIncomeBonus * 100)} % Tickets`} />
+        </div>
+      ) : edge?.unit === "arrivals" || edge?.unit === "served" ? (
+        <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+          <Stat label={edge.unit === "arrivals" ? "Platz für" : "Bedient max."} value={`${fmt(edge.capacity)}/h`} />
+          <Stat label="Ausgelastet" value={`${Math.round(load * 100)}%`} />
+          <Stat label={edge.unit === "arrivals" ? "Ankünfte" : "Gäste"} value={`${fmt(edge.flow)}/h`} />
+        </div>
+      ) : edge || isLift(item.id) ? (
+        <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+          <Stat label="Kapazität" value={cap ? `${fmt(cap)}/h` : "—"} />
+          <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
+          <Stat label="Fahrten" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
+        </div>
+      ) : (
+        <p className="mt-3 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">{item.blurb}</p>
+      )}
+      {lift && <LinkStatus id={lift.id} kind="lift" />}
+      {lift && <AutoPistesButton liftId={lift.id} className="mt-2 w-full" />}
+      {lift && edge && edge.link === "ok" && load < LOW_USE && <LowUseHint />}
+      {isLift(item.id) && (
+        <div className="mt-3">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Upgrades</div>
+          <div className="grid grid-cols-3 gap-1">
+            {UPGRADES.map((u) => {
+              const lv = entity.upgrades[u.key];
+              const cost = u.cost[lv] ?? 0;
+              const maxed = lv >= u.max;
+              return (
+                <button
+                  key={u.key}
+                  type="button"
+                  disabled={maxed || coins < cost}
+                  onClick={() => upgrade(entity.id, u.key)}
+                  className="min-h-14 rounded-[12px] bg-ice px-1 py-2 text-center disabled:opacity-50"
+                >
+                  <div className="text-[9px] font-medium text-muted">{u.label}</div>
+                  <div className="text-[11px] font-semibold text-navy">Lv. {lv}</div>
+                  <div className="text-[9px] text-coin">{maxed ? "Max" : fmt(cost)}</div>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1.5 text-[10px] leading-snug text-muted">
+            Jede Stufe erhöht die Förderleistung. Kapazität wirkt am stärksten.
+          </p>
+        </div>
+      )}
+      {b && expandable(b.itemId) && (
+        <LevelSection
+          id={b.id}
+          level={buildingLevel(b)}
+          max={BUILDING_LEVELS.maxLevel}
+          label={(l) => buildingLevelLabel(b.itemId, l)}
+          gain={() => levelGain(b.itemId)}
+          cost={expansionCost(b)}
+          disabled={constructing}
+        />
+      )}
+      <DemolishButton id={entity.id} refund={refundFor(item.cost + (b ? expansionSpent(b) : 0))} label={item.name} />
+    </Panel>
+  );
+}
+
+/**
+ * Expansion: one more deck, one more wing, snow guns along a run. Each level
+ * makes the one building do more, so the valley is not paved with copies.
+ */
+function LevelSection({
+  id,
+  level,
+  max,
+  label,
+  gain,
+  cost: list,
+  disabled,
+}: {
+  id: string;
+  level: number;
+  max: number;
+  label: (level: number) => string;
+  gain: (next: number) => string;
+  cost: number | null;
+  disabled?: boolean;
+}) {
+  const expand = useGame((s) => s.expand);
+  const terms = useBuildTerms();
+  const coins = useMyMoney().mine;
+  const cost = list === null ? null : terms.discount(list);
+  return (
+    <div className="mt-3">
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted">
+        <span>Ausbau</span>
+        <span className="truncate normal-case tracking-normal">
+          Stufe {level} von {max} · {label(level)}
+        </span>
+      </div>
+      <div className="flex gap-1">
+        {Array.from({ length: max }, (_, i) => (
+          <span key={i} className={`h-1.5 flex-1 rounded-full ${i < level ? "bg-accent" : "bg-ice"}`} />
+        ))}
+      </div>
+      {cost === null ? (
+        <p className="mt-2 text-[11px] leading-snug text-muted">Voll ausgebaut.</p>
+      ) : (
+        <button
+          type="button"
+          disabled={disabled || coins < cost}
+          onClick={() => expand(id)}
+          className="mt-2 flex min-h-11 w-full items-center justify-between gap-2 rounded-[12px] bg-ice px-3 py-1.5 text-left disabled:opacity-50"
+        >
+          <span className="min-w-0">
+            <span className="block text-[12px] font-semibold text-navy">{label(level + 1)}</span>
+            <span className="block text-[10px] leading-snug text-muted">{gain(level + 1) || "mehr Wirkung"}, mehr Unterhalt</span>
+          </span>
+          <span className="shrink-0 text-[12px] font-semibold text-coin">{fmt(cost)}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Why a working lift stands nearly empty — almost always missing guests, not
+ * missing capacity, which is the opposite of what the upgrade buttons suggest.
+ */
+function LowUseHint() {
+  const stats = useGame((s) => s.stats);
+  const reasons: string[] = [];
+  if (stats.turnedAway > 0) reasons.push(`${fmt(stats.turnedAway)} Gäste/h finden keinen Platz im Tal: Parkhaus, Bus oder Hotel bauen`);
+  reasons.push("mehr Pisten-Kilometer und mehr Farben (blau, rot, schwarz) ziehen mehr Gäste an");
+  if (stats.satisfaction < 70) reasons.push("zufriedenere Gäste kommen öfter: Restaurant, Shop, kürzere Wartezeiten");
+  return (
+    <div className="mt-2 rounded-[12px] bg-accent-soft/40 px-2.5 py-2 text-[11px] leading-snug text-navy">
+      <div className="font-bold">Warum so leer?</div>
+      Es fehlen Gäste, nicht Kapazität – ein Ausbau würde die Auslastung sogar senken. Was hilft:
+      <ul className="mt-1 list-disc pl-4">
+        {reasons.map((r) => (
+          <li key={r}>{r}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Who put this here.
+ *
+ * Resolved through the persisted contributor list rather than the live player
+ * list, so the name still shows after that player has gone offline — or after
+ * a server restart, when their session id no longer exists.
+ */
+function BuiltByLine({ builtBy }: { builtBy?: string }) {
+  const contributors = useGame((s) => s.contributors);
+  const me = useGame((s) => s.playerId);
+  if (!builtBy) return null;
+  const who = contributors[builtBy];
+  if (!who) return null;
+  return (
+    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted">
+      <span className="size-2 rounded-full" style={{ background: peerColor(builtBy) }} />
+      Gebaut von <span className="font-medium text-navy">{who.name}</span>
+      {builtBy === me && <span>(du)</span>}
+    </div>
+  );
+}
+
+function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
+  const flow = useGame((s) => s.flow);
+  const stats = useGame((s) => s.stats);
+  const edge = flow.find((e) => e.id === piste.id);
+  const segments = Math.max(1, piste.hexes.length - 1);
+  const load = edge && edge.capacity > 0 ? Math.min(1, edge.flow / edge.capacity) : 0;
+  const closed = Boolean(edge && edge.capacity <= 0);
+  const grade = piste.difficulty === "blue" || piste.difficulty === "red" || piste.difficulty === "black" ? piste.difficulty : null;
+  const widthLabel = piste.itemId === "piste" ? widthDef(piste.width).label : null;
+  return (
+    <Panel className="p-3">
+      <div className="truncate text-[13px] font-semibold uppercase tracking-wide text-navy">{piste.name || item.name}</div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+        {grade && (
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-bold text-panel"
+            style={{ background: GRADE_COLOR[grade] }}
+          >
+            {GRADE_LABEL[grade]}
+          </span>
+        )}
+        {widthLabel && <span>{widthLabel} ·</span>}
+        {segments} Segmente · {(segments * FLOW.kmPerSegment).toFixed(1)} km
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+        <Stat label="Kapazität" value={edge ? `${fmt(edge.capacity)}/h` : "—"} />
+        <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
+        <Stat label="Fahrten" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
+      </div>
+      {closed && (
+        <p className="mt-2 rounded-[12px] bg-danger/10 px-2 py-1.5 text-[11px] leading-snug text-danger">
+          Zu: die Talseite dieser Abfahrt liegt unter der Schneegrenze von {fmt(realMetres(stats.snowLineM))} m.
+        </p>
+      )}
+      {!closed && piste.difficulty !== "road" && <LinkStatus id={piste.id} kind="piste" />}
+      <BuiltByLine builtBy={piste.builtBy} />
+      {pisteExpandable(piste) && (
+        <LevelSection
+          id={piste.id}
+          level={pisteLevel(piste)}
+          max={PISTE_LEVELS.maxLevel}
+          label={(l) => pisteLevelLabel(l).label}
+          gain={(l) => pisteLevelLabel(l).gain}
+          cost={pisteExpansionCost(piste)}
+        />
+      )}
+      <PisteEditPanel key={piste.id} piste={piste} />
+      <DemolishButton id={piste.id} refund={refundFor(item.cost * segments + pisteExpansionSpent(piste))} label={piste.name || item.name} />
+    </Panel>
+  );
+}
+
+/**
+ * Tearing something down, behind one confirmation.
+ *
+ * Upkeep made overbuilding a real mistake, and without this there was no way
+ * to correct one — the account simply bled.
+ */
+function DemolishButton({ id, refund, label }: { id: string; refund: number; label: string }) {
+  const demolish = useGame((s) => s.demolish);
+  const [armed, setArmed] = useState(false);
+  if (!armed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setArmed(true)}
+        className="btn-3d btn-3d-light mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-full bg-ice text-[12px] font-bold text-danger"
+      >
+        <Trash2 className="size-3.5" /> Abreissen
+      </button>
+    );
+  }
+  return (
+    <div className="mt-3">
+      <p className="mb-1.5 text-[11px] leading-snug text-muted">
+        {label} entfernen? Du bekommst <span className="font-semibold text-navy">{fmt(refund)}</span>{" "}
+        CHF zurück.
+      </p>
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => setArmed(false)}
+          className="btn-3d btn-3d-light h-11 flex-1 rounded-full bg-ice text-[12px] font-bold text-navy"
+        >
+          Behalten
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            demolish(id);
+            setArmed(false);
+          }}
+          className="btn-3d h-11 flex-1 rounded-full bg-danger text-[12px] font-bold text-panel"
+          style={{ ["--lip" as string]: "#9c2626" }}
+        >
+          Abreissen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What the flow graph knows, in the player's language.
+ *
+ * Without this the two things that decide a resort — whether an installation is
+ * connected at all, and what the queue is stuck behind — are invisible, and a
+ * lift that carries nobody looks exactly like one that carries thousands.
+ */
+export function OperationsPanel() {
+  const stats = useGame((s) => s.stats);
+  const day = useGame((s) => s.day);
+  const mode = useGame((s) => s.match.mode);
+  const idle = stats.idleLifts + stats.idlePistes;
+  const phase = seasonPhase(day);
+  return (
+    <Panel className="p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Betrieb</span>
+        <span className="text-[10px] text-subtle">{mode === "match" ? "Vorschau Mittag" : "jetzt"}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5 text-center">
+        <Stat label="Nachfrage/h" value={fmt(stats.marketPerHour)} />
+        <Stat label="Fahrten/h" value={fmt(stats.peoplePerHour)} tone={stats.queued > 0 ? "warn" : "good"} />
+        <Stat
+          label="Warten"
+          value={`${stats.waitMinutes}′`}
+          tone={stats.waitMinutes > 12 ? "bad" : stats.waitMinutes > 6 ? "warn" : "neutral"}
+        />
+      </div>
+      <div className="mt-1.5 grid grid-cols-3 gap-1.5 text-center">
+        <Stat label="Umsatz/Tag" value={fmt(stats.revenuePerHour)} />
+        <Stat label="Kosten/Tag" value={`−${fmt(stats.upkeepPerHour)}`} tone="warn" />
+        <Stat label="Gewinn/Tag" value={fmtSigned(stats.incomePerHour)} tone={stats.incomePerHour < 0 ? "bad" : "good"} />
+      </div>
+      {(stats.openingBoost ?? 1) > 1.01 && (
+        <div className="mt-1.5 rounded-[12px] bg-coin/15 px-2.5 py-1.5 text-[11px] font-semibold text-navy">
+          🎉 Eröffnungssaison: +{Math.round(((stats.openingBoost ?? 1) - 1) * 100)} % Nachfrage – das neue Gebiet spricht sich herum.
+        </div>
+      )}
+      <div className="mt-2 flex flex-col gap-1.5">
+        {stats.incomePerHour < 0 && (
+          <Warning tone="bad">
+            Der Unterhalt frisst mehr, als das Gebiet einnimmt. Schliess ungenutzte Anlagen ans Netz
+            an oder mach den Berg attraktiver.
+          </Warning>
+        )}
+        {idle > 0 && (
+          <Warning tone="bad">
+            {idle === 1 ? "Eine Anlage hat" : `${idle} Anlagen haben`} keine Gäste. Tippe den Lift an
+            und wähle «Abfahrt anlegen» – eine Piste bis zu einer Talstation, ins Dorf oder auf eine
+            andere Piste genügt.
+          </Warning>
+        )}
+        {stats.queued > 0 && idle === 0 && (
+          <Warning tone="warn">
+            {fmt(stats.queued)} Fahrten pro Stunde stehen an.
+            {stats.bottleneckLabel
+              ? ` Engpass: ${stats.bottleneckLabel} bei ${Math.round(stats.bottleneckUse * 100)} %.`
+              : " Es fehlt eine Verbindung ins Gebiet."}
+          </Warning>
+        )}
+        {stats.turnedAway > 0 && (
+          <Warning tone="warn">
+            {fmt(stats.turnedAway)} Gäste pro Stunde kommen nicht ins Tal: mehr Parkhäuser, ein
+            Busbahnhof oder Hotelbetten helfen.
+          </Warning>
+        )}
+        {stats.queued <= 0 && stats.bottleneckLabel && (
+          <Warning tone="warn">
+            {stats.bottleneckLabel} läuft bei {Math.round(stats.bottleneckUse * 100)} % — der
+            nächste Ausbau gehört dorthin.
+          </Warning>
+        )}
+        {stats.closedPistes > 0 && (
+          <Warning tone="warn">
+            {stats.closedPistes === 1 ? "Eine Piste liegt" : `${stats.closedPistes} Pisten liegen`}{" "}
+            unter der Schneegrenze und {stats.closedPistes === 1 ? "ist" : "sind"} zu.
+            {phase === "summer"
+              ? " Im Sommer fährt nur, was auch talwärts fährt."
+              : " Beschneiung oder höher gelegene Abfahrten helfen."}
+          </Warning>
+        )}
+        {stats.marketPerHour === 0 && stats.liftCapacity === 0 && (
+          <Warning tone="warn">
+            Noch kein Skigebiet: Bau einen Lift vom Dorf hinauf und eine Piste zurück. Gäste kommen
+            wegen der Pisten – je mehr und abwechslungsreicher, desto mehr.
+          </Warning>
+        )}
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-x-2 text-[10px] text-muted">
+        <span>{SEASON_LABEL[phase]}</span>
+        <span>Schneegrenze {fmt(realMetres(stats.snowLineM))} m</span>
+        <span>Pisten {stats.pisteKm} km</span>
+        <span>Liftkapazität {fmt(stats.liftCapacity)}/h</span>
+        <span>Betten {fmt(stats.beds)}</span>
+        <span>Höhenmeter {fmtCompact(stats.verticalPerHour)}/h</span>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * The day ticket price, the one lever that acts every day.
+ *
+ * Kept local while dragging and sent once on release, so a slide does not
+ * become forty intents and forty activity entries.
+ */
+export function TicketPricePanel() {
+  const price = useGame((s) => s.ticketPrice);
+  const setPrice = useGame((s) => s.setTicketPrice);
+  const finished = useGame((s) => s.match.phase === "finished" && s.match.mode === "match");
+  const [draft, setDraft] = useState<number | null>(null);
+  const value = draft ?? price;
+  const commit = () => {
+    if (draft !== null && draft !== price) setPrice(draft);
+    setDraft(null);
+  };
+  const ref = ECONOMY.ticketReference;
+  const mood = value > ref + 15 ? "Teuer – weniger Gäste, unzufriedener" : value < ref - 15 ? "Günstig – volle Pisten, wenig pro Gast" : "Marktüblich";
+  return (
+    <Panel className="p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Tageskarte</span>
+        <span className="value text-[16px] font-bold text-navy">{value} CHF</span>
+      </div>
+      <input
+        type="range"
+        min={ECONOMY.ticketMin}
+        max={ECONOMY.ticketMax}
+        step={1}
+        value={value}
+        disabled={finished}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+        aria-label="Preis der Tageskarte"
+        className="mt-2 h-2 w-full cursor-pointer accent-[var(--color-accent)]"
+      />
+      <div className="mt-1 flex items-center justify-between text-[10px] text-muted">
+        <span>{ECONOMY.ticketMin}</span>
+        <span className={value > ref + 15 ? "font-semibold text-warn" : value < ref - 15 ? "font-semibold text-accent" : ""}>{mood}</span>
+        <span>{ECONOMY.ticketMax}</span>
+      </div>
+    </Panel>
+  );
+}
+
+/** The resort's name, shown in the top bar and in the hall of fame. */
+export function RenamePanel() {
+  const name = useGame((s) => s.resortName);
+  const rename = useGame((s) => s.rename);
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? name;
+  const dirty = draft !== null && draft.trim().length >= 2 && draft.trim() !== name;
+  return (
+    <Panel className="p-3">
+      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Name des Gebiets</div>
+      <form
+        className="flex gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (dirty) rename(value.trim());
+          setDraft(null);
+        }}
+      >
+        <input
+          value={value}
+          maxLength={28}
+          onChange={(e) => setDraft(e.target.value)}
+          className="h-10 min-w-0 flex-1 rounded-full bg-snow px-3 text-[13px] text-navy outline-none ring-1 ring-line focus:ring-accent"
+        />
+        <button
+          type="submit"
+          disabled={!dirty}
+          className="h-10 shrink-0 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-40"
+        >
+          Speichern
+        </button>
+      </form>
+    </Panel>
+  );
+}
+
+export function Quests() {
+  const quests = useGame((s) => s.quests);
+  const claim = useGame((s) => s.claimQuest);
+  const stats = useGame((s) => s.stats);
+  const active = quests.filter((q) => !q.claimed).slice(0, 3);
+  return (
+    <Panel className="p-3">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Aufträge</div>
+      <div className="flex flex-col gap-2">
+        {active.map((q) => {
+          const pct = Math.min(100, (q.progress / q.target) * 100);
+          const done = q.progress >= q.target;
+          return (
+            <button key={q.id} type="button" onClick={() => claim(q.id)} className="min-h-11 text-left">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-medium text-navy">{q.title}</span>
+                <span className="tabular-nums text-muted">
+                  {fmt(Math.min(q.progress, q.target))}/{fmt(q.target)}
+                </span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ice">
+                <div className={`h-full rounded-full ${done ? "bg-success" : "bg-accent"}`} style={{ width: `${pct}%` }} />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {active.some((q) => q.progress >= q.target) && (
+        <div className="mt-2 text-[10px] font-semibold text-success">Fertige Aufträge antippen, um die Belohnung abzuholen.</div>
+      )}
+      <div className="mt-2 text-[10px] text-muted">
+        Pisten {stats.pisteKm} km · Betten {stats.beds} · Kapazität {fmt(stats.liftCapacity)}/h
+      </div>
+    </Panel>
+  );
+}

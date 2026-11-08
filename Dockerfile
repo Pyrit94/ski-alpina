@@ -8,8 +8,6 @@
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-COPY apps/api/package.json apps/api/package.json
-COPY apps/sim/package.json apps/sim/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN npm ci --legacy-peer-deps --no-audit --no-fund
