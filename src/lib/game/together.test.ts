@@ -4,6 +4,8 @@ import { TEAMPLAY } from "../../../packages/config/src/economy.ts";
 import { hexesInRange } from "../../../packages/shared/src/hex.ts";
 import { VILLAGE_HEX } from "../../../packages/shared/src/engine/graph.ts";
 import { emptyResort } from "../../../packages/shared/src/engine/state.ts";
+import { neighbourReservation } from "../../../packages/shared/src/engine/neighbour-trade.ts";
+import { setNeighbourMode } from "../../../packages/shared/src/engine/neighbours.ts";
 import { validateIntent } from "../../../packages/shared/src/engine/validate.ts";
 import { generateDem } from "../../../packages/shared/src/terrain/dem.ts";
 import type { ActivityEntry, ResortState } from "../../../packages/shared/src/types.ts";
@@ -67,4 +69,24 @@ test("a proposal's title says what it does", () => {
   assert.equal(planTitle([r]), "Restaurant bauen");
   assert.equal(planTitle([r, { ...r, q: 2 }]), "2× Restaurant bauen");
   assert.equal(planTitle([{ type: "rearrange", moves: [{ entityId: "b1", q: 0, r: 0 }] }]), "Dorf neu ordnen (1 Gebäude)");
+});
+
+test("buying a neighbour above the limit asks the partner; a counteroffer alone does not", () => {
+  const s: ResortState = setNeighbourMode(
+    { ...emptyResort(), coins: 2_000_000, contributors: partner, proposalLimit: 50_000 },
+    dem,
+    "gemuetlich",
+    1,
+  );
+  const n = s.neighbours!.list[0]!;
+  const price = neighbourReservation(s, n);
+  assert.ok(price > 50_000);
+  const offer = { type: "offer_buyout" as const, neighbourId: n.id, amount: price };
+  const buy = proposalFor(s, dem, [offer], me);
+  assert.equal(buy?.type, "propose");
+  assert.equal(buy!.title, "Nachbargebiet kaufen");
+  // Below its price it only counters: nothing spent, nothing to ask.
+  assert.equal(proposalFor(s, dem, [{ ...offer, amount: Math.round(price * 0.8) }], me), null);
+  // A «Tarifverbund» costs by the day, not at once: no proposal.
+  assert.equal(proposalFor(s, dem, [{ type: "neighbour_pact", neighbourId: n.id, on: true }], me), null);
 });

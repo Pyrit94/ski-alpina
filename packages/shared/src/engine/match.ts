@@ -15,7 +15,7 @@ import type {
 } from "../types.ts";
 import { followTutorial } from "./tutorial.ts";
 import { tickFlow } from "./flow.ts";
-import { neighboursDayEnded, spawnNeighbours } from "./neighbours.ts";
+import { closeNeighbourDay, spawnNeighbours } from "./neighbours.ts";
 import { syncQuestProgress } from "./quests.ts";
 import { seasonPhase } from "./season.ts";
 import { DEFAULT_MATCH_OPTIONS, emptyResearch, emptyResort, NO_MODS, sandboxMatch } from "./state.ts";
@@ -147,8 +147,8 @@ export function startMatch(
   };
   // Neighbours start from scratch too, as the valley does: the same for every match.
   const neighbours =
-    state.neighbours?.mode === "gemuetlich"
-      ? { mode: "gemuetlich" as const, list: spawnNeighbours(base, dem, now) }
+    state.neighbours && state.neighbours.mode !== "off"
+      ? { mode: state.neighbours.mode, list: spawnNeighbours(base, dem, now) }
       : state.neighbours;
   const next: ResortState = {
     ...base,
@@ -444,11 +444,9 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
       day = 1;
       season += 1;
     }
-    // The neighbours close their day as in free play.
-    const neighbours = neighboursDayEnded(state, dem, now);
+    // The neighbours close their day as in free play, fees and all.
     state = syncQuestProgress({
-      ...state,
-      ...(neighbours ? { neighbours } : {}),
+      ...closeNeighbourDay(state, dem, now),
       day,
       season,
       weather: weatherForDay(season, day),

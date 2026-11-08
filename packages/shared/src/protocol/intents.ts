@@ -24,6 +24,11 @@ export const AxialSchema = z.object({
 
 export const ItemIdSchema = z.enum(ITEM_IDS);
 
+export const NeighbourModeSchema = z.enum(["off", "gemuetlich", "wettbewerb"]);
+
+/** "nb1", "nb2" … */
+export const NeighbourIdSchema = z.string().regex(/^nb\d{1,3}$/);
+
 export const UpgradeKeySchema = z.enum(["speed", "cabins", "capacity"]);
 
 export const IntentSchema = z.discriminatedUnion("type", [
@@ -120,10 +125,28 @@ export const IntentSchema = z.discriminatedUnion("type", [
     type: z.literal("set_proposal_limit"),
     limit: z.number().int().min(0).max(10_000_000),
   }),
-  // Neighbour ski areas the game runs: off, or sharing the guests (see NEIGHBOURS).
+  // Neighbour ski areas the game runs: off, sharing the guests, or rivals (see NEIGHBOURS).
   z.object({
     type: z.literal("set_neighbours"),
-    mode: z.enum(["off", "gemuetlich"]),
+    mode: NeighbourModeSchema,
+  }),
+  // «Tarifverbund» with a neighbour: one pass, no guests lost to it, a fee a day.
+  z.object({
+    type: z.literal("neighbour_pact"),
+    neighbourId: NeighbourIdSchema,
+    on: z.boolean(),
+  }),
+  // Offer to buy a neighbour out; below its price it counters.
+  z.object({
+    type: z.literal("offer_buyout"),
+    neighbourId: NeighbourIdSchema,
+    amount: z.number().int().min(1).max(100_000_000),
+  }),
+  // Take or turn down the neighbour's counteroffer.
+  z.object({
+    type: z.literal("answer_counter"),
+    neighbourId: NeighbourIdSchema,
+    accept: z.boolean(),
   }),
   z.object({
     type: z.literal("set_speed"),
@@ -254,7 +277,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     /** Which map; unknown ids fall back to the classic valley. */
     region: z.string().max(32).optional(),
     /** Neighbour ski areas; absent = «gemuetlich». */
-    neighbours: z.enum(["off", "gemuetlich"]).optional(),
+    neighbours: NeighbourModeSchema.optional(),
   }),
   z.object({
     type: z.literal("save_game"),

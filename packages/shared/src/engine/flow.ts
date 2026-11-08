@@ -1,4 +1,4 @@
-import { neighbourCut } from "./neighbours.ts";
+import { neighbourCut, pactDraw } from "./neighbours.ts";
 import { ECONOMY, FLOW, PISTE_LEVELS, PISTE_SCORE } from "../../../config/src/economy.ts";
 import { RESEARCH } from "../../../config/src/research.ts";
 import { isLift } from "../../../config/src/ids.ts";
@@ -142,6 +142,9 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const sightseers =
     (1 - inSeason) *
     (Math.min(3, cableways) * ECONOMY.sightseersPerCableway + summerDraw * ECONOMY.summerDrawScale);
+  // A partner in a «Tarifverbund» counts for part of its slopes, while the
+  // season lasts (see NEIGHBOURS.pact).
+  weightedKm += pactDraw(state) * inSeason;
   // The neighbour areas take their share of the region's guests (see NEIGHBOURS).
   const neighbourShare = neighbourCut(state, weightedKm);
   const market =

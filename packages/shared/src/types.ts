@@ -27,6 +27,8 @@ export interface PlacedBuilding {
   upgrades: Upgrades;
   /** Player id of whoever put it here. Absent on anything built before this. */
   builtBy?: string;
+  /** Bought with a neighbour area (see neighbour-trade.ts), not built: nothing to undo. */
+  acquired?: boolean;
 }
 
 export interface PlacedLift {
@@ -46,6 +48,7 @@ export interface PlacedLift {
   readyAt: number;
   upgrades: Upgrades;
   builtBy?: string;
+  acquired?: boolean;
 }
 
 /** 1 schmal, 2 normal, 3 breit. Older saves have none, which means 2. */
@@ -59,6 +62,7 @@ export interface PlacedPiste {
   builtAt: number;
   readyAt: number;
   builtBy?: string;
+  acquired?: boolean;
   /** Width class of the run; see PISTE_WIDTHS in config. Absent = 2. */
   width?: PisteWidth;
   /** A name the players gave the run, e.g. "Matterhorn-Abfahrt". */
@@ -298,7 +302,7 @@ export interface ResortState {
   neighbours?: NeighbourState;
 }
 
-export type NeighbourMode = "off" | "gemuetlich";
+export type NeighbourMode = "off" | "gemuetlich" | "wettbewerb";
 
 /** A neighbour ski area: its own valley station, lifts and runs. */
 export interface Neighbour {
@@ -316,6 +320,16 @@ export interface Neighbour {
   lastBuilt: number;
   /** Guests on its slopes the day before. */
   guestsYesterday: number;
+  /** «Tarifverbund» with the players: one pass, no guests taken, a fee a day. */
+  pact?: boolean;
+  /** Its answer to an offer below its price: what it would take, until absolute day `until`. */
+  counter?: NeighbourCounter;
+}
+
+export interface NeighbourCounter {
+  price: number;
+  /** Last absolute day (see `absDay`) it holds. */
+  until: number;
 }
 
 export interface NeighbourState {

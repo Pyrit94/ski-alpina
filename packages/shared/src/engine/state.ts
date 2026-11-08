@@ -302,6 +302,8 @@ export function entityCost(entity: ResortEntity): { coins: number; gems: number 
 export function undoable(state: ResortState, entity: ResortEntity, actorId: string | undefined, now: number): boolean {
   const e = entity.kind === "lift" ? entity.lift : entity.kind === "building" ? entity.building : entity.piste;
   if (e.builtBy && actorId && e.builtBy !== actorId) return false;
+  // Bought, not built: there is no mis-tap to take back.
+  if (e.acquired) return false;
   if (state.match?.mode === "match" && e.readyAt >= Number.MAX_SAFE_INTEGER) return true;
   return now - e.builtAt <= ECONOMY.undoSeconds * 1000;
 }
