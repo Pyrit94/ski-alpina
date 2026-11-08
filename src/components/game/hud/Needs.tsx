@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, BedDouble, CableCar, Car, ShoppingBag, Utensils, Wand2, X } from "lucide-react";
 import { BY_ID } from "@ski/config";
-import { getDem, hexToWorld, itemUnlocked, PENDING_READY, planVillage, siteContext, siteFactors, tickFlow, type ResortState } from "@ski/shared";
+import { getDem, hexToWorld, itemUnlocked, siteContext, siteFactors } from "@ski/shared";
 import { computeNeeds, NEED_SHORT, type Need, type NeedKey } from "@/lib/game/needs";
 import { buildAtBest, pct } from "@/lib/game/placement";
 import { fmt } from "@/lib/game/format";
 import { play } from "@/lib/game/sound";
 import { useGame } from "@/lib/game/store";
 import { useMyMoney } from "@/lib/game/team";
+import { usePlanner } from "@/lib/game/planner";
+import { plannerState } from "@/lib/game/planner-jobs";
 import { useStableGame } from "../canvas/use-stable-game";
+import { BusyNote, Calculating } from "./Calculating";
 
 const ICON: Record<NeedKey, typeof Utensils> = {
   food: Utensils,
@@ -122,18 +125,12 @@ export function VillagePanel() {
   const buildings = useStableGame((s) => s.buildings);
   const money = useMyMoney().mine;
 
-  const result = useMemo(() => {
-    if (!open) return null;
-    const dem = getDem();
-    const state = { ...useGame.getState(), lifts, pistes, buildings } as unknown as ResortState;
-    const plan = planVillage(state, dem);
-    if (plan.moves.length === 0) return { plan, before: null, after: null };
-    const to = new Map(plan.moves.map((m) => [m.id, m.to]));
-    const moved = { ...state, buildings: state.buildings.map((b) => (to.has(b.id) ? { ...b, ...to.get(b.id)! } : b)) };
-    // Twice, as the auto planner does: reputation follows the last tick.
-    const run = (s: ResortState) => tickFlow({ ...s, stats: tickFlow(s, dem, 0, PENDING_READY).stats }, dem, 0, PENDING_READY).stats;
-    return { plan, before: run(state), after: run(moved) };
-  }, [open, lifts, pistes, buildings]);
+  // The plan and the before/after simulation, worked out in the planner worker.
+  const { result: planned, busy } = usePlanner<"village">(
+    () => (open ? { kind: "village", state: plannerState(useGame.getState(), { lifts, pistes, buildings }) } : null),
+    [open, lifts, pistes, buildings],
+  );
+  const result = open ? planned : null;
 
   useEffect(() => {
     useGame.setState({
@@ -158,10 +155,11 @@ export function VillagePanel() {
   }, [moves]);
   useEffect(() => () => useGame.setState({ villagePreview: [], autoPreview: [] }), []);
 
-  if (!open || !result) return null;
-  const { plan } = result;
+  if (!open) return null;
   const close = () => useGame.setState({ villageOpen: false });
+  const plan = result?.plan;
   const apply = () => {
+    if (!plan || busy) return;
     // Roads first: the moved buildings need them to stand where they go.
     useGame.getState().sendPlan([
       ...plan.roads.map((hexes) => ({ type: "place_piste" as const, itemId: "road" as const, hexes })),
@@ -170,7 +168,7 @@ export function VillagePanel() {
     play("build");
     close();
   };
-  const tooPoor = plan.cost > money;
+  const tooPoor = plan ? plan.cost > money : false;
 
   return (
     <div className="toast-in pointer-events-auto w-[min(94vw,360px)] rounded-[20px] bg-panel/95 p-3 shadow-[var(--shadow-panel)] backdrop-blur-md">
@@ -178,6 +176,7 @@ export function VillagePanel() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[13px] font-semibold text-navy">
             <Wand2 className="size-4 text-accent" /> Dorf ordnen
+            {busy && plan && <BusyNote />}
           </div>
           <p className="mt-0.5 text-[11px] leading-snug text-muted">
             Sucht für Restaurants, Läden und Hotels bessere Plätze: an der Piste, nahe der Talstation, weg vom Lärm. Parkhäuser, Busse und Bahnen bleiben stehen.
@@ -188,7 +187,9 @@ export function VillagePanel() {
         </button>
       </div>
 
-      {plan.moves.length === 0 ? (
+      {!result || !plan ? (
+        <Calculating />
+      ) : plan.moves.length === 0 ? (
         <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">
           Alles steht schon an guten Plätzen. Lage im Schnitt {pct(plan.before)}.
         </p>
@@ -227,7 +228,7 @@ export function VillagePanel() {
             </button>
             <button
               type="button"
-              disabled={tooPoor}
+              disabled={tooPoor || busy}
               onClick={apply}
               className="btn-3d flex h-11 flex-1 items-center justify-center gap-1 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-50"
               style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
