@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { create } from "zustand";
 
 /**
@@ -85,6 +84,8 @@ export function fitModel(root: THREE.Object3D, footprint = 2.1, yawDeg = 0, fit:
 
 /** Parse one glTF binary and file it under an item and level. */
 export async function addModel(itemId: string, level: number, data: ArrayBuffer, entry: Partial<ModelEntry> = {}): Promise<void> {
+  // The loader only comes over the wire once there is a model to read.
+  const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
   const loader = new GLTFLoader();
   const gltf = await loader.parseAsync(data, "/models/");
   const part = PART_FIT[itemId];

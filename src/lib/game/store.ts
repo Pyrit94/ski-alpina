@@ -23,6 +23,7 @@ import { connectGame, loadName, saveName } from "./net";
 import { play } from "./sound";
 import { finishPisteDraft, pisteClick } from "./piste-editor";
 import { emptyResort, loadRegion, neighbourOf, setActiveRegion, TUTORIAL_STEPS } from "@ski/shared";
+import { keepIfSame } from "@/components/game/canvas/stable";
 import { CLASSIC_REGION } from "@ski/config";
 import { partners, proposalFor } from "./proposals";
 import { markOf, readMark, summarize, writeMark, type AwaySummary } from "./away";
@@ -215,6 +216,24 @@ function flatten(s: ResortState): Partial<ResortState> {
 }
 
 /**
+ * Each snapshot is freshly parsed JSON, so every list in it is a new object
+ * every second even when nothing changed — and every component reading one
+ * rendered again. Here each field keeps its previous object when its content
+ * is the same, once for the whole store, so subscribers simply see no change.
+ */
+const lastFields = new Map<string, { value: unknown; sig: string }>();
+function stabilize(flat: Partial<ResortState>): Partial<ResortState> {
+  const out: Record<string, unknown> = { ...flat };
+  for (const [k, v] of Object.entries(flat)) {
+    if (v === null || typeof v !== "object") continue;
+    const kept = keepIfSame(lastFields.get(k) ?? null, v);
+    lastFields.set(k, kept);
+    out[k] = kept.value;
+  }
+  return out as Partial<ResortState>;
+}
+
+/**
  * Send what was built — or, when it is a big step and someone else builds
  * here too, send it to them as a proposal (see TEAMPLAY).
  */
@@ -349,7 +368,7 @@ export const useGame = create<GameStore>((set, get) => ({
           });
         }
         set({
-          ...flatten(state),
+          ...stabilize(flatten(state)),
           players,
           connectedOnce: true,
           ...(first ? { seenReportRound: reports } : newMatch ? { seenReportRound: 0 } : {}),

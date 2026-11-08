@@ -42,6 +42,7 @@ import { useTerrainMaterial } from "./terrain-material";
 import { useTexturePack } from "./texture-pack";
 import { AlbumCapture } from "./AlbumCapture";
 import { QUALITY, type QualityTier } from "./quality";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { useStableGame } from "./use-stable-game";
 import { useWorldBuildings, useWorldLifts, useWorldPistes } from "./use-world";
 import { showNeighbour } from "@/lib/game/neighbours";
@@ -1007,32 +1008,47 @@ function Lifts() {
     [lifts, hm, budget],
   );
 
+  // Every cable on the map in one mesh: two draw calls per lift added up
+  // fast (and neighbours bring theirs). A tap finds its lift by which run of
+  // triangles it hit.
+  const cables = useMemo(() => {
+    const parts = rigs.flatMap((r) => r.cables);
+    if (parts.length === 0) return null;
+    const ranges: { end: number; id: string }[] = [];
+    let tris = 0;
+    for (const rig of rigs) {
+      for (const c of rig.cables) {
+        tris += (c.index ? c.index.count : c.attributes.position!.count) / 3;
+        ranges.push({ end: tris, id: rig.lift.id });
+      }
+    }
+    const geo = mergeGeometries(parts, false);
+    return geo ? { geo, ranges } : null;
+  }, [rigs]);
+
   useEffect(
     () => () => {
       for (const rig of rigs) for (const c of rig.cables) c.dispose();
+      cables?.geo.dispose();
     },
-    [rigs],
+    [rigs, cables],
   );
 
   return (
     <group>
-      {/* Cables stay per-lift: each is a unique curve, and they are what a
-          player clicks to select the installation. */}
-      {rigs.map((rig) => (
-        <group
-          key={rig.lift.id}
+      {cables && (
+        <mesh
+          geometry={cables.geo}
           onClick={(e) => {
             e.stopPropagation();
-            selectEntity(rig.lift.id);
+            const face = e.faceIndex ?? -1;
+            const hit = cables.ranges.find((r) => face < r.end);
+            if (hit) selectEntity(hit.id);
           }}
         >
-          {rig.cables.map((geo, i) => (
-            <mesh key={i} geometry={geo}>
-              <meshStandardMaterial color="#26323d" metalness={0.55} roughness={0.35} />
-            </mesh>
-          ))}
-        </group>
-      ))}
+          <meshStandardMaterial color="#26323d" metalness={0.55} roughness={0.35} />
+        </mesh>
+      )}
       <PylonField rigs={rigs} />
       <CarrierField rigs={rigs} />
     </group>

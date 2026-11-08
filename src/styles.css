@@ -1,5 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+/* Poppins from our own server: no render-blocking request to Google, no
+   visitor data to a third party, and the files cache for a year. Latin only:
+   that covers German, French and Italian. */
+@import "@fontsource/poppins/latin-400.css";
+@import "@fontsource/poppins/latin-500.css";
+@import "@fontsource/poppins/latin-600.css";
+@import "@fontsource/poppins/latin-700.css";
 
 @theme {
   --font-sans: "Poppins", "Segoe UI", ui-sans-serif, system-ui, sans-serif;

@@ -815,6 +815,9 @@ function MidStationOffer({ liftId }: { liftId: string }) {
   const research = useStableGame((s) => s.research);
   const mix = useGame((s) => s.pisteMix);
   const money = useMyMoney().mine;
+  // In thousands: takings change every second, and replanning every second
+  // (the simulation, dozens of times) would make the panel stutter.
+  const budgetK = Math.floor(money / 1000);
   const [open, setOpen] = useState(false);
   const [pick, setPick] = useState<number | null>(null);
   const [legs, setLegs] = useState<StationLeg[] | null>(null);
@@ -836,8 +839,8 @@ function MidStationOffer({ liftId }: { liftId: string }) {
   const plan = useMemo(() => {
     if (!open || !spot) return null;
     const state = { ...useGame.getState(), lifts, pistes, buildings, research } as unknown as ResortState;
-    return planStationRuns(state, getDem(), liftId, spot, chosen, { mix, budget: Math.max(0, money - stationCost) });
-  }, [open, spot, chosen, mix, lifts, pistes, buildings, research, liftId, money, stationCost]);
+    return planStationRuns(state, getDem(), liftId, spot, chosen, { mix, budget: Math.max(0, budgetK * 1000 - stationCost) });
+  }, [open, spot, chosen, mix, lifts, pistes, buildings, research, liftId, budgetK, stationCost]);
 
   useEffect(() => {
     useGame.setState({ autoPreview: plan ? plan.runs.map((r) => ({ hexes: r.hexes, grade: r.grade })) : [] });
