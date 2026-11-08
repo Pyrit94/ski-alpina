@@ -84,6 +84,10 @@ export interface GameStore extends ResortState, UiState {
   cameraFocus: { x: number; z: number; id: number } | null;
   /** The new lift the «noch keine Abfahrt» card is offering a run for. */
   descentOffer: string | null;
+  /** «Pisten automatisch» while open: which lifts (null = all) and which grades. */
+  autoPistes: { liftIds: string[] | null; mix: "mixed" | "blue" | "red" | "black" } | null;
+  /** The runs it would build, for the map. */
+  autoPreview: { hexes: { q: number; r: number }[]; grade: string }[];
   focusOn: (x: number, z: number) => void;
   setBuildItem: (id: ItemId | null) => void;
   setCategory: (c: UiState["category"]) => void;
@@ -367,6 +371,8 @@ export const useGame = create<GameStore>((set, get) => ({
   cameraFocus: null,
   regionReady: null,
   descentOffer: null,
+  autoPistes: null,
+  autoPreview: [],
   focusOn: (x, z) => set({ cameraFocus: { x, z, id: Date.now() } }),
   games: [],
   refreshGames: () => net?.sendLobby({ type: "list_games" }),

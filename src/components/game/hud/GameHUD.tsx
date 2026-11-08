@@ -48,6 +48,7 @@ import { ResearchPanel } from "./ResearchHUD";
 import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCard, VipCard, WalletPanel } from "./RulesHUD";
 import { useMyMoney } from "@/lib/game/team";
 import { DescentButton, DescentOffer, LinkStatus } from "./LinkStatus";
+import { AutoPistesButton, AutoPistesPanel } from "./AutoPistes";
 import { SavesPanel } from "./SavesPanel";
 import { useResearchReady } from "@/lib/game/research-ready";
 import { realMetres } from "@/lib/game/real-height";
@@ -223,6 +224,7 @@ export function GameHUD() {
                 <EventCard />
                 <BuildHint />
                 <PisteEditor />
+                <AutoPistesPanel />
                 <DescentOffer />
                 <NextStepChip />
               </div>
@@ -509,6 +511,7 @@ function LeftColumn() {
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
           {CATEGORIES.find((c) => c.id === category)?.label}
         </div>
+        {category === "pistes" && <AutoPistesButton className="mb-2 w-full" />}
         <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
           {CATALOG.filter((i) => i.category === category).map((it) => {
             const locked = terms.locked(it.id);
@@ -831,6 +834,7 @@ function InfoPanel() {
         <p className="mt-3 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">{item.blurb}</p>
       )}
       {lift && <LinkStatus id={lift.id} kind="lift" />}
+      {lift && <AutoPistesButton liftId={lift.id} className="mt-2 w-full" />}
       {lift && edge && edge.link === "ok" && load < LOW_USE && <LowUseHint />}
       {isLift(item.id) && (
         <div className="mt-3">
@@ -1799,6 +1803,11 @@ function MobileFloats() {
         </div>
       )}
       {phase !== "piste" && (
+        <div className="flex justify-center empty:hidden">
+          <AutoPistesPanel />
+        </div>
+      )}
+      {phase !== "piste" && (
         <div className="flex justify-center">
           <DescentOffer />
         </div>
@@ -1959,6 +1968,7 @@ function MobileBuildGrid() {
           );
         })}
       </div>
+      {category === "pistes" && <AutoPistesButton className="mb-2 w-full" />}
       <div className="grid grid-cols-2 gap-2">
         {items.map((it) => {
           const locked = terms.locked(it.id);

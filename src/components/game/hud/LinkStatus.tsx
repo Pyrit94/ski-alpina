@@ -61,6 +61,7 @@ export function DescentOffer() {
   const links = useResortLinks();
   const known = useRef<Set<string> | null>(null);
   const offer = useGame((s) => s.descentOffer);
+  const autoOpen = useGame((s) => s.autoPistes !== null);
   const setOffer = (id: string | null) => useGame.setState({ descentOffer: id });
 
   useEffect(() => {
@@ -81,7 +82,7 @@ export function DescentOffer() {
   }, [lifts, me]);
 
   const lift = lifts.find((l) => l.id === offer);
-  if (!lift || phase === "piste" || links.get(lift.id) !== "no-descent") return null;
+  if (!lift || autoOpen || phase === "piste" || links.get(lift.id) !== "no-descent") return null;
   // Selected, its own panel already carries the button: one is enough.
   if (selectedId && [lift.id, lift.stationA, lift.stationB].includes(selectedId)) return null;
   const name = BY_ID[lift.itemId].name;

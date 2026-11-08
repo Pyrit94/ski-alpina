@@ -26,6 +26,7 @@ export function LinkHints() {
   const buildings = useStableGame((s) => s.buildings);
   const phase = useGame((s) => s.phase);
   const layer = useGame((s) => s.layer);
+  const autoOpen = useGame((s) => s.autoPistes !== null);
   const links = useResortLinks();
   const hm = getHeightmap();
 
@@ -82,7 +83,8 @@ export function LinkHints() {
     [lines],
   );
 
-  const busy = phase !== "idle" || layer === "height";
+  // While «Pisten automatisch» shows its own plan, these would only repeat it.
+  const busy = phase !== "idle" || layer === "height" || autoOpen;
   if (missing.length === 0) return null;
   return (
     <group>
