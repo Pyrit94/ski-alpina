@@ -66,6 +66,25 @@ export const IntentSchema = z.discriminatedUnion("type", [
     type: z.literal("free_play"),
   }),
   z.object({
+    type: z.literal("undo"),
+    entityId: z.string().min(2).max(48),
+  }),
+  z.object({
+    type: z.literal("move_building"),
+    entityId: z.string().min(2).max(48),
+    q: z.number().int(),
+    r: z.number().int(),
+  }),
+  z.object({
+    type: z.literal("set_speed"),
+    speed: z.union([z.literal(0), z.literal(1), z.literal(3)]),
+  }),
+  z.object({
+    type: z.literal("name_lift"),
+    entityId: z.string().min(2).max(48),
+    name: z.string().trim().max(32),
+  }),
+  z.object({
     type: z.literal("demolish"),
     entityId: z.string().min(2).max(48),
   }),
@@ -193,6 +212,14 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     name: z.string().max(80).optional(),
   }),
   z.object({ type: z.literal("load_save"), reqId: z.string().max(40).optional(), saveId: z.string().min(2).max(40) }),
+  // A resort exported as a file, brought back as a new game.
+  z.object({
+    type: z.literal("import_game"),
+    reqId: z.string().max(40).optional(),
+    kind: z.enum(["shared", "own"]),
+    name: z.string().max(60).optional(),
+    snapshot: z.record(z.string(), z.unknown()),
+  }),
   z.object({ type: z.literal("delete_save"), reqId: z.string().max(40).optional(), saveId: z.string().min(2).max(40) }),
 ]);
 

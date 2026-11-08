@@ -53,7 +53,7 @@ export interface NetHandlers {
 
 type LobbyRequest = Extract<
   ClientMessage,
-  { type: "list_games" | "create_game" | "save_game" | "load_save" | "delete_save" }
+  { type: "list_games" | "create_game" | "import_game" | "save_game" | "load_save" | "delete_save" }
 >;
 /** A lobby request as the caller writes it; `reqId` is added on sending. */
 export type LobbyAsk = LobbyRequest extends infer T ? (T extends unknown ? Omit<T, "reqId"> : never) : never;

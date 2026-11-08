@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, History, Play, Plus, Trash2, User, Users } from "lucide-react";
+import { ChevronDown, ChevronRight, History, Play, Plus, Trash2, Upload, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { GAME_NAME_MAX, type GameInfo, type GameKind, type SaveInfo } from "@ski/shared";
 import { summaryLine, when } from "@/lib/game/saves-format";
@@ -61,6 +61,18 @@ export function GamePicker({ playerName }: { playerName: string }) {
       const r = await lobbyRequest({ type: "delete_save", saveId: save.id });
       setGames(r.games);
       setConfirm(null);
+    });
+  // A resort exported from the menu, brought back as a new game.
+  const importFile = (file: File, kind: GameKind) =>
+    run(async () => {
+      let snapshot: Record<string, unknown>;
+      try {
+        snapshot = JSON.parse(await file.text()) as Record<string, unknown>;
+      } catch {
+        throw new Error("Diese Datei ist kein Spielstand");
+      }
+      const r = await lobbyRequest({ type: "import_game", kind, snapshot, ...(newName.trim() ? { name: newName.trim() } : {}) });
+      if (r.created) play(r.created);
     });
   const create = (kind: GameKind) =>
     run(async () => {
@@ -168,6 +180,20 @@ export function GamePicker({ playerName }: { playerName: string }) {
             <Plus className="size-4" /> Nur für mich
           </button>
         </div>
+        <label className="mt-2 flex min-h-11 cursor-pointer items-center justify-center gap-1.5 rounded-full text-[12px] font-semibold text-ice ring-1 ring-snow/20">
+          <Upload className="size-4" /> Spielstand-Datei importieren
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            disabled={busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) importFile(f, "shared");
+            }}
+          />
+        </label>
       </div>
       )}
     </div>

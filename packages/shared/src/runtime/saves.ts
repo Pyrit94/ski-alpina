@@ -210,13 +210,14 @@ export class SqlSaveStore implements SaveStore {
 
 export type LobbyMessage = Extract<
   ClientMessage,
-  { type: "list_games" | "create_game" | "save_game" | "load_save" | "delete_save" }
+  { type: "list_games" | "create_game" | "import_game" | "save_game" | "load_save" | "delete_save" }
 >;
 
 export function isLobbyMessage(msg: ClientMessage): msg is LobbyMessage {
   return (
     msg.type === "list_games" ||
     msg.type === "create_game" ||
+    msg.type === "import_game" ||
     msg.type === "save_game" ||
     msg.type === "load_save" ||
     msg.type === "delete_save"
@@ -286,6 +287,30 @@ export async function handleLobby(msg: LobbyMessage, ctx: LobbyContext): Promise
     const id = createId(kind === "shared" ? "g" : "own");
     const region = msg.region && knownRegion(msg.region) ? msg.region : CLASSIC_REGION;
     const room = ctx.createRoom(id, { kind, owner: kind === "own" ? ctx.userId : null }, region);
+    const name = clean(msg.name, GAME_NAME_MAX);
+    if (name) room.state = { ...room.state, resortName: name };
+    room.touchGame();
+    ctx.send({ type: "created", reqId, roomId: id });
+    await games();
+    return;
+  }
+
+  if (msg.type === "import_game") {
+    // A file someone exported: a new game on its map, nothing else replaced.
+    const snap = msg.snapshot as Partial<ResortState>;
+    if (!Array.isArray(snap.lifts) || !Array.isArray(snap.buildings) || !Array.isArray(snap.pistes)) {
+      return fail("Diese Datei ist kein Spielstand von Ski Alpina");
+    }
+    const kind = msg.kind;
+    const id = createId(kind === "shared" ? "g" : "own");
+    const region = typeof snap.region === "string" && knownRegion(snap.region) ? snap.region : CLASSIC_REGION;
+    const room = ctx.createRoom(id, { kind, owner: kind === "own" ? ctx.userId : null }, region);
+    try {
+      room.restore({ ...(snap as ResortState), roomId: id, region });
+    } catch {
+      ctx.rooms.delete(id);
+      return fail("Dieser Spielstand liess sich nicht lesen");
+    }
     const name = clean(msg.name, GAME_NAME_MAX);
     if (name) room.state = { ...room.state, resortName: name };
     room.touchGame();

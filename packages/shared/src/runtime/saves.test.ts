@@ -153,3 +153,19 @@ test("a new game is built on the region chosen for it", async () => {
   const odd = await s.ask("m", { type: "create_game", kind: "own", region: "atlantis" });
   assert.ok(odd.games.some((g) => g.region === "classic"));
 });
+
+test("an exported resort comes back as a new game, on its own map", async () => {
+  const s = server();
+  await s.ask("michael", { type: "create_game", kind: "shared", name: "Original" });
+  const original = [...s.rooms.values()][0]!;
+  build(original, "p1");
+  const exported = JSON.parse(JSON.stringify(original.snapshot()));
+  const { sent, games } = await s.ask("michael", { type: "import_game", kind: "own", name: "Kopie", snapshot: exported });
+  assert.ok(sent.some((m) => m.type === "created"));
+  const copy = games.find((g) => g.name === "Kopie");
+  assert.ok(copy);
+  assert.equal(s.rooms.get(copy.id)!.state.lifts.length, original.state.lifts.length);
+  // Something that is not a resort is refused.
+  const bad = await s.ask("michael", { type: "import_game", kind: "own", snapshot: { hello: 1 } });
+  assert.ok(bad.sent.some((m) => m.type === "error"));
+});

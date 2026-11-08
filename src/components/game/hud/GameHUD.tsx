@@ -12,6 +12,7 @@ import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCar
 import { DescentButton, DescentOffer } from "./LinkStatus";
 import { AutoPistesPanel } from "./AutoPistes";
 import { NextStepChip } from "./NextStepChip";
+import { UndoChip } from "./UndoChip";
 import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
 import { PisteEditor } from "./PisteEditor";
 import { useBuildTerms } from "@/lib/game/research";
@@ -45,6 +46,8 @@ export function GameHUD() {
                 <PisteEditor />
                 <AutoPistesPanel />
                 <DescentOffer />
+                <PausedChip />
+                <UndoChip />
                 <NextStepChip />
               </div>
             )}
@@ -252,7 +255,25 @@ function Attribution() {
   );
 }
 
+/** Free play paused: say so, and offer to carry on. */
+function PausedChip() {
+  const speed = useGame((s) => s.speed ?? 1);
+  const mode = useGame((s) => s.match.mode);
+  const setSpeed = useGame((s) => s.setSpeed);
+  if (speed !== 0 || mode === "match") return null;
+  return (
+    <button
+      type="button"
+      onClick={() => setSpeed(1)}
+      className="toast-in pointer-events-auto flex min-h-11 items-center gap-2 rounded-full bg-warn px-4 text-[13px] font-bold text-panel shadow-[var(--shadow-panel)]"
+    >
+      Pausiert · Weiter
+    </button>
+  );
+}
+
 function BuildHint() {
+  const moving = useGame((s) => s.movingId !== null);
   const buildItem = useGame((s) => s.buildItem);
   const phase = useGame((s) => s.phase);
   const hover = useGame((s) => s.hover);
@@ -260,8 +281,9 @@ function BuildHint() {
   // Drawing a run has its own editor card (PisteEditor.tsx).
   if (!buildItem || phase === "idle" || phase === "piste") return null;
   const item = BY_ID[buildItem];
-  const msg =
-    phase === "lift-a"
+  const msg = moving
+    ? "Neuen Platz wählen"
+    : phase === "lift-a"
       ? stampMode
         ? "Raster auf die Talstation"
         : "Talstation tippen"
@@ -575,6 +597,10 @@ function MobileFloats() {
         </div>
       )}
       <DescentOffer />
+      <div className="flex justify-center gap-2 empty:hidden">
+        <PausedChip />
+        <UndoChip />
+      </div>
       <div className="flex justify-center empty:hidden">
         <NextStepChip />
       </div>

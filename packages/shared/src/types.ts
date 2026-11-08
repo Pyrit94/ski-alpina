@@ -31,6 +31,8 @@ export interface PlacedBuilding {
 export interface PlacedLift {
   id: string;
   itemId: ItemId;
+  /** A name the players gave it, e.g. "Sunnegga-Express". */
+  name?: string;
   a: Axial;
   b: Axial;
   stationA: string;
@@ -256,6 +258,21 @@ export interface ResortState {
   /** Team chat, oldest first, bounded. */
   chat: ChatEntry[];
   research: ResearchState;
+  /** Free-play speed: 0 paused, 1 normal, 3 fast. Absent = 1. */
+  speed?: number;
+  /** One line per finished day, oldest first, bounded (ECONOMY.historyDays). */
+  daily?: DailyRecord[];
+  /** What today has earned so far, for the next DailyRecord. */
+  todayIncome?: number;
+}
+
+/** A finished day, for the charts in Betrieb. */
+export interface DailyRecord {
+  season: number;
+  day: number;
+  guests: number;
+  income: number;
+  satisfaction: number;
 }
 
 /**

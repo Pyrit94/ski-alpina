@@ -104,6 +104,14 @@ export interface GameStore extends ResortState, UiState {
   /** Send an intent as-is; for editors that build their own (see piste-editor.ts). */
   sendIntent: (intent: Intent) => void;
   upgrade: (id: string, key: "speed" | "cabins" | "capacity") => void;
+  /** Take back your own build: full price, within the undo window. */
+  undo: (id: string) => void;
+  /** Pick a building up to put it somewhere else. */
+  startMove: (id: string) => void;
+  /** The building being moved, while the raster looks for its new place. */
+  movingId: string | null;
+  setSpeed: (speed: 0 | 1 | 3) => void;
+  nameLift: (id: string, name: string) => void;
   /** Next level of a building or run. */
   expand: (id: string) => void;
   /** Leave the rounds and keep playing this valley on the clock. */
@@ -173,6 +181,8 @@ function flatten(s: ResortState): Partial<ResortState> {
     hallOfFame: s.hallOfFame,
     chat: s.chat ?? [],
     research: s.research,
+    speed: s.speed ?? 1,
+    daily: s.daily ?? [],
   };
 }
 
@@ -467,6 +477,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (isLift(id)) phase = "lift-a";
     if (isPiste(id)) phase = "piste";
     set({
+      movingId: null,
       buildItem: id,
       phase,
       liftStart: null,
@@ -479,6 +490,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
   cancelBuild: () =>
     set({
+      movingId: null,
       buildItem: null,
       phase: "idle",
       liftStart: null,
@@ -496,7 +508,8 @@ export const useGame = create<GameStore>((set, get) => ({
       set({ hover: { q, r, valid: true, reason: "" } });
       return;
     }
-    const v = validateHex(s, getDem(), q, r, s.buildItem);
+    const ground = s.movingId ? { ...s, buildings: s.buildings.filter((b) => b.id !== s.movingId) } : s;
+    const v = validateHex(ground, getDem(), q, r, s.buildItem);
     set({ hover: { q, r, valid: v.ok, reason: v.ok ? "" : v.reason } });
   },
 
@@ -531,7 +544,19 @@ export const useGame = create<GameStore>((set, get) => ({
       return;
     }
     const item = BY_ID[s.buildItem];
-    const v = validateHex(s, getDem(), q, r, s.buildItem);
+    // While moving, the building's own hex is free.
+    const ground = s.movingId ? { ...s, buildings: s.buildings.filter((b) => b.id !== s.movingId) } : s;
+    const v = validateHex(ground, getDem(), q, r, s.buildItem);
+
+    if (s.phase === "place" && s.movingId) {
+      if (!v.ok) {
+        get().pushNote("Nicht möglich", v.reason, "warn");
+        return;
+      }
+      net?.sendIntent({ type: "move_building", entityId: s.movingId, q, r });
+      set({ movingId: null, buildItem: null, phase: "idle", hover: null, lastStampAt: Date.now(), lastStampHex: { q, r } });
+      return;
+    }
 
     if (s.phase === "place") {
       if (!v.ok) {
@@ -594,6 +619,24 @@ export const useGame = create<GameStore>((set, get) => ({
   sendIntent: (intent) => net?.sendIntent(intent),
 
   upgrade: (id, key) => net?.sendIntent({ type: "upgrade", entityId: id, key }),
+  undo: (id) => net?.sendIntent({ type: "undo", entityId: id }),
+  movingId: null,
+  startMove: (id) => {
+    const b = get().buildings.find((x) => x.id === id);
+    if (!b) return;
+    set({
+      buildItem: b.itemId,
+      phase: "place",
+      movingId: id,
+      liftStart: null,
+      pisteDraft: [],
+      selectedId: null,
+      sheet: "none",
+      tool: get().stampMode ? "pan" : "select",
+    });
+  },
+  setSpeed: (speed) => net?.sendIntent({ type: "set_speed", speed }),
+  nameLift: (id, name) => net?.sendIntent({ type: "name_lift", entityId: id, name }),
   expand: (id) => net?.sendIntent({ type: "expand", entityId: id }),
   freePlay: () => net?.sendIntent({ type: "free_play" }),
   demolish: (id) => {

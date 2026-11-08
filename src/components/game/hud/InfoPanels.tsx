@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Move, Trash2 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { BY_ID, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, liftThroughput, seasonPhase } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
@@ -148,6 +148,7 @@ export function InfoPanel() {
         <div className="mt-2 text-[11px] text-warn">{pendingRound ? "Wird bis Ende der Runde fertig." : "Im Bau…"}</div>
       )}
       <BuiltByLine builtBy={entity.builtBy} />
+      {lift && <LiftName key={lift.id} id={lift.id} name={lift.name ?? ""} />}
       {edge?.unit === "chf" ? (
         <div className="mt-3 grid grid-cols-2 gap-1.5 text-center">
           <Stat label="Mehrumsatz/T" value={`+${fmt(edge.flow)}`} tone="good" />
@@ -212,6 +213,7 @@ export function InfoPanel() {
           disabled={constructing}
         />
       )}
+      {b && !isLift(b.itemId) && <MoveButton id={b.id} itemId={b.itemId} />}
       <DemolishButton id={entity.id} refund={refundFor(item.cost + (b ? expansionSpent(b) : 0))} label={item.name} />
     </Panel>
   );
@@ -429,6 +431,66 @@ function DemolishButton({ id, refund, label }: { id: string; refund: number; lab
  * connected at all, and what the queue is stuck behind — are invisible, and a
  * lift that carries nobody looks exactly like one that carries thousands.
  */
+/**
+ * The last two weeks, one bar per day: guests, and what was left after
+ * upkeep. One series per chart, so no legend; the newest value is labelled,
+ * every bar has its own tooltip.
+ */
+function DailyHistory() {
+  const daily = useGame((s) => s.daily) ?? [];
+  const days = daily.slice(-14);
+  if (days.length < 2) {
+    return <p className="mt-3 text-[11px] text-subtle">Der Verlauf erscheint nach den ersten Spieltagen.</p>;
+  }
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2">
+      <DayBars title="Gäste pro Tag" values={days.map((d) => d.guests)} labels={days.map((d) => `S${d.season} T${d.day}`)} />
+      <DayBars title="Gewinn pro Tag" values={days.map((d) => d.income)} labels={days.map((d) => `S${d.season} T${d.day}`)} signed />
+    </div>
+  );
+}
+
+function DayBars({ title, values, labels, signed = false }: { title: string; values: number[]; labels: string[]; signed?: boolean }) {
+  const W = 140;
+  const H = 44;
+  const max = Math.max(1, ...values.map((v) => Math.abs(v)));
+  const hasNeg = signed && values.some((v) => v < 0);
+  const base = hasNeg ? H / 2 : H;
+  const scale = hasNeg ? H / 2 / max : H / max;
+  const step = W / values.length;
+  const bar = Math.max(2, step - 2);
+  const last = values[values.length - 1] ?? 0;
+  const fmtV = (v: number) => (signed ? `${v < 0 ? "−" : "+"}${fmtCompact(Math.abs(v))}` : fmtCompact(v));
+  return (
+    <div className="rounded-[12px] bg-snow p-2">
+      <div className="flex items-baseline justify-between gap-1">
+        <span className="text-[9px] font-semibold uppercase tracking-wide text-muted">{title}</span>
+        <span className="value text-[11px] font-bold text-navy">{fmtV(last)}</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="mt-1 h-11 w-full" role="img" aria-label={`${title}, letzte ${values.length} Tage`}>
+        {hasNeg && <line x1={0} x2={W} y1={base} y2={base} stroke="currentColor" className="text-line" strokeWidth={1} />}
+        {values.map((v, i) => {
+          const h = Math.max(1, Math.abs(v) * scale);
+          const y = v >= 0 ? base - h : base;
+          return (
+            <rect
+              key={i}
+              x={i * step + 1}
+              y={y}
+              width={bar}
+              height={h}
+              rx={Math.min(2, bar / 2)}
+              className={signed && v < 0 ? "fill-danger/80" : "fill-accent"}
+            >
+              <title>{`${labels[i]}: ${fmtV(v)}`}</title>
+            </rect>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export function OperationsPanel() {
   const stats = useGame((s) => s.stats);
   const day = useGame((s) => s.day);
@@ -518,6 +580,7 @@ export function OperationsPanel() {
         <span>Betten {fmt(stats.beds)}</span>
         <span>Höhenmeter {fmtCompact(stats.verticalPerHour)}/h</span>
       </div>
+      <DailyHistory />
     </Panel>
   );
 }
@@ -570,6 +633,54 @@ export function TicketPricePanel() {
 }
 
 /** The resort's name, shown in the top bar and in the hall of fame. */
+/** Pick a building up and put it somewhere else, for a small fee. */
+function MoveButton({ id, itemId }: { id: string; itemId: string }) {
+  const startMove = useGame((s) => s.startMove);
+  const terms = useBuildTerms();
+  const fee = terms.discount(Math.round((BY_ID[itemId as keyof typeof BY_ID]?.cost ?? 0) * ECONOMY.moveCostShare));
+  return (
+    <button
+      type="button"
+      onClick={() => startMove(id)}
+      className="mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-full bg-ice text-[12px] font-bold text-navy"
+    >
+      <Move className="size-4" /> Verschieben · {fmt(fee)}
+    </button>
+  );
+}
+
+/** A name for a lift, so «Sessellift 2» can become «Sunnegga-Express». */
+function LiftName({ id, name }: { id: string; name: string }) {
+  const nameLift = useGame((s) => s.nameLift);
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? name;
+  const dirty = draft !== null && draft.trim() !== name;
+  return (
+    <form
+      className="mt-2 flex gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (dirty) nameLift(id, value.trim());
+        setDraft(null);
+      }}
+    >
+      <input
+        value={value}
+        maxLength={32}
+        placeholder="Name der Bahn, z. B. Sunnegga-Express"
+        aria-label="Name der Bahn"
+        onChange={(e) => setDraft(e.target.value)}
+        className="h-11 min-w-0 flex-1 rounded-full bg-snow px-3 text-[13px] text-navy outline-none ring-1 ring-line placeholder:text-subtle focus:ring-accent"
+      />
+      {dirty && (
+        <button type="submit" className="h-11 shrink-0 rounded-full bg-accent px-3 text-[12px] font-bold text-panel">
+          Speichern
+        </button>
+      )}
+    </form>
+  );
+}
+
 export function RenamePanel() {
   const name = useGame((s) => s.resortName);
   const rename = useGame((s) => s.rename);

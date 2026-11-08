@@ -292,6 +292,24 @@ export function entityCost(entity: ResortEntity): { coins: number; gems: number 
   return { coins: item.cost * segments + grown, gems: (item.gemCost ?? 0) * segments };
 }
 
+/**
+ * Whether the actor may still take this back for the full price: their own
+ * build, within ECONOMY.undoSeconds — or, in a match, anything still waiting
+ * for the round to end.
+ */
+export function undoable(state: ResortState, entity: ResortEntity, actorId: string | undefined, now: number): boolean {
+  const e = entity.kind === "lift" ? entity.lift : entity.kind === "building" ? entity.building : entity.piste;
+  if (e.builtBy && actorId && e.builtBy !== actorId) return false;
+  if (state.match?.mode === "match" && e.readyAt >= Number.MAX_SAFE_INTEGER) return true;
+  return now - e.builtAt <= ECONOMY.undoSeconds * 1000;
+}
+
+/** What moving a building costs, before research discounts. */
+export function moveCost(state: Pick<ResortState, "research" | "match">, itemId: string): number {
+  void state;
+  return Math.round((BY_ID[itemId as keyof typeof BY_ID]?.cost ?? 0) * ECONOMY.moveCostShare);
+}
+
 /** Whether a building can be expanded: everything but lift stations and plain decoration. */
 export function expandable(itemId: string): boolean {
   const item = BY_ID[itemId as keyof typeof BY_ID];
