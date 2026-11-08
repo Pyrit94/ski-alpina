@@ -22,6 +22,10 @@ import { fmt, fmtSigned } from "@/lib/game/format";
 import { peerColor } from "@/lib/game/players";
 import { useGame } from "@/lib/game/store";
 import { useMyMoney, useResortView } from "@/lib/game/team";
+import { itemUnlocked } from "@ski/shared";
+import { useResortLinks } from "@/lib/game/links";
+import { nextStep } from "@/lib/game/next-step";
+import { runStepAction } from "@/lib/game/step-actions";
 import { RulesEditor, VoteStatus } from "./RulesHUD";
 import { AlbumView } from "./AlbumHUD";
 import { AwardsPanel } from "./TeamHUD";
@@ -143,7 +147,7 @@ function WeatherStrip({ kinds, size = "sm" }: { kinds: WeatherKind[]; size?: "sm
 }
 
 /** Guests this season against the medal marks. */
-function SeasonGoalBar({ compact = false }: { compact?: boolean }) {
+function SeasonGoalBar({ compact = false, narrow = false, bare = false }: { compact?: boolean; narrow?: boolean; bare?: boolean }) {
   const goals = useGame((s) => s.match.goals);
   const season = useGame((s) => s.season);
   const goal = goals.find((g) => g.season === season) ?? goals[goals.length - 1];
@@ -151,8 +155,9 @@ function SeasonGoalBar({ compact = false }: { compact?: boolean }) {
   const pct = (n: number) => Math.min(100, (n / goal.gold) * 100);
   const reached: Medal | null =
     goal.guests >= goal.gold ? "gold" : goal.guests >= goal.silber ? "silber" : goal.guests >= goal.bronze ? "bronze" : null;
+  const ahead = nextMedal(goal);
   return (
-    <div className={compact ? "w-40" : "w-full"}>
+    <div className={compact && !bare ? (narrow ? "w-24" : "w-40") : "w-full"}>
       {!compact && (
         <div className="mb-1 flex items-center justify-between text-[11px]">
           <span className="font-semibold text-navy">Saisonziel {goal.season}</span>
@@ -172,6 +177,11 @@ function SeasonGoalBar({ compact = false }: { compact?: boolean }) {
           />
         ))}
       </div>
+      {compact && !bare && (
+        <div className="mt-0.5 truncate text-[9px] font-semibold text-muted">
+          {ahead ? `noch ${fmt(ahead.missing)} bis ${MEDAL_LABEL[ahead.medal]}` : "Gold erreicht!"}
+        </div>
+      )}
       {!compact && (
         <div className="mt-1 text-[10px] text-muted">
           {reached ? `${MEDAL_LABEL[reached]} ist erreicht. ` : ""}
@@ -180,6 +190,14 @@ function SeasonGoalBar({ compact = false }: { compact?: boolean }) {
       )}
     </div>
   );
+}
+
+/** The next medal of a season and how many guests are still missing for it. */
+function nextMedal(goal: { guests: number; bronze: number; silber: number; gold: number }): { medal: Medal; missing: number } | null {
+  for (const m of ["bronze", "silber", "gold"] as Medal[]) {
+    if (goal.guests < goal[m]) return { medal: m, missing: Math.ceil(goal[m] - goal.guests) };
+  }
+  return null;
 }
 
 /**
@@ -263,8 +281,8 @@ export function RoundBar({ mobile = false }: { mobile?: boolean }) {
           )}
         </div>
         <div className="mt-0.5 flex items-center gap-2">
-          <WeatherStrip kinds={forecast} />
-          {!mobile && <SeasonGoalBar compact />}
+          {!mobile && <WeatherStrip kinds={forecast} />}
+          <SeasonGoalBar compact narrow={mobile} />
         </div>
       </div>
       {!mobile && others.length > 0 && (
@@ -404,8 +422,13 @@ function ReportWallets({ wallets }: { wallets: Record<string, number> }) {
   );
 }
 
-function ReportBody({ report, history = [] }: { report: RoundReport; history?: RoundReport[] }) {
+function ReportBody({ report, history = [], onAction }: { report: RoundReport; history?: RoundReport[]; onAction?: () => void }) {
   const earlier = history.filter((r) => r.round < report.round);
+  const prev = earlier.length > 0 ? earlier[earlier.length - 1] : undefined;
+  const goals = useGame((s) => s.match.goals);
+  const goal = goals.find((g) => g.season === report.season);
+  const ahead = goal && !report.medal ? nextMedal(goal) : null;
+  const pct = (now: number, before: number) => (before > 0 ? Math.round(((now - before) / Math.abs(before)) * 100) : null);
   const records: string[] = [];
   if (earlier.length > 0) {
     if (report.guests > Math.max(...earlier.map((r) => r.guests))) records.push("Rekord: so viele Gäste wie noch nie!");
@@ -425,6 +448,26 @@ function ReportBody({ report, history = [] }: { report: RoundReport; history?: R
         <BigStat label="Umsatz" value={fmt(report.revenue)} />
         <BigStat label="Unterhalt" value={`−${fmt(report.upkeep)}`} />
       </div>
+      {prev && (
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-semibold">
+          <Trend label="Gäste" now={report.guests} before={prev.guests} pct={pct(report.guests, prev.guests)} />
+          <Trend label="Netto" now={report.net} before={prev.net} pct={pct(report.net, prev.net)} />
+          <span className="self-center text-[10px] font-medium text-subtle">ggü. Runde {prev.round}</span>
+        </div>
+      )}
+      {ahead && (
+        <div className="mt-2 rounded-[14px] bg-snow px-3 py-2">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="font-semibold text-navy">
+              Noch {fmt(ahead.missing)} Gäste bis {MEDAL_LABEL[ahead.medal]}
+            </span>
+            <MedalBadge medal={ahead.medal} size="sm" />
+          </div>
+          <div className="mt-1">
+            <SeasonGoalBar compact bare />
+          </div>
+        </div>
+      )}
       <div className="mt-2 flex items-center justify-between rounded-[16px] bg-snow px-3 py-2.5">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted">Zufriedenheit</div>
@@ -470,6 +513,7 @@ function ReportBody({ report, history = [] }: { report: RoundReport; history?: R
       )}
       {report.wallets && <ReportWallets wallets={report.wallets} />}
       {report.research ? <p className="mt-1 text-[11px] text-muted">Forschung: +{fmt(report.research)} FP</p> : null}
+      <ReportNextStep onAction={onAction} />
       {tips.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1.5">
           {tips.map((t) => (
@@ -480,6 +524,50 @@ function ReportBody({ report, history = [] }: { report: RoundReport; history?: R
         </ul>
       )}
     </>
+  );
+}
+
+function Trend({ label, now, before, pct }: { label: string; now: number; before: number; pct: number | null }) {
+  const up = now >= before;
+  return (
+    <span className={`rounded-full px-2 py-1 ${up ? "bg-success/12 text-success" : "bg-danger/10 text-danger"}`}>
+      {label} {up ? "▲" : "▼"} {pct === null ? fmtSigned(now - before) : `${pct > 0 ? "+" : ""}${pct} %`}
+    </span>
+  );
+}
+
+/** The one move the next round should start with, from the same advice as the map chip. */
+function ReportNextStep({ onAction }: { onAction?: () => void }) {
+  const lifts = useGame((s) => s.lifts);
+  const pistes = useGame((s) => s.pistes);
+  const buildings = useGame((s) => s.buildings);
+  const stats = useGame((s) => s.stats);
+  const flow = useGame((s) => s.flow);
+  const coins = useGame((s) => s.coins);
+  const links = useResortLinks();
+  const step = useMemo(
+    () => nextStep({ lifts, pistes, buildings, stats, flow, links, coins, unlocked: (id) => itemUnlocked(useGame.getState(), id) }),
+    [lifts, pistes, buildings, stats, flow, links, coins],
+  );
+  if (!step) return null;
+  return (
+    <div className="mt-3 rounded-[14px] bg-accent-soft/40 p-3">
+      <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-accent">Nächste Runde</div>
+      <p className="mt-0.5 text-[12px] leading-snug text-navy">{step.text}</p>
+      {step.action && (
+        <button
+          type="button"
+          onClick={() => {
+            onAction?.();
+            runStepAction(step.action!);
+          }}
+          className="btn-3d mt-2 flex h-11 items-center gap-1 rounded-full bg-accent px-4 text-[12px] font-bold text-panel"
+          style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
+        >
+          {step.actionLabel} <ChevronRight className="size-4" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -510,7 +598,7 @@ export function RoundReportModal() {
         )}
       </div>
       <div className="p-4">
-        <ReportBody report={report} history={history} />
+        <ReportBody report={report} history={history} onAction={() => markSeen(history.length)} />
         <div className="mt-4">
           <PrimaryButton onClick={() => markSeen(history.length)}>
             {finished ? "Zum Endstand" : "Weiter bauen"} <ChevronRight className="size-4" />
@@ -526,6 +614,7 @@ export function MatchSetupModal() {
   const open = useGame((s) => s.matchSetupOpen);
   const setOpen = useGame((s) => s.setMatchSetupOpen);
   const start = useGame((s) => s.startMatch);
+  const saveGame = useGame((s) => s.saveGame);
   const builtSomething = useGame((s) => s.lifts.length + s.pistes.length + s.buildings.length > 0);
   const mode = useGame((s) => s.match.mode);
   const [preset, setPreset] = useState<"kurz" | "normal" | "lang">("normal");
@@ -587,8 +676,9 @@ export function MatchSetupModal() {
           )}
         </div>
         {builtSomething && (
-          <p className="mt-4 rounded-[14px] bg-warn/12 px-3 py-2 text-[12px] font-medium text-warn">
-            Das Tal wird dafür geleert. {mode === "match" ? "Die laufende Partie wird abgebrochen." : "Das freie Spiel geht verloren."}
+          <p className="mt-4 rounded-[14px] bg-accent-soft/40 px-3 py-2 text-[12px] font-medium text-navy">
+            Das Tal wird für die Partie geleert. {mode === "match" ? "Die laufende Partie" : "Euer freies Spiel"} wird vorher
+            automatisch gesichert – unter «Spielstände» jederzeit wieder ladbar.
           </p>
         )}
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
@@ -597,7 +687,15 @@ export function MatchSetupModal() {
               Abbrechen
             </PrimaryButton>
           </div>
-          <PrimaryButton tone="success" onClick={() => start(preset, rules)}>
+          <PrimaryButton
+            tone="success"
+            onClick={() => {
+              // Saved first: the socket handles messages in order, so the
+              // save copies the valley before the match clears it.
+              if (builtSomething) saveGame(mode === "match" ? "Partie vor dem Neustart" : "Freies Spiel vor der Partie");
+              start(preset, rules);
+            }}
+          >
             <Flag className="size-4" /> Partie starten
           </PrimaryButton>
         </div>

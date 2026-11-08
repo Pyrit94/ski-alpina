@@ -13,6 +13,7 @@ import type {
   SeasonGoal,
   WeatherKind,
 } from "../types.ts";
+import { followTutorial } from "./tutorial.ts";
 import { tickFlow } from "./flow.ts";
 import { syncQuestProgress } from "./quests.ts";
 import { seasonPhase } from "./season.ts";
@@ -183,7 +184,9 @@ export function startSandbox(state: ResortState): ResortState {
 export function withPreview(state: ResortState, dem: Dem): ResortState {
   const probe = { ...state, timeOfDay: 0.5 };
   const flowed = tickFlow(probe, dem, 0, PENDING_READY);
-  return {
+  // The preview is where a match first sees guests riding: the tutorial's
+  // last step can finish here, without waiting for a round.
+  return followTutorial({
     ...state,
     stats: {
       ...flowed.stats,
@@ -191,7 +194,7 @@ export function withPreview(state: ResortState, dem: Dem): ResortState {
       visitorsTotal: state.stats.visitorsTotal,
     },
     flow: flowed.flow,
-  };
+  });
 }
 
 /** Fold one event option's full effect into the state (kept for callers and tests). */

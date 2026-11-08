@@ -47,6 +47,7 @@ import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCar
 import { useMyMoney } from "@/lib/game/team";
 import { DescentButton, DescentOffer, LinkStatus } from "./LinkStatus";
 import { SavesPanel } from "./SavesPanel";
+import { NextStepChip } from "./NextStepChip";
 import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
 import { PisteEditPanel, PisteEditor } from "./PisteEditor";
 import { useUnreadChat } from "@/lib/game/team";
@@ -219,6 +220,7 @@ export function GameHUD() {
                 <BuildHint />
                 <PisteEditor />
                 <DescentOffer />
+                <NextStepChip />
               </div>
             )}
             {!desktop && <BuildHint />}
@@ -804,12 +806,28 @@ function InfoPanel() {
         <div className="mt-2 text-[11px] text-warn">{pendingRound ? "Wird bis Ende der Runde fertig." : "Im Bau…"}</div>
       )}
       <BuiltByLine builtBy={entity.builtBy} />
-      <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
-        <Stat label="Kapazität" value={cap ? `${fmt(cap)}/h` : "—"} />
-        <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
-        <Stat label="Fahrten" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
-      </div>
+      {edge?.unit === "chf" ? (
+        <div className="mt-3 grid grid-cols-2 gap-1.5 text-center">
+          <Stat label="Mehrumsatz/T" value={`+${fmt(edge.flow)}`} tone="good" />
+          <Stat label="Wirkung" value={`+${Math.round(ECONOMY.ticketOfficeIncomeBonus * 100)} % Tickets`} />
+        </div>
+      ) : edge?.unit === "arrivals" || edge?.unit === "served" ? (
+        <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+          <Stat label={edge.unit === "arrivals" ? "Platz für" : "Bedient max."} value={`${fmt(edge.capacity)}/h`} />
+          <Stat label="Ausgelastet" value={`${Math.round(load * 100)}%`} />
+          <Stat label={edge.unit === "arrivals" ? "Ankünfte" : "Gäste"} value={`${fmt(edge.flow)}/h`} />
+        </div>
+      ) : edge || isLift(item.id) ? (
+        <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+          <Stat label="Kapazität" value={cap ? `${fmt(cap)}/h` : "—"} />
+          <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
+          <Stat label="Fahrten" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
+        </div>
+      ) : (
+        <p className="mt-3 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">{item.blurb}</p>
+      )}
       {lift && <LinkStatus id={lift.id} kind="lift" />}
+      {lift && edge && edge.link === "ok" && load < LOW_USE && <LowUseHint />}
       {isLift(item.id) && (
         <div className="mt-3">
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Upgrades</div>
@@ -840,6 +858,32 @@ function InfoPanel() {
       )}
       <DemolishButton id={entity.id} refund={refundFor(item.cost)} label={item.name} />
     </Panel>
+  );
+}
+
+/** Below this share of its capacity a lift reads as nearly empty. */
+const LOW_USE = 0.25;
+
+/**
+ * Why a working lift stands nearly empty — almost always missing guests, not
+ * missing capacity, which is the opposite of what the upgrade buttons suggest.
+ */
+function LowUseHint() {
+  const stats = useGame((s) => s.stats);
+  const reasons: string[] = [];
+  if (stats.turnedAway > 0) reasons.push(`${fmt(stats.turnedAway)} Gäste/h finden keinen Platz im Tal: Parkhaus, Bus oder Hotel bauen`);
+  reasons.push("mehr Pisten-Kilometer und mehr Farben (blau, rot, schwarz) ziehen mehr Gäste an");
+  if (stats.satisfaction < 70) reasons.push("zufriedenere Gäste kommen öfter: Restaurant, Shop, kürzere Wartezeiten");
+  return (
+    <div className="mt-2 rounded-[12px] bg-accent-soft/40 px-2.5 py-2 text-[11px] leading-snug text-navy">
+      <div className="font-bold">Warum so leer?</div>
+      Es fehlen Gäste, nicht Kapazität – ein Ausbau würde die Auslastung sogar senken. Was hilft:
+      <ul className="mt-1 list-disc pl-4">
+        {reasons.map((r) => (
+          <li key={r}>{r}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -982,7 +1026,7 @@ function OperationsPanel() {
         <span className="text-[10px] text-subtle">{mode === "match" ? "Vorschau Mittag" : "jetzt"}</span>
       </div>
       <div className="grid grid-cols-3 gap-1.5 text-center">
-        <Stat label="Andrang" value={fmt(stats.marketPerHour)} />
+        <Stat label="Nachfrage/h" value={fmt(stats.marketPerHour)} />
         <Stat label="Fahrten/h" value={fmt(stats.peoplePerHour)} tone={stats.queued > 0 ? "warn" : "good"} />
         <Stat
           label="Warten"
@@ -991,10 +1035,15 @@ function OperationsPanel() {
         />
       </div>
       <div className="mt-1.5 grid grid-cols-3 gap-1.5 text-center">
-        <Stat label="Umsatz/T" value={fmt(stats.revenuePerHour)} />
-        <Stat label="Unterhalt" value={`−${fmt(stats.upkeepPerHour)}`} tone="warn" />
-        <Stat label="Netto/T" value={fmtSigned(stats.incomePerHour)} tone={stats.incomePerHour < 0 ? "bad" : "good"} />
+        <Stat label="Umsatz/Tag" value={fmt(stats.revenuePerHour)} />
+        <Stat label="Kosten/Tag" value={`−${fmt(stats.upkeepPerHour)}`} tone="warn" />
+        <Stat label="Gewinn/Tag" value={fmtSigned(stats.incomePerHour)} tone={stats.incomePerHour < 0 ? "bad" : "good"} />
       </div>
+      {(stats.openingBoost ?? 1) > 1.01 && (
+        <div className="mt-1.5 rounded-[12px] bg-coin/15 px-2.5 py-1.5 text-[11px] font-semibold text-navy">
+          🎉 Eröffnungssaison: +{Math.round(((stats.openingBoost ?? 1) - 1) * 100)} % Nachfrage – das neue Gebiet spricht sich herum.
+        </div>
+      )}
       <div className="mt-2 flex flex-col gap-1.5">
         {stats.incomePerHour < 0 && (
           <Warning tone="bad">
@@ -1659,6 +1708,9 @@ function MobileFloats() {
           <DescentOffer />
         </div>
       )}
+      <div className="flex justify-center empty:hidden">
+        <NextStepChip />
+      </div>
       {showTutorial && (
         <div className="toast-in pointer-events-auto">
           <TutorialCard compact />

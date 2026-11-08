@@ -87,6 +87,14 @@ export const ECONOMY = {
   summerDrawScale: 3000,
   /** Guests per hour who can arrive on foot from the village. */
   villageArrivalsPerHour: 120,
+  /**
+   * Opening season: a new resort is news, and more people come to look than
+   * its size alone would draw — the first lift and run already pay. Demand is
+   * multiplied by `openingDemand` on day 1 of the first season, fading to 1 by
+   * day `openingDays`.
+   */
+  openingDays: 20,
+  openingDemand: 1.6,
   parkingArrivalsPerHour: 320,
   busArrivalsPerHour: 280,
   /** Arrivals per hour per hotel bed: hotel guests are already here. */

@@ -77,6 +77,11 @@ export interface GameStore extends ResortState, UiState {
   deleteSave: (saveId: string) => void;
   /** Back to the start screen, to pick another game. */
   leaveGame: () => void;
+  /** Where the camera should glide to next (world x/z), with a serial. */
+  cameraFocus: { x: number; z: number; id: number } | null;
+  /** The new lift the «noch keine Abfahrt» card is offering a run for. */
+  descentOffer: string | null;
+  focusOn: (x: number, z: number) => void;
   setBuildItem: (id: ItemId | null) => void;
   setCategory: (c: UiState["category"]) => void;
   setLayer: (l: MapLayer) => void;
@@ -302,6 +307,18 @@ export const useGame = create<GameStore>((set, get) => ({
             },
           });
         }
+        // The tutorial closed itself because everything in it got done.
+        if (!first && prev.tutorialOpen && !state.tutorialOpen && state.lifts.length > 0) {
+          play("medal");
+          set({
+            celebrate: {
+              id: Date.now(),
+              kicker: "Geschafft",
+              title: "Euer Skigebiet läuft!",
+              body: "Lift rauf, Piste runter – die ersten Gäste fahren. Unten zeigt euch ein Tipp, was als Nächstes lohnt.",
+            },
+          });
+        }
         if (!first && after > before) {
           play("levelup");
           const unlocked = CATALOG.filter((i) => i.unlockLevel === after).map((i) => i.name);
@@ -330,6 +347,9 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   setStarted: (v) => set({ started: v }),
+  cameraFocus: null,
+  descentOffer: null,
+  focusOn: (x, z) => set({ cameraFocus: { x, z, id: Date.now() } }),
   games: [],
   refreshGames: () => net?.sendLobby({ type: "list_games" }),
   saveGame: (name) => net?.sendLobby({ type: "save_game", ...(name.trim() ? { name: name.trim() } : {}) }),

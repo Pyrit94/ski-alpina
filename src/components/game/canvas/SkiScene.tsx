@@ -1677,6 +1677,9 @@ function Controls() {
   } | null>(null);
   const offset = useMemo(() => new THREE.Vector3(), []);
   const spherical = useMemo(() => new THREE.Spherical(), []);
+  // A glide to something just built or picked: the target eases over and the
+  // camera comes along, closing in if it was far out.
+  const glide = useMemo(() => ({ goal: new THREE.Vector3(), id: 0, active: false, step: new THREE.Vector3() }), []);
 
   useEffect(() => {
     camera.up.set(0, 1, 0);
@@ -1710,6 +1713,22 @@ function Controls() {
         c.touches.ONE = THREE.TOUCH.ROTATE;
         c.touches.TWO = THREE.TOUCH.DOLLY_PAN;
       }
+    }
+    const focus = useGame.getState().cameraFocus;
+    if (focus && focus.id !== glide.id) {
+      glide.id = focus.id;
+      glide.goal.set(focus.x, surfaceY(getHeightmap(), focus.x, focus.z), focus.z);
+      glide.active = true;
+    }
+    if (glide.active) {
+      const k = 1 - Math.exp(-3.2 * d);
+      glide.step.copy(glide.goal).sub(c.target).multiplyScalar(k);
+      c.target.add(glide.step);
+      camera.position.add(glide.step);
+      offset.copy(camera.position).sub(c.target);
+      const far = offset.length();
+      if (far > 70) camera.position.copy(c.target).add(offset.multiplyScalar(1 - (1 - 70 / far) * k));
+      if (c.target.distanceTo(glide.goal) < 0.2) glide.active = false;
     }
     if (raster) {
       offset.copy(camera.position).sub(c.target);
