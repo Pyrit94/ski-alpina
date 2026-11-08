@@ -10,6 +10,7 @@ import { pisteUpkeep } from "./level.ts";
 import { pisteWidthDraw } from "./piste-width.ts";
 import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
 import { liftResearchFactor, researchEffects, withResearchMods } from "./research.ts";
+import { doorLevelFactor, doorUpkeepFactor } from "./state.ts";
 
 export interface FlowTick {
   stats: SimStats;
@@ -124,8 +125,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     const item = BY_ID[b.itemId];
     const hex = { q: b.q, r: b.r };
     let perHour = 0;
-    if (b.itemId === "parking") perHour = ECONOMY.parkingArrivalsPerHour;
-    else if (b.itemId === "bus") perHour = ECONOMY.busArrivalsPerHour;
+    if (b.itemId === "parking") perHour = ECONOMY.parkingArrivalsPerHour * doorLevelFactor(b);
+    else if (b.itemId === "bus") perHour = ECONOMY.busArrivalsPerHour * doorLevelFactor(b);
     else if (item.beds) perHour = item.beds * ECONOMY.bedArrivalsPerHour;
     if (perHour <= 0) continue;
     arrivals.push({ hex, perHour, id: b.id });
@@ -295,7 +296,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   // every building would bill each cableway three times over.
   const buildingUpkeep = buildings
     .filter((b) => !isLift(b.itemId))
-    .reduce((n, b) => n + (BY_ID[b.itemId].upkeep ?? 0), 0);
+    .reduce((n, b) => n + (BY_ID[b.itemId].upkeep ?? 0) * doorUpkeepFactor(b), 0);
   // Grooming a steep run costs more than a gentle one, so upkeep follows the
   // grade the ground gave it rather than one catalogue number.
   const runUpkeep = readyPistes.reduce((n, p) => n + pisteUpkeep(p), 0);

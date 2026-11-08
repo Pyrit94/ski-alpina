@@ -5,7 +5,7 @@ import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { IntentResult, PlayerRole, ResortState } from "../types.ts";
-import { findEntity, occupiedSet } from "./state.ts";
+import { expandable, expansionCost, findEntity, occupiedSet } from "./state.ts";
 import { measurePiste } from "./level.ts";
 import { eventDef } from "./match.ts";
 import { roleAllows, spendable, walletKey, walletMode } from "./rules.ts";
@@ -171,6 +171,10 @@ export function validateIntent(
     return { ok: true };
   }
   if (intent.type === "start_match") return { ok: true };
+  if (intent.type === "free_play") {
+    if (match?.mode !== "match") return { ok: false, code: "invalid", reason: "Ihr spielt schon frei" };
+    return { ok: true };
+  }
   if (intent.type === "end_round") {
     if (match?.mode !== "match" || match.phase !== "plan") {
       return { ok: false, code: "invalid", reason: "Keine laufende Partie" };
@@ -260,6 +264,21 @@ export function validateIntent(
     const allowedU = roleAllows(state, actorId, target.itemId);
     if (!allowedU.ok) return { ok: false, code: "rights", reason: allowedU.reason };
     if (money < cost) return { ok: false, code: "budget", reason: purse };
+    return { ok: true };
+  }
+
+  if (intent.type === "expand_building") {
+    const entity = findEntity(state, intent.entityId);
+    if (!entity || entity.kind !== "building" || !expandable(entity.building.itemId)) {
+      return { ok: false, code: "invalid", reason: "Nur Parkhaus und Busbahnhof lassen sich ausbauen" };
+    }
+    const b = entity.building;
+    if (now < b.readyAt) return { ok: false, code: "locked", reason: "Noch im Bau" };
+    const cost = expansionCost(b);
+    if (cost === null) return { ok: false, code: "locked", reason: "Maximalstufe" };
+    const allowedX = roleAllows(state, actorId, b.itemId);
+    if (!allowedX.ok) return { ok: false, code: "rights", reason: allowedX.reason };
+    if (money < discounted(state, cost)) return { ok: false, code: "budget", reason: purse };
     return { ok: true };
   }
 

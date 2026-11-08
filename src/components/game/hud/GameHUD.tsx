@@ -35,8 +35,8 @@ import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
 import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
-import { TERRAIN } from "@ski/config";
-import { PENDING_READY, widthDef } from "@ski/shared";
+import { DOOR_EXPANSION, TERRAIN } from "@ski/config";
+import { expandable, expansionCost, expansionSpent, PENDING_READY, widthDef, type PlacedBuilding } from "@ski/shared";
 import { GRADE_COLOR, usePisteEditor } from "@/lib/game/piste-editor";
 import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
@@ -859,8 +859,61 @@ function InfoPanel() {
           </p>
         </div>
       )}
-      <DemolishButton id={entity.id} refund={refundFor(item.cost)} label={item.name} />
+      {b && expandable(b.itemId) && <ExpandSection building={b} constructing={constructing} />}
+      <DemolishButton id={entity.id} refund={refundFor(item.cost + (b ? expansionSpent(b) : 0))} label={item.name} />
     </Panel>
+  );
+}
+
+/**
+ * Car park and bus station: one more deck, one more line. Each level takes as
+ * many guests again as the first, so a single building on the valley floor
+ * does the work of several.
+ */
+function ExpandSection({ building, constructing }: { building: PlacedBuilding; constructing: boolean }) {
+  const expand = useGame((s) => s.expandBuilding);
+  const terms = useBuildTerms();
+  const coins = useMyMoney().mine;
+  const list = expansionCost(building);
+  const cost = list === null ? null : terms.discount(list);
+  const labels = DOOR_EXPANSION.labels[building.itemId] ?? [];
+  const level = building.level;
+  const perLevel = building.itemId === "bus" ? ECONOMY.busArrivalsPerHour : ECONOMY.parkingArrivalsPerHour;
+  return (
+    <div className="mt-3">
+      <div className="mb-1.5 flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wide text-muted">
+        <span>Ausbau</span>
+        <span className="normal-case tracking-normal">
+          Stufe {level} von {DOOR_EXPANSION.maxLevel}
+          {labels[level - 1] ? ` · ${labels[level - 1]}` : ""}
+        </span>
+      </div>
+      <div className="flex gap-1">
+        {Array.from({ length: DOOR_EXPANSION.maxLevel }, (_, i) => (
+          <span key={i} className={`h-1.5 flex-1 rounded-full ${i < level ? "bg-accent" : "bg-ice"}`} />
+        ))}
+      </div>
+      {cost === null ? (
+        <p className="mt-2 text-[11px] leading-snug text-muted">Voll ausgebaut. Für noch mehr Gäste: ein zweites an einem anderen Lift.</p>
+      ) : (
+        <button
+          type="button"
+          disabled={constructing || coins < cost}
+          onClick={() => expand(building.id)}
+          className="mt-2 flex min-h-11 w-full items-center justify-between gap-2 rounded-[12px] bg-ice px-3 text-left disabled:opacity-50"
+        >
+          <span className="min-w-0">
+            <span className="block text-[12px] font-semibold text-navy">
+              {labels[level] ?? `Stufe ${level + 1}`}
+            </span>
+            <span className="block text-[10px] text-muted">
+              +{fmt(perLevel)} Ankünfte/h, mehr Unterhalt
+            </span>
+          </span>
+          <span className="shrink-0 text-[12px] font-semibold text-coin">{fmt(cost)}</span>
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -1918,6 +1971,7 @@ function MatchMenuButtons() {
   const mode = useGame((s) => s.match.mode);
   const openSetup = useGame((s) => s.setMatchSetupOpen);
   const start = useGame((s) => s.startMatch);
+  const freePlay = useGame((s) => s.freePlay);
   const setSheet = useGame((s) => s.setSheet);
   const [armed, setArmed] = useState(false);
   return (
@@ -1932,6 +1986,19 @@ function MatchMenuButtons() {
       >
         <Flag className="size-4" /> {mode === "match" ? "Neue Partie" : "Partie starten"}
       </button>
+      {mode === "match" && (
+        <button
+          type="button"
+          className="flex min-h-12 w-full flex-col items-start justify-center rounded-[16px] bg-ice px-4 py-2 text-left text-navy"
+          onClick={() => {
+            setSheet("none");
+            freePlay();
+          }}
+        >
+          <span className="text-[13px] font-semibold">Ohne Runden weiterspielen</span>
+          <span className="text-[11px] text-muted">Dieses Tal bleibt, die Zeit läuft von selbst.</span>
+        </button>
+      )}
       {mode === "match" &&
         (armed ? (
           <button
@@ -1942,15 +2009,15 @@ function MatchMenuButtons() {
               start("sandbox");
             }}
           >
-            Partie abbrechen und Tal leeren?
+            Wirklich alles abreissen und leer beginnen?
           </button>
         ) : (
           <button
             type="button"
-            className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy"
+            className="flex min-h-12 w-full items-center rounded-[16px] px-4 text-left text-[13px] font-medium text-muted ring-1 ring-ice"
             onClick={() => setArmed(true)}
           >
-            Zum freien Spiel wechseln
+            Freies Spiel in leerem Tal
           </button>
         ))}
     </>

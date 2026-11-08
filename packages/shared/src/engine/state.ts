@@ -1,4 +1,4 @@
-import { ECONOMY } from "../../../config/src/economy.ts";
+import { DOOR_EXPANSION, ECONOMY } from "../../../config/src/economy.ts";
 import { CLASSIC_REGION, REGION_BY_ID } from "../../../config/src/regions.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
@@ -287,7 +287,42 @@ export function entityCost(entity: ResortEntity): { coins: number; gems: number 
         ? BY_ID[entity.building.itemId]
         : BY_ID[entity.piste.itemId];
   const segments = entity.kind === "piste" ? Math.max(1, entity.piste.hexes.length - 1) : 1;
-  return { coins: item.cost * segments, gems: (item.gemCost ?? 0) * segments };
+  const grown = entity.kind === "building" ? expansionSpent(entity.building) : 0;
+  return { coins: item.cost * segments + grown, gems: (item.gemCost ?? 0) * segments };
+}
+
+/** Car parks and bus stations grow by level instead of by copies. */
+export function expandable(itemId: string): boolean {
+  return DOOR_EXPANSION.items.includes(itemId);
+}
+
+/** List price of the next level, or null when there is none. */
+export function expansionCost(b: Pick<PlacedBuilding, "itemId" | "level">): number | null {
+  if (!expandable(b.itemId)) return null;
+  const level = Math.max(1, b.level ?? 1);
+  const share = DOOR_EXPANSION.costShare[level - 1];
+  if (level >= DOOR_EXPANSION.maxLevel || share === undefined) return null;
+  return Math.round(BY_ID[b.itemId].cost * share);
+}
+
+/** What the levels so far cost, at list price: part of what a refund returns. */
+export function expansionSpent(b: Pick<PlacedBuilding, "itemId" | "level">): number {
+  if (!expandable(b.itemId)) return 0;
+  let total = 0;
+  for (let l = 1; l < Math.max(1, b.level ?? 1); l++) {
+    total += Math.round(BY_ID[b.itemId].cost * (DOOR_EXPANSION.costShare[l - 1] ?? 0));
+  }
+  return total;
+}
+
+/** Arrivals of an expandable building, as a multiple of one at level 1. */
+export function doorLevelFactor(b: Pick<PlacedBuilding, "itemId" | "level">): number {
+  return expandable(b.itemId) ? Math.max(1, Math.min(DOOR_EXPANSION.maxLevel, b.level ?? 1)) : 1;
+}
+
+/** Upkeep of a building at its level, as a multiple of the catalogue value. */
+export function doorUpkeepFactor(b: Pick<PlacedBuilding, "itemId" | "level">): number {
+  return 1 + (doorLevelFactor(b) - 1) * DOOR_EXPANSION.upkeepPerLevel;
 }
 
 export function occupiedSet(state: ResortState): Set<string> {

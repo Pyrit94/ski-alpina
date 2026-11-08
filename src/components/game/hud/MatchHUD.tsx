@@ -712,6 +712,7 @@ export function FinalScreen() {
   const seen = useGame((s) => s.seenReportRound);
   const hallOfFame = useGame((s) => s.hallOfFame);
   const setMatchSetupOpen = useGame((s) => s.setMatchSetupOpen);
+  const freePlay = useGame((s) => s.freePlay);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const historyLen = match.history.length;
   // Show once the last report has been read, or when asked for from the bar.
@@ -781,6 +782,15 @@ export function FinalScreen() {
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <PrimaryButton tone="light" onClick={close}>
             Gebiet ansehen
+          </PrimaryButton>
+          <PrimaryButton
+            tone="light"
+            onClick={() => {
+              close();
+              freePlay();
+            }}
+          >
+            Ohne Runden weiterbauen
           </PrimaryButton>
           <PrimaryButton
             tone="success"
