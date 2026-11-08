@@ -40,6 +40,8 @@ export interface ResearchEffect {
   liftCapacity?: number;
   /** × throughput of these lift types only. */
   liftCapacityByItem?: Partial<Record<ItemId, number>>;
+  /** + metres a lift type may climb above its catalogue `maxElev`. */
+  reach?: Partial<Record<ItemId, number>>;
   /** × capacity of every run. */
   pisteCapacity?: number;
   /** × metres of snow line each snow cannon buys back (and its cap). */
@@ -204,6 +206,62 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
     effect: { unlocks: ["glacier"] },
   },
 
+  {
+    id: "zahnrad",
+    branch: "bahnen",
+    tier: 2,
+    name: "Zahnradtechnik",
+    effectText: "Zahnradbahn baubar",
+    blurb: "Zahnstange zwischen den Schienen: so kommt ein Zug auch steile Hänge hinauf, wie auf den Gornergrat.",
+    icon: "TrainFront",
+    requires: ["gondelbau"],
+    effect: { unlocks: ["cog"] },
+  },
+  {
+    id: "zahnrad2",
+    branch: "bahnen",
+    tier: 3,
+    name: "Steilstrecken",
+    effectText: "Zahnradbahn +600 m höher",
+    blurb: "Stärkere Triebwagen und eine zweite Zahnstange: die Bahn kommt über die Baumgrenze hinaus.",
+    icon: "TrainFront",
+    requires: ["zahnrad"],
+    effect: { reach: { cog: 600 } },
+  },
+  {
+    id: "zahnrad3",
+    branch: "bahnen",
+    tier: 4,
+    name: "Gipfelbahn",
+    effectText: "Zahnradbahn +600 m höher",
+    blurb: "Tunnel und Galerien gegen Lawinen: auf Schienen bis zum Gipfel.",
+    icon: "TrainFront",
+    requires: ["zahnrad2"],
+    effect: { reach: { cog: 600 } },
+  },
+  {
+    id: "hochalpin",
+    branch: "bahnen",
+    tier: 2,
+    name: "Hochalpiner Bahnbau",
+    effectText: "Seilbahnen +400 m höher",
+    blurb: "Fundamente im Fels und Stationen, die Sturm und Schnee aushalten.",
+    icon: "Mountain",
+    requires: ["gondelbau"],
+    effect: { reach: { chair: 400, gondola: 400, tram: 400, funitel: 400 } },
+  },
+  {
+    id: "hochalpin2",
+    branch: "bahnen",
+    tier: 3,
+    name: "Gipfelstationen",
+    effectText: "Seilbahnen nochmals +400 m höher",
+    blurb: "Bergstationen auf Graten, mit Aussicht über die Gletscher.",
+    icon: "MountainSnow",
+    requires: ["hochalpin"],
+    effect: { reach: { chair: 400, gondola: 400, tram: 400, funitel: 400 } },
+  },
+
   // Pisten & Schnee
   {
     id: "praeparierung",
@@ -283,6 +341,17 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
     icon: "Bus",
     requires: [],
     effect: { unlocks: ["bus"] },
+  },
+  {
+    id: "bahnanschluss",
+    branch: "gaeste",
+    tier: 2,
+    name: "Bahnanschluss",
+    effectText: "Bahnhof baubar",
+    blurb: "Ein Gleis bis ins Dorf: ganze Züge voller Tagesgäste, ohne Stau auf der Talstrasse.",
+    icon: "TrainFront",
+    requires: ["oev"],
+    effect: { unlocks: ["train"] },
   },
   {
     id: "onlinetickets",

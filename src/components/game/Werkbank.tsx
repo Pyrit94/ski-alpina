@@ -15,6 +15,7 @@ const PART_LABEL: Record<string, string> = {
   "carrier-chair": "Sessel",
   "carrier-cabin": "Gondelkabine",
   "carrier-tbar": "Schleppbügel",
+  "carrier-train": "Zahnradbahn-Wagen",
 };
 
 /**

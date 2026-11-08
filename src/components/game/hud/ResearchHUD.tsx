@@ -35,10 +35,14 @@ import {
   Smartphone,
   Snowflake,
   Sparkles,
+  TrainFront,
+  Users,
   Warehouse,
   Wrench,
   X,
   Zap,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   RESEARCH,
@@ -92,9 +96,20 @@ const ICONS: Record<string, LucideIcon> = {
   Smartphone,
   Snowflake,
   Sparkles,
+  TrainFront,
   Warehouse,
   Wrench,
   Zap,
+};
+
+/** One picture per branch, so the categories read at a glance. */
+const BRANCH_ICON: Record<string, LucideIcon> = {
+  bahnen: CableCar,
+  dorf: Hotel,
+  pisten: MountainSnow,
+  gaeste: Users,
+  betrieb: Wrench,
+  allianz: Handshake,
 };
 
 interface TeamMember {
@@ -174,33 +189,69 @@ export function ResearchPanel({ compact = false }: { compact?: boolean }) {
     <div className={`flex flex-col ${compact ? "gap-2" : "gap-2.5"}`}>
       <ResearchHeader view={view} />
 
-      <div className="flex flex-wrap gap-1">
+      {/* The categories as six tiles: a picture, the name, how far along,
+          and a dot where something can be started now. */}
+      <div className="grid grid-cols-3 gap-1.5" role="tablist" aria-label="Forschungsbereiche">
         {RESEARCH_BRANCHES.map((b) => {
           const active = b.id === branch;
-          const doneCount = nodesOf(b.id).filter((n) => view.research.done.includes(n.id)).length;
+          const nodes = nodesOf(b.id);
+          const doneCount = nodes.filter((n) => view.research.done.includes(n.id)).length;
+          const ready = nodes.some((n) => view.status(n.id) === "available");
+          const Icon = BRANCH_ICON[b.id] ?? FlaskConical;
           return (
             <button
               key={b.id}
               type="button"
+              role="tab"
+              aria-selected={active}
               onClick={() => {
                 setBranch(b.id);
                 setSelected(null);
               }}
-              className={`flex h-11 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-semibold transition-colors ${active ? "text-panel" : "bg-ice text-navy"}`}
+              className={`relative flex min-h-16 flex-col items-center justify-center gap-0.5 rounded-[16px] px-1 py-1.5 text-center ring-2 transition-colors ${active ? "text-panel ring-transparent" : "bg-snow text-navy ring-line"}`}
               style={active ? { background: b.color } : undefined}
             >
-              {b.alliance && <AllianceMark team={view.team} small />}
-              {b.label.split(" ")[0]}
-              <span className={`text-[10px] ${active ? "text-panel/80" : "text-muted"}`}>
-                {doneCount}/{nodesOf(b.id).length}
+              {ready && !active && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-success" aria-label="Etwas bereit" />}
+              {b.alliance ? <AllianceMark team={view.team} small /> : <Icon className="size-5" />}
+              <span className="text-[11px] font-bold leading-tight">{b.label}</span>
+              <span className="mt-0.5 h-1 w-10 overflow-hidden rounded-full bg-black/10">
+                <span className={`block h-full rounded-full ${active ? "bg-panel" : "bg-success"}`} style={{ width: `${(doneCount / Math.max(1, nodes.length)) * 100}%` }} />
               </span>
             </button>
           );
         })}
       </div>
 
-      <div className={`rounded-[16px] px-2.5 py-1.5 text-[11px] ${branchDef.alliance ? "bg-success/10 text-success" : "bg-snow text-muted"}`}>
-        {branchDef.hint}
+      {/* Where you are, with a step to the neighbouring categories. */}
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-label="Vorheriger Bereich"
+          onClick={() => {
+            const i = RESEARCH_BRANCHES.findIndex((b) => b.id === branch);
+            setBranch(RESEARCH_BRANCHES[(i + RESEARCH_BRANCHES.length - 1) % RESEARCH_BRANCHES.length]!.id);
+            setSelected(null);
+          }}
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-ice text-navy"
+        >
+          <ChevronLeft className="size-5" />
+        </button>
+        <div className={`min-w-0 flex-1 rounded-[14px] px-2.5 py-1.5 text-[11px] leading-snug ${branchDef.alliance ? "bg-success/10 text-success" : "bg-snow text-muted"}`}>
+          <span className="font-bold text-navy">{branchDef.label}: </span>
+          {branchDef.hint}
+        </div>
+        <button
+          type="button"
+          aria-label="Nächster Bereich"
+          onClick={() => {
+            const i = RESEARCH_BRANCHES.findIndex((b) => b.id === branch);
+            setBranch(RESEARCH_BRANCHES[(i + 1) % RESEARCH_BRANCHES.length]!.id);
+            setSelected(null);
+          }}
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-ice text-navy"
+        >
+          <ChevronRight className="size-5" />
+        </button>
       </div>
 
       <BranchTree branch={branchDef} view={view} selected={selected} onSelect={setSelected} />

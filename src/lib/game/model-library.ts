@@ -47,6 +47,7 @@ export const PART_FIT: Record<string, { fit: "width" | "height"; size: number }>
   "carrier-chair": { fit: "width", size: 0.65 },
   "carrier-cabin": { fit: "width", size: 0.5 },
   "carrier-tbar": { fit: "width", size: 0.45 },
+  "carrier-train": { fit: "width", size: 1.25 },
 };
 
 /** The file model for a key at a level: that level's own, else the nearest below. */

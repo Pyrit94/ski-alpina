@@ -27,7 +27,7 @@ import { dedup, flatten, join as joinMeshes, prune, simplify, weld } from "@gltf
 import { MeshoptSimplifier } from "meshoptimizer";
 
 /** Lift parts the game reads besides the catalogue's item ids. */
-export const PART_KEYS = ["station", "pylon", "carrier-chair", "carrier-cabin", "carrier-tbar"];
+export const PART_KEYS = ["station", "pylon", "carrier-chair", "carrier-cabin", "carrier-tbar", "carrier-train"];
 
 /** Colours for shape-only models, by what they are: roof, walls, base. */
 const ZONES = {

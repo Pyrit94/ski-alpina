@@ -15,7 +15,9 @@ import {
   discounted,
   isResearchIntent,
   itemUnlocked,
+  liftReach,
   lockReason,
+  reachLeft,
   validateResearch,
   type ResearchContext,
 } from "./research.ts";
@@ -32,7 +34,9 @@ export function validateHex(
   r: number,
   itemId: ItemId,
 ): IntentResult {
-  const ground = validateGround(dem, q, r, itemId);
+  // Lifts climb higher with research (see liftReach).
+  const reach = isLift(itemId) ? liftReach(state, itemId) : 0;
+  const ground = validateGround(dem, q, r, itemId, reach, isLift(itemId) && reachLeft(state, itemId));
   if (!ground.ok) return ground;
   // Collision is skipped for pistes: a run has to be able to reach a station,
   // and stations occupy their hex. Not building the set for them keeps a
@@ -44,7 +48,7 @@ export function validateHex(
 }
 
 /** The terrain half of `validateHex`: what the ground alone allows. */
-export function validateGround(dem: Dem, q: number, r: number, itemId: ItemId): IntentResult {
+export function validateGround(dem: Dem, q: number, r: number, itemId: ItemId, reach = 0, canGrow = false): IntentResult {
   const item = BY_ID[itemId];
   if (!item) return { ok: false, code: "invalid", reason: "Unbekanntes Objekt" };
   const { x, z } = hexToWorld(q, r);
@@ -55,7 +59,15 @@ export function validateGround(dem: Dem, q: number, r: number, itemId: ItemId): 
   const elev = dem.sample(x, z);
   const slope = dem.slope(x, z);
   if (elev < item.minElev) return { ok: false, code: "terrain", reason: `Zu tief für ${item.name}` };
-  if (elev > item.maxElev) return { ok: false, code: "terrain", reason: `Zu hoch für ${item.name}` };
+  if (elev > item.maxElev + reach) {
+    // In the real metres the players read, with a pointer to research when it helps.
+    const top = Math.round(item.maxElev + reach - dem.region.offset).toLocaleString("de-CH");
+    return {
+      ok: false,
+      code: "terrain",
+      reason: `Zu hoch für ${item.name}: bis ${top} m${canGrow ? " – Forschung bringt sie höher" : ""}`,
+    };
+  }
   if (slope > item.maxSlope) return { ok: false, code: "slope", reason: "Zu steil" };
   return { ok: true };
 }

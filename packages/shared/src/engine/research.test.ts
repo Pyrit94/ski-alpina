@@ -70,7 +70,7 @@ test("the tree is well formed: known prerequisites, no cycles, rising prices", (
     assert.ok(researchCost(node) > 0);
   }
   // Grew with the Dorf branch and the nodes that unlock lift types and buildings.
-  assert.ok(RESEARCH_NODES.length >= 16 && RESEARCH_NODES.length <= 32);
+  assert.ok(RESEARCH_NODES.length >= 16 && RESEARCH_NODES.length <= 40);
   const costs = RESEARCH.tierCost.slice(1);
   for (let i = 1; i < costs.length; i++) assert.ok(costs[i]! > costs[i - 1]!);
 });

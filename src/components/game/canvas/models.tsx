@@ -201,6 +201,37 @@ export function BuildingModel({
         </group>
       );
     }
+    case "train":
+    case "cog": {
+      // A station: platform, a roof on posts, a red railcar waiting.
+      const long = itemId === "train" ? 2.4 : 1.8;
+      return (
+        <group>
+          <mesh position={[0, 0.1, 0]} receiveShadow>
+            <boxGeometry args={[1.4, 0.2, long]} />
+            <meshStandardMaterial color="#9aa3ab" {...mat} />
+          </mesh>
+          <mesh position={[0.32, 0.42, 0]} castShadow>
+            <boxGeometry args={[0.52, 0.46, long * 0.8]} />
+            <meshStandardMaterial color="#b3262d" {...mat} />
+          </mesh>
+          <mesh position={[0.32, 0.5, 0]}>
+            <boxGeometry args={[0.54, 0.14, long * 0.7]} />
+            <meshStandardMaterial color={glass} />
+          </mesh>
+          {[-1, 1].map((s) => (
+            <mesh key={s} position={[-0.45, 0.55, (s * long) / 3]}>
+              <boxGeometry args={[0.08, 0.9, 0.08]} />
+              <meshStandardMaterial color={metal} />
+            </mesh>
+          ))}
+          <mesh position={[-0.2, 1.02, 0]} castShadow>
+            <boxGeometry args={[1.1, 0.08, long * 0.9]} />
+            <meshStandardMaterial color={timber} {...mat} />
+          </mesh>
+        </group>
+      );
+    }
     case "bus": {
       // One bus per line, side by side under the shelter.
       const lines = Math.max(1, Math.min(4, level));
