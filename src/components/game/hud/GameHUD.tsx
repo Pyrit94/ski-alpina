@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Cloud, CloudFog, CloudLightning, Sun, Check, Gem, Snowflake, Star, X, Settings, Smile, Users, LayoutGrid } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
+import { useAmbientBed } from "@/lib/game/use-ambient";
 import { BY_ID, levelFromXp, xpForLevel } from "@/lib/game/catalog";
 import { TERRAIN, type ItemId } from "@ski/config";
 import { pct, siteTone, useSitePreview } from "@/lib/game/placement";
@@ -34,6 +35,7 @@ export function GameHUD() {
   // and hidden: `hidden lg:flex` still mounts them, subscribes every selector
   // inside and re-renders all of it on every tick, for pixels nobody sees.
   const desktop = useIsDesktop();
+  useAmbientBed();
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex flex-col text-ink">
       <TopBar />

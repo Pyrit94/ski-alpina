@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { ArrowRightLeft, Crown, EyeOff, Mountain, Sparkles, Store, Swords, Users, Wallet } from "lucide-react";
 import { SECRET_GOALS, VIPS } from "@ski/config";
 import {
@@ -8,7 +8,8 @@ import {
   type EventMode,
   type MatchOptions,
 } from "@ski/shared";
-import { fmt } from "@/lib/game/format";
+import { fmt, fmtSigned } from "@/lib/game/format";
+import { useCoinFeedback, type CoinPulse } from "@/lib/game/use-coin-feedback";
 import { useMyMoney, useResortView } from "@/lib/game/team";
 import { peerColor } from "@/lib/game/players";
 import { useGame } from "@/lib/game/store";
@@ -265,6 +266,8 @@ export function WalletPanel() {
 /** For the top bar: my purse, with the total as a hint. */
 export function MyPurseChip({ coin }: { coin: ReactNode }) {
   const money = useMyMoney();
+  const { shown, pulse } = useCoinFeedback(money.mine);
+  const chip = useRef<HTMLDivElement>(null);
   const noPurse = useGame((s) => {
     if (!money.separate) return false;
     const me = s.playerId;
@@ -282,18 +285,50 @@ export function MyPurseChip({ coin }: { coin: ReactNode }) {
     );
   }
   return (
-    <div
-      className="flex items-center gap-1.5 rounded-full bg-panel/92 py-1 pl-1 pr-2.5 shadow-[var(--shadow-chip)]"
-      title={money.separate ? `Deine Kasse · gesamt ${fmt(money.total)} CHF` : "Kasse in CHF"}
+    <>
+      {/* Keyed by the pulse, so a second purchase restarts the animation. */}
+      <div
+        ref={chip}
+        key={pulse?.id ?? 0}
+        className={`flex items-center gap-1.5 rounded-full bg-panel/92 py-1 pl-1 pr-2.5 shadow-[var(--shadow-chip)] ${pulse ? `coin-pulse coin-pulse-${pulse.kind}` : ""}`}
+        title={money.separate ? `Deine Kasse · gesamt ${fmt(money.total)} CHF` : "Kasse in CHF"}
+      >
+        <span className="grid size-6 place-items-center rounded-full bg-ice shadow-[inset_0_1px_2px_rgba(11,31,58,.12)]">
+          {money.separate ? <Wallet className="size-3.5 text-coin" /> : coin}
+        </span>
+        <span className="value min-w-[1.7rem] text-right text-[13px] font-bold text-navy lg:min-w-[3rem] lg:text-[14px]">
+          <span className="lg:hidden">{shown >= 10000 ? `${(shown / 1000).toFixed(1)}k` : fmt(shown)}</span>
+          <span className="hidden lg:inline">{fmt(shown)}</span>
+        </span>
+      </div>
+      {pulse && <CoinFloat key={`float-${pulse.id}`} pulse={pulse} anchor={chip} />}
+    </>
+  );
+}
+
+/**
+ * The amount an action cost or brought, drifting away under the purse. Fixed
+ * to the screen: the top bar scrolls sideways on a phone and would clip it.
+ */
+function CoinFloat({ pulse, anchor }: { pulse: CoinPulse; anchor: RefObject<HTMLDivElement | null> }) {
+  // Placed once it exists, from where the purse is on screen.
+  const place = (el: HTMLSpanElement | null) => {
+    const r = anchor.current?.getBoundingClientRect();
+    if (!el || !r) return;
+    el.style.right = `${window.innerWidth - r.right + 4}px`;
+    el.style.top = `${r.bottom + 4}px`;
+  };
+  return (
+    <span
+      ref={place}
+      aria-live="polite"
+      className={`coin-float value pointer-events-none fixed z-50 rounded-full px-2 py-0.5 text-[12px] font-bold shadow-[var(--shadow-chip)] ${
+        pulse.kind === "spend" ? "bg-panel text-danger" : "bg-success text-panel"
+      }`}
+      style={{ right: 12, top: 56 }}
     >
-      <span className="grid size-6 place-items-center rounded-full bg-ice shadow-[inset_0_1px_2px_rgba(11,31,58,.12)]">
-        {money.separate ? <Wallet className="size-3.5 text-coin" /> : coin}
-      </span>
-      <span className="value min-w-[1.7rem] text-right text-[13px] font-bold text-navy lg:min-w-[3rem] lg:text-[14px]">
-        <span className="lg:hidden">{money.mine >= 10000 ? `${(money.mine / 1000).toFixed(1)}k` : fmt(money.mine)}</span>
-        <span className="hidden lg:inline">{fmt(money.mine)}</span>
-      </span>
-    </div>
+      {fmtSigned(pulse.delta)}
+    </span>
   );
 }
 

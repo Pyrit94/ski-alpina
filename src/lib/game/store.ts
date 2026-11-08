@@ -21,6 +21,9 @@ import {
 import type { Category, ItemId } from "../../../packages/config/src/ids.ts";
 import { connectGame, loadName, saveName } from "./net";
 import { play } from "./sound";
+import { buzz } from "./haptics";
+import { completedQuests, onceEach } from "./juice";
+import { fmt } from "./format";
 import { finishPisteDraft, pisteClick } from "./piste-editor";
 import { emptyResort, loadRegion, neighbourOf, setActiveRegion, TUTORIAL_STEPS } from "@ski/shared";
 import { keepIfSame } from "@/components/game/canvas/stable";
@@ -69,7 +72,22 @@ export interface UiState {
   /** Next map click places a marker of this kind instead of selecting. */
   markMode: "look" | "build" | "warn" | null;
   /** Bumped when something deserves a celebration; the value says what. */
-  celebrate: { id: number; title: string; body: string; kicker?: string } | null;
+  celebrate: Celebrate | null;
+  /**
+   * Bumped with a snapshot that answers an action (a build, an undo, a
+   * claimed goal …): the purse animates a change that comes with it, and
+   * stays quiet for the income that ticks in every second.
+   */
+  coinActionSeq: number;
+}
+
+export interface Celebrate {
+  id: number;
+  title: string;
+  body: string;
+  kicker?: string;
+  /** What it unlocked, shown as cards. */
+  items?: ItemId[];
 }
 
 export interface GameStore extends ResortState, UiState {
@@ -171,6 +189,28 @@ export interface GameStore extends ResortState, UiState {
 }
 
 let net: Net | null = null;
+/** An event answered an intent; the snapshot right behind it carries its effect. */
+let pendingAction = false;
+/** That event was one of ours and went through. */
+let pendingOwnOk = false;
+/** Each celebration once, even when a reconnect replays the snapshot. */
+const firstTime = onceEach();
+/** Celebrations that came while another was on screen, next first. */
+const waiting: Omit<Celebrate, "id">[] = [];
+
+/** A refusal: said, heard and felt. */
+function refuse(title: string, reason: string) {
+  play("error");
+  buzz("error");
+  useGame.getState().pushNote(title, reason, "warn");
+}
+
+/** How many things `me` placed that `before` did not have. */
+function newlyPlaced(before: Pick<ResortState, "buildings" | "lifts" | "pistes">, after: ResortState, me: string | null): number {
+  if (!me) return 0;
+  const had = new Set<string>([...before.buildings, ...before.lifts, ...before.pistes].map((e) => e.id));
+  return [...after.buildings, ...after.lifts, ...after.pistes].filter((e) => e.builtBy === me && !e.acquired && !had.has(e.id)).length;
+}
 /** When this device last noted where the game stood (see away.ts). */
 let lastMarkAt = 0;
 /** The levelled ground last handed to the renderer. */
@@ -304,6 +344,7 @@ export const useGame = create<GameStore>((set, get) => ({
   albumRequest: null,
   matchSetupOpen: false,
   celebrate: null,
+  coinActionSeq: 0,
 
   occupied: () => {
     const s = get();
@@ -321,6 +362,7 @@ export const useGame = create<GameStore>((set, get) => ({
     saveName(playerName);
     const room = roomId || (fresh ? `resort-${Date.now().toString(36).slice(-6)}` : "zermatt");
     net?.close();
+    waiting.length = 0;
     const phone = isPhone();
     set({
       started: true,
@@ -367,12 +409,28 @@ export const useGame = create<GameStore>((set, get) => ({
             set({ regionReady: region });
           });
         }
+        // The snapshot right behind an event carries what the action did.
+        const fromAction = pendingAction && !first;
+        const ownOk = pendingOwnOk && !first;
+        pendingAction = false;
+        pendingOwnOk = false;
+        const placed = first ? 0 : newlyPlaced(prev, state, prev.playerId);
         set({
           ...stabilize(flatten(state)),
           players,
           connectedOnce: true,
+          ...(fromAction ? { coinActionSeq: prev.coinActionSeq + 1 } : {}),
           ...(first ? { seenReportRound: reports } : newMatch ? { seenReportRound: 0 } : {}),
         });
+        // Something of ours went up: the thunk and the buzz (the scene does
+        // the dust). Spending on an upgrade sounds the same; anything else
+        // that went through gets a soft click.
+        if (placed > 0 || (ownOk && state.coins < prev.coins)) {
+          play("build");
+          buzz("build");
+        } else if (ownOk) {
+          play("click");
+        }
         // A new line from someone else: a toast and a soft click, unless the
         // chat is open anyway.
         const fresh = chat.slice(prev.chat?.length ?? 0).filter((c) => c.actor !== prev.playerId);
@@ -419,55 +477,71 @@ export const useGame = create<GameStore>((set, get) => ({
         if (!first && reports > prev.match.history.length) {
           play(state.match.history[reports - 1]?.medal ? "medal" : "round");
         }
+        // What deserves a card, best first; one card per snapshot, each
+        // thing once, so a level-up and the goal that caused it do not
+        // trample each other and a reconnect does not replay either.
+        const cards: (Omit<Celebrate, "id"> & { key: string })[] = [];
+        if (!first && after > before) {
+          // Only what the level itself unlocks; the rest comes from research.
+          const unlocked = CATALOG.filter((i) => i.unlockLevel === after && !RESEARCH_GATE[i.id]);
+          cards.push({
+            key: `level:${after}`,
+            kicker: "Aufgestiegen",
+            title: `Level ${after}`,
+            body: unlocked.length ? `Neu freigeschaltet: ${unlocked.map((i) => i.name).join(", ")}` : "Weiter so!",
+            items: unlocked.map((i) => i.id),
+          });
+        }
+        if (!first) {
+          for (const q of completedQuests(prev.quests, state.quests)) {
+            const reward = [q.coins ? `+${fmt(q.coins)} CHF` : "", q.gems ? `+${q.gems} Edelsteine` : "", q.xp ? `+${q.xp} XP` : ""];
+            cards.push({ key: `quest:${q.id}:${q.tier}`, kicker: "Ziel erreicht", title: q.title, body: reward.filter(Boolean).join(" · ") });
+          }
+        }
         // Research finished, by the clock, a round or a partner's pledge.
         const learned = (state.research?.done ?? []).filter((id) => !(prev.research?.done ?? []).includes(id));
         if (!first && learned.length > 0) {
           const nodes = learned.map((id) => RESEARCH_BY_ID[id]).filter((n) => !!n);
-          play("levelup");
-          set({
-            celebrate: {
-              id: Date.now(),
-              kicker: "Erforscht",
-              title: nodes.map((n) => n.name).join(", "),
-              body: nodes.map((n) => n.effectText).join(" · "),
-            },
+          cards.push({
+            key: `research:${learned.join(",")}`,
+            kicker: "Erforscht",
+            title: nodes.map((n) => n.name).join(", "),
+            body: nodes.map((n) => n.effectText).join(" · "),
           });
         }
         // The tutorial closed itself because everything in it got done.
         if (!first && prev.tutorialOpen && !state.tutorialOpen && state.lifts.length > 0) {
-          play("medal");
-          set({
-            celebrate: {
-              id: Date.now(),
-              kicker: "Geschafft",
-              title: "Euer Skigebiet läuft!",
-              body: "Lift rauf, Piste runter – die ersten Gäste fahren. Unten zeigt euch ein Tipp, was als Nächstes lohnt.",
-            },
+          cards.push({
+            key: "tutorial-done",
+            kicker: "Geschafft",
+            title: "Euer Skigebiet läuft!",
+            body: "Lift rauf, Piste runter – die ersten Gäste fahren. Unten zeigt euch ein Tipp, was als Nächstes lohnt.",
           });
         }
-        if (!first && after > before) {
-          play("levelup");
-          // Only what the level itself unlocks; the rest comes from research.
-          const unlocked = CATALOG.filter((i) => i.unlockLevel === after && !RESEARCH_GATE[i.id]).map((i) => i.name);
-          set({
-            celebrate: {
-              id: Date.now(),
-              title: `Level ${after}`,
-              body: unlocked.length ? `Neu freigeschaltet: ${unlocked.join(", ")}` : "Weiter so!",
-            },
-          });
+        const card = cards.find((c) => firstTime(`${state.roomId}:${c.key}`));
+        if (card) {
+          const { key: _key, ...shown } = card;
+          // One on screen already: this one waits its turn instead of
+          // wiping the other away mid-read.
+          if (get().celebrate) {
+            if (waiting.length < 2) waiting.push(shown);
+          } else {
+            play("fanfare");
+            buzz("celebrate");
+            set({ celebrate: { id: Date.now(), ...shown } });
+          }
+        } else if (!first && reports > prev.match.history.length && state.match.history[reports - 1]?.medal) {
+          buzz("celebrate");
         }
       },
       onEvent: (title, body, kind, actorId, actorName) => {
         // Name the other builder; own actions need no attribution.
         const mine = !actorId || actorId === get().playerId;
-        if (mine && kind === "ok" && actorId) play("build");
+        if (kind !== "warn") pendingAction = true;
+        if (mine && kind === "ok" && actorId) pendingOwnOk = true;
         get().pushNote(title, mine || !actorName ? body : `${actorName}: ${body}`, kind);
       },
-      onError: (reason) => {
-        play("error");
-        get().pushNote("Nicht möglich", reason, "warn");
-      },
+      onError: (reason) => refuse("Nicht möglich", reason),
       onStatus: (connected) => set({ connected }),
       onGames: (games) => set({ games }),
     });
@@ -525,7 +599,13 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ photoTextures: on });
   },
   markReportSeen: (round) => set({ seenReportRound: round }),
-  clearCelebration: () => set({ celebrate: null }),
+  clearCelebration: () => {
+    const next = waiting.shift();
+    if (!next) return set({ celebrate: null });
+    play("medal");
+    buzz("celebrate");
+    set({ celebrate: { id: Date.now(), ...next } });
+  },
   startResearch: (nodeId) => net?.sendIntent({ type: "start_research", nodeId }),
   cancelResearch: (nodeId) => net?.sendIntent(nodeId ? { type: "cancel_research", nodeId } : { type: "cancel_research" }),
   pledgeResearch: (nodeId) => net?.sendIntent({ type: "pledge_research", nodeId }),
@@ -655,7 +735,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
     if (s.phase === "place" && s.movingId) {
       if (!v.ok) {
-        get().pushNote("Nicht möglich", v.reason, "warn");
+        refuse("Nicht möglich", v.reason);
         return;
       }
       dispatch([{ type: "move_building", entityId: s.movingId, q, r }]);
@@ -666,7 +746,7 @@ export const useGame = create<GameStore>((set, get) => ({
     // «Gelände ebnen» is a tool: each tap levels a hex, and it stays picked.
     if (s.phase === "place" && s.buildItem === "level") {
       if (!v.ok) {
-        get().pushNote("Nicht möglich", v.reason, "warn");
+        refuse("Nicht möglich", v.reason);
         return;
       }
       dispatch([{ type: "level_ground", q, r }]);
@@ -676,7 +756,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
     if (s.phase === "place") {
       if (!v.ok) {
-        get().pushNote("Nicht möglich", v.reason, "warn");
+        refuse("Nicht möglich", v.reason);
         return;
       }
       const intent: Intent = { type: "place_building", itemId: s.buildItem, q, r };
@@ -687,7 +767,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
     if (s.phase === "lift-a") {
       if (!v.ok) {
-        get().pushNote("Station unmöglich", v.reason, "warn");
+        refuse("Station unmöglich", v.reason);
         return;
       }
       set({ liftStart: { q, r }, phase: "lift-b", lastStampAt: Date.now(), lastStampHex: { q, r } });
@@ -697,16 +777,16 @@ export const useGame = create<GameStore>((set, get) => ({
 
     if (s.phase === "lift-b" && s.liftStart) {
       if (!v.ok) {
-        get().pushNote("Station unmöglich", v.reason, "warn");
+        refuse("Station unmöglich", v.reason);
         return;
       }
       const dist = hexDistance(s.liftStart, { q, r });
       if (dist < (item.minSpan ?? 4)) {
-        get().pushNote("Zu kurz", "Die Bahn braucht mehr Abstand.", "warn");
+        refuse("Zu kurz", "Die Bahn braucht mehr Abstand.");
         return;
       }
       if (dist > (item.maxSpan ?? 24)) {
-        get().pushNote("Zu weit", "Wähle eine nähere Station.", "warn");
+        refuse("Zu weit", "Wähle eine nähere Station.");
         return;
       }
       dispatch([{ type: "place_lift", itemId: s.buildItem, a: s.liftStart, b: { q, r } }]);

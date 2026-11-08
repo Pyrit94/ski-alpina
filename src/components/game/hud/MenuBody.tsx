@@ -4,7 +4,8 @@ import { Flag, ChevronRight, RotateCw, Trash2 } from "lucide-react";
 import { TEAMPLAY, TERRAIN } from "@ski/config";
 import { fmtCompact } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
-import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
+import { ambientEnabled, play, setAmbientEnabled, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
+import { buzz, hapticsEnabled, hapticsSupported, setHapticsEnabled } from "@/lib/game/haptics";
 import { SavesPanel } from "./SavesPanel";
 import { useGame } from "@/lib/game/store";
 import { LayerTabs } from "./HudBits";
@@ -21,6 +22,9 @@ export function MobileMenuBody() {
   const photo = useGame((s) => s.photoTextures);
   const setPhoto = useGame((s) => s.setPhotoTextures);
   const [sound, setSound] = useState(() => (typeof window === "undefined" ? true : soundEnabled()));
+  const [ambient, setAmbient] = useState(() => (typeof window === "undefined" ? true : ambientEnabled()));
+  const [haptics, setHaptics] = useState(() => (typeof window === "undefined" ? true : hapticsEnabled()));
+  const canBuzz = typeof window !== "undefined" && hapticsSupported();
   return (
     <div className="flex flex-col gap-4 pb-2">
       <SavesPanel compact />
@@ -40,6 +44,7 @@ export function MobileMenuBody() {
       <MenuSection title="Einstellungen">
         <SwitchRow
           label="Ton"
+          hint="Bauen, Kasse, Fehler, Erfolge"
           on={sound}
           onChange={(v) => {
             setSoundEnabled(v);
@@ -47,6 +52,27 @@ export function MobileMenuBody() {
             if (v) play("click");
           }}
         />
+        <SwitchRow
+          label="Umgebungston"
+          hint="Wind und ferne Lifte, ganz leise"
+          on={ambient}
+          onChange={(v) => {
+            setAmbientEnabled(v);
+            setAmbient(v);
+          }}
+        />
+        {canBuzz && (
+          <SwitchRow
+            label="Vibration"
+            hint="Kurz beim Bauen, bei Fehlern und Erfolgen"
+            on={haptics}
+            onChange={(v) => {
+              setHapticsEnabled(v);
+              setHaptics(v);
+              if (v) buzz("build");
+            }}
+          />
+        )}
         <SwitchRow label="Fotostrukturen" hint="Echte Felsen- und Schneetexturen" on={photo} onChange={setPhoto} />
         <SwitchRow label="Grafik hoch" hint="Aus spart Akku" on={quality === "high"} onChange={setQuality} />
       </MenuSection>

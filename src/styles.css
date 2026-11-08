@@ -239,3 +239,156 @@
     display: none;
   }
 }
+
+/* The purse answering an action: a short swell and a ring in the colour of the change. */
+@keyframes coin-pulse {
+  0% {
+    transform: scale(1);
+  }
+  28% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes coin-ring-spend {
+  0% {
+    box-shadow: 0 0 0 0 rgba(210, 59, 59, 0.45), var(--shadow-chip);
+  }
+  100% {
+    box-shadow: 0 0 0 9px rgba(210, 59, 59, 0), var(--shadow-chip);
+  }
+}
+
+@keyframes coin-ring-gain {
+  0% {
+    box-shadow: 0 0 0 0 rgba(244, 185, 66, 0.6), var(--shadow-chip);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgba(244, 185, 66, 0), var(--shadow-chip);
+  }
+}
+
+.coin-pulse-spend {
+  animation:
+    coin-pulse 420ms var(--ease-out),
+    coin-ring-spend 700ms ease-out;
+}
+
+.coin-pulse-gain {
+  animation:
+    coin-pulse 420ms var(--ease-out),
+    coin-ring-gain 800ms ease-out;
+}
+
+@keyframes coin-float {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.9);
+  }
+  14% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(16px) scale(1);
+  }
+}
+
+.coin-float {
+  animation: coin-float 1400ms var(--ease-out) both;
+}
+
+/* A celebration: the card arrives with a little weight, light runs across it once. */
+@keyframes celebrate-in {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.86);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.celebrate-in {
+  animation: celebrate-in 520ms var(--ease-out) both;
+}
+
+@keyframes celebrate-shine {
+  0% {
+    transform: translateX(-120%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(260%) skewX(-18deg);
+  }
+}
+
+.celebrate-shine {
+  animation: celebrate-shine 1100ms 380ms ease-in-out both;
+}
+
+@keyframes unlock-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.unlock-in {
+  animation: unlock-in 380ms var(--ease-out) both;
+}
+
+/* Snowflakes over the whole HUD: they fall, drift and turn, then are gone. */
+@keyframes snow-fall {
+  0% {
+    transform: translate3d(0, -4vh, 0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--drift, 0px), 72vh, 0) rotate(220deg);
+    opacity: 0;
+  }
+}
+
+.snow-flake {
+  animation-name: snow-fall;
+  animation-timing-function: cubic-bezier(0.25, 0.4, 0.55, 1);
+  animation-fill-mode: both;
+  animation-iteration-count: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coin-pulse-spend,
+  .coin-pulse-gain,
+  .coin-float,
+  .celebrate-in,
+  .celebrate-shine,
+  .unlock-in {
+    animation: none !important;
+  }
+  .snow-flake,
+  .celebrate-shine {
+    display: none;
+  }
+}
