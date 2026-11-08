@@ -1,6 +1,6 @@
 # Pisten-UX und realistischere Grafik
 
-**Status:** PR A (Pistenbau einfach machen) umgesetzt · PR B (Grafik) geplant
+**Status:** PR A (Pistenbau einfach machen) und PR B (Grafik, erster Teil) umgesetzt
 
 ## Ausgangslage: die Verbindungsregel bis jetzt
 
@@ -114,6 +114,35 @@ Sessel/Gondeln/Bäume, adaptive Auflösung.
 
 Messung vorher/nachher (Draw Calls, Dreiecke, Bildrate im Headless-Browser)
 kommt in den PR-Text; die Bildrate aus SwiftShader ist nur relativ aussagekräftig.
+
+## Grafik (PR B) – umgesetzt
+
+- **Pisten** (`canvas/piste-mesh.ts`): eine geglättete (Catmull-Rom),
+  aufs Gelände gelegte Fläche pro Piste, rund doppelt so breit wie vorher,
+  weisser Cord mit Spurbahnen der Pistenraupe, Randlinie in der Pistenfarbe und
+  weicher Aussenrand. Feine Rippen nur auf `high` (`QUALITY.pisteRibs`). Strassen
+  im selben Material als Asphalt mit gestrichelter Mittellinie. Alle Pisten in
+  **einem** Draw Call.
+- **Markierungsstangen** links und rechts im Wechsel, alle in einem
+  `InstancedMesh` (`QUALITY.poles`, `poleSpacing`).
+- **Wald**: zwei Baumarten (Fichte, schlanke Tanne), Schnee auf den Ästen nach
+  einem Geometrie-Attribut und der Schneegrenze des Tages
+  (`canvas/snow-shaders.ts`); Pisten und Liftlinien sind als **Schneisen**
+  freigeschlagen.
+- **Glitzern** im Schnee nahe der Kamera, nur `high`
+  (`TERRAIN_DETAIL.high.glitter`).
+- `quality.test.ts` prüft weiter, dass die Handy-Stufe nirgends teurer ist.
+
+Gemessen im Headless-Chromium (SwiftShader, Bildrate nur relativ), Szene mit
+einem Sessellift und drei Pisten:
+
+| | Draw Calls vorher | nachher | Dreiecke vorher | nachher |
+| --- | --- | --- | --- | --- |
+| Desktop 1440×900 | 28 | 30 | 184 238 | 188 254 |
+| Handy 390 px | 20 | 21 | 92 078 | 92 912 |
+
+Noch offen aus dem Plan: glaubwürdigere Liftstationen, Himmelsverlauf je
+Wetter und eine Distanz-Stufe für Bäume. Das Budget lässt dafür Luft.
 
 ## Risiken
 

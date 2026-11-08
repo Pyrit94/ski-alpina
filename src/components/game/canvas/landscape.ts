@@ -253,19 +253,30 @@ export function buildFarLand(hm: Heightmap, snowLineM: number, reach = 470): THR
  * where they catch the sky. Built once and instanced, so the whole forest is
  * one draw call however many trees it has.
  */
-export function makeConiferGeometry(): THREE.BufferGeometry {
-  const tiers = [
-    { r: 0.6, h: 0.95, y: 0.25 },
-    { r: 0.46, h: 0.8, y: 0.68 },
-    { r: 0.3, h: 0.66, y: 1.06 },
-  ];
-  const deep = new THREE.Color("#1c3a27");
-  const tip = new THREE.Color("#4f7d4c");
+export function makeConiferGeometry(variant: "spruce" | "fir" = "spruce"): THREE.BufferGeometry {
+  // A spruce is broad with three heavy tiers; a fir (Arve, Lärche in winter
+  // aside) is slimmer and taller with more, tighter tiers.
+  const tiers =
+    variant === "spruce"
+      ? [
+          { r: 0.6, h: 0.95, y: 0.25 },
+          { r: 0.46, h: 0.8, y: 0.68 },
+          { r: 0.3, h: 0.66, y: 1.06 },
+        ]
+      : [
+          { r: 0.42, h: 0.75, y: 0.22 },
+          { r: 0.36, h: 0.66, y: 0.6 },
+          { r: 0.27, h: 0.58, y: 0.95 },
+          { r: 0.17, h: 0.5, y: 1.27 },
+        ];
+  const deep = new THREE.Color(variant === "spruce" ? "#1c3a27" : "#17301f");
+  const tip = new THREE.Color(variant === "spruce" ? "#4f7d4c" : "#3f6b45");
   const bark = new THREE.Color("#4a3426");
   const parts: THREE.BufferGeometry[] = [];
   const trunk = new THREE.CylinderGeometry(0.06, 0.08, 0.32, 5, 1, true).toNonIndexed();
   trunk.translate(0, 0.16, 0);
   paint(trunk, () => bark);
+  coverWith(trunk, () => 0);
   parts.push(trunk);
   const top = tiers[tiers.length - 1]!.y + tiers[tiers.length - 1]!.h;
   for (const t of tiers) {
@@ -273,12 +284,28 @@ export function makeConiferGeometry(): THREE.BufferGeometry {
     cone.translate(0, t.y + t.h / 2, 0);
     const c = new THREE.Color();
     paint(cone, (y) => c.copy(deep).lerp(tip, Math.pow(Math.min(1, Math.max(0, (y - t.y) / t.h)), 1.4) * (0.55 + (0.45 * (t.y + t.h)) / top)));
+    // Snow lies in patches on the upper branches of each tier and leaves the
+    // skirt, where needles hang down, dark — every other facet, so a tree
+    // reads as dark green with white on top rather than as an iced cone.
+    coverWith(cone, (x, y, z) => {
+      const along = Math.min(1, Math.max(0, (y - t.y) / t.h));
+      const sector = Math.floor(((Math.atan2(z, x) / (Math.PI * 2)) + 1) * 6) % 2;
+      return (0.25 + 0.55 * sector) * Math.min(1, along * 2.2);
+    });
     parts.push(cone);
   }
   const merged = mergeGeometries(parts)!;
   for (const p of parts) p.dispose();
   merged.computeVertexNormals();
   return merged;
+}
+
+/** How much snow each vertex of a tree can carry, 0..1, as `treeSnow`. */
+function coverWith(geo: THREE.BufferGeometry, at: (x: number, y: number, z: number) => number) {
+  const pos = geo.attributes.position!;
+  const snow = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) snow[i] = at(pos.getX(i), pos.getY(i), pos.getZ(i));
+  geo.setAttribute("treeSnow", new THREE.BufferAttribute(snow, 1));
 }
 
 function paint(geo: THREE.BufferGeometry, at: (y: number) => THREE.Color) {

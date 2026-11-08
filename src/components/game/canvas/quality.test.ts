@@ -15,9 +15,14 @@ test("the mobile tier never costs more than the desktop one", () => {
   assert.ok(low.fogFar < high.fogFar, "how much distance is drawn");
   assert.ok(low.terrain.octaves <= high.terrain.octaves, "noise octaves");
   assert.ok(low.treesPerClump * low.trees < high.treesPerClump * high.trees, "trees drawn");
+  assert.ok(low.poles < high.poles, "marker poles");
+  assert.ok(low.poleSpacing >= high.poleSpacing, "pole spacing");
 });
 
 test("the expensive effects are desktop only", () => {
+  assert.equal(low.pisteRibs, false);
+  assert.equal(low.terrain.glitter, 0);
+  assert.ok(high.terrain.glitter > 0);
   assert.equal(low.shadows, false);
   assert.equal(low.antialias, false);
   assert.equal(high.shadows, true);
