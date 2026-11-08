@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { ItemId } from "@/lib/game/types";
 import { isLift } from "@/lib/game/catalog";
-import { modelAt, useModelLibrary } from "@/lib/game/model-library";
+import { modelAt, slotModel, useModelLibrary } from "@/lib/game/model-library";
 import { STATION_CABLE_Y, cableGap } from "./station";
 
 /**
@@ -110,9 +110,12 @@ export function BuildingModel({
   constructing,
   lit,
   level = 1,
+  mid = false,
 }: {
   itemId: ItemId;
   constructing?: boolean;
+  /** A lift's mid station: drawn from "station-mid" when there is one. */
+  mid?: boolean;
   /** Dusk or later: windows come on. Passed as a boolean so it flips rarely. */
   lit?: boolean;
   /** Car park decks, bus lines: what has been built onto it. */
@@ -120,8 +123,9 @@ export function BuildingModel({
 }) {
   // A model from public/models wins over the built-in one (see model-library.ts).
   useModelLibrary((st) => st.version);
-  // Lift stations share one model, "station"; buildings have their own.
-  const file = isLift(itemId) ? modelAt("station") : modelAt(itemId, level);
+  // Lift stations: their type's own model, else the shared "station" (see
+  // model-keys.ts); buildings have their own.
+  const file = isLift(itemId) ? slotModel(mid ? "station-mid" : "station", itemId) : modelAt(itemId, level);
   const fileGroup = file?.group ?? null;
   const fromFile = useMemo(() => (fileGroup ? fileGroup.clone(true) : null), [fileGroup]);
   // A level without its own file grows the nearest one: wider and taller.

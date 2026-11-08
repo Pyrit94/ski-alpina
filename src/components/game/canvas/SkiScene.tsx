@@ -21,8 +21,11 @@ import type { ItemId, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game
 import { applyWeather, atmosphereAt, createAtmosphere, easeWeather, WEATHER_LOOK } from "./atmosphere";
 import { BuildingInstances, type Placement } from "./baked-buildings";
 import { BuildingModel } from "./models";
-import { loadModelLibrary, modelFor, useModelLibrary } from "@/lib/game/model-library";
-import { bake, bakedCache, SOLID } from "./bake";
+import { hasModel, loadModelLibrary, useModelLibrary } from "@/lib/game/model-library";
+import { modelKeyFor } from "@/lib/game/model-keys";
+import { SOLID } from "./bake";
+import { useFilePart, withTreeSnow } from "./file-parts";
+import { Groomers, Props } from "./decor";
 import { AutoPreview } from "./AutoPreview";
 import { VillagePreview } from "./VillagePreview";
 import { VillageHouses } from "./village";
@@ -246,11 +249,17 @@ function Forest({ quality }: { quality: "low" | "high" }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const firRef = useRef<THREE.InstancedMesh>(null);
   const rockRef = useRef<THREE.InstancedMesh>(null);
+  // Trees from files, when there are any: the spruce stands and the slimmer
+  // ones (built-in fir, file larch). Same counts, same snow, same draw calls.
+  const spruceFile = useFilePart("tree-spruce");
+  const larchFile = useFilePart("tree-larch");
+  const spruceGeo = spruceFile ? withTreeSnow(spruceFile) : parts.tree;
+  const firGeo = larchFile ? withTreeSnow(larchFile) : parts.fir;
 
   useLayoutEffect(() => {
     placeTrees(meshRef.current, kinds.spruce, "tree-tint");
     placeTrees(firRef.current, kinds.fir, "fir-tint");
-  }, [kinds]);
+  }, [kinds, spruceGeo, firGeo]);
 
   useLayoutEffect(() => {
     const inst = rockRef.current;
@@ -276,19 +285,19 @@ function Forest({ quality }: { quality: "low" | "high" }) {
   return (
     <group>
       <instancedMesh
-        key={`t${kinds.spruce.length}`}
+        key={`t${kinds.spruce.length}${spruceFile ? "f" : ""}`}
         ref={meshRef}
         // The material is a prop, not an argument: a new snow line must not
         // rebuild the mesh and drop every tree back to the origin.
-        args={[parts.tree, undefined, kinds.spruce.length]}
+        args={[spruceGeo, undefined, kinds.spruce.length]}
         material={treeMat}
         castShadow={tier.shadows}
         raycast={noRaycast}
       />
       <instancedMesh
-        key={`f${kinds.fir.length}`}
+        key={`f${kinds.fir.length}${larchFile ? "f" : ""}`}
         ref={firRef}
-        args={[parts.fir, undefined, kinds.fir.length]}
+        args={[firGeo, undefined, kinds.fir.length]}
         material={treeMat}
         castShadow={tier.shadows}
         raycast={noRaycast}
@@ -651,16 +660,18 @@ function Structures() {
     }
     return out;
   }, [lifts]);
+  // Mid stations may be drawn from their own model ("station-mid").
+  const mids = useMemo(() => new Set(lifts.flatMap((l) => (l.stationMid ? [l.stationMid] : []))), [lifts]);
   const { live, kinds } = useMemo(() => {
     const live: PlacedBuilding[] = [];
     // One instanced batch per model: item and level, since a hotel wing or
-    // a car park deck is a different shape.
-    const kinds = new Map<string, { itemId: ItemId; level: number; placements: Placement[] }>();
-    const add = (itemId: ItemId, level: number, pl: Placement) => {
-      const k = `${itemId}:${level}`;
+    // a car park deck is a different shape, and mid stations apart.
+    const kinds = new Map<string, { itemId: ItemId; level: number; mid: boolean; placements: Placement[] }>();
+    const add = (itemId: ItemId, level: number, pl: Placement, mid = false) => {
+      const k = `${itemId}:${level}${mid ? ":mid" : ""}`;
       const batch = kinds.get(k);
       if (batch) batch.placements.push(pl);
-      else kinds.set(k, { itemId, level, placements: [pl] });
+      else kinds.set(k, { itemId, level, mid, placements: [pl] });
     };
     seedHuts(hm).forEach(([q, r], i) => {
       const { x, z } = hexToWorld(q, r);
@@ -672,20 +683,21 @@ function Structures() {
         continue;
       }
       const { x, z } = hexToWorld(b.q, b.r);
-      add(b.itemId, b.level ?? 1, { id: b.id, x, y: seatOf(hm, b.itemId, x, z).y, z, yaw: yaws.get(b.id) ?? 0 });
+      add(b.itemId, b.level ?? 1, { id: b.id, x, y: seatOf(hm, b.itemId, x, z).y, z, yaw: yaws.get(b.id) ?? 0 }, mids.has(b.id));
     }
     return { live, kinds: [...kinds.entries()] };
-  }, [buildings, now, hm, yaws]);
+  }, [buildings, now, hm, yaws, mids]);
 
   return (
     <group>
       <GroundContact buildings={buildings} />
       <Foundations buildings={buildings} yaws={yaws} />
-      {kinds.map(([k, { itemId, level, placements }]) => (
+      {kinds.map(([k, { itemId, level, mid, placements }]) => (
         <BuildingInstances
           key={`${k}|${lit}|${modelVersion}`}
           itemId={itemId}
           level={level}
+          mid={mid}
           lit={lit}
           placements={placements}
           shadows={QUALITY[quality].shadows}
@@ -693,7 +705,7 @@ function Structures() {
         />
       ))}
       {live.map((b) => (
-        <PlacedStructure key={b.id} building={b} yaw={yaws.get(b.id) ?? 0} />
+        <PlacedStructure key={b.id} building={b} yaw={yaws.get(b.id) ?? 0} mid={mids.has(b.id)} />
       ))}
       <SelectionRing buildings={buildings} />
     </group>
@@ -725,7 +737,7 @@ function useLampsOn(): boolean {
   return useGame((s) => s.timeOfDay < 0.29 || s.timeOfDay > 0.72);
 }
 
-function PlacedStructure({ building: b, yaw }: { building: PlacedBuilding; yaw: number }) {
+function PlacedStructure({ building: b, yaw, mid }: { building: PlacedBuilding; yaw: number; mid: boolean }) {
   const selectEntity = useGame((s) => s.selectEntity);
   const lit = useLampsOn();
   const hm = getHeightmap();
@@ -758,7 +770,7 @@ function PlacedStructure({ building: b, yaw }: { building: PlacedBuilding; yaw: 
       }}
     >
       <group ref={group}>
-        <BuildingModel itemId={b.itemId} constructing={constructing} lit={lit} level={b.level} />
+        <BuildingModel itemId={b.itemId} constructing={constructing} lit={lit} level={b.level} mid={mid} />
         {constructing && <Scaffold />}
       </group>
     </group>
@@ -896,9 +908,18 @@ function carrierBudget(liftCount: number): number {
   return Math.max(2, Math.min(8, Math.floor(perDirection)));
 }
 
-type CarrierKind = "cabin" | "chair" | "tbar" | "train";
+type CarrierKind = "cabin" | "chair" | "tbar" | "train" | "tram";
+const CARRIER_KINDS: readonly CarrierKind[] = ["cabin", "chair", "tbar", "train", "tram"];
 
-function carrierKindOf(itemId: PlacedLift["itemId"]): CarrierKind {
+/** A lift of each carrier kind, to look up its model chain (model-keys.ts). */
+const KIND_LIFT: Record<CarrierKind, ItemId> = { cabin: "gondola", chair: "chair", tbar: "tbar", train: "cog", tram: "tram" };
+
+/**
+ * Tram cabins ride with the gondolas' unless there is a tram cabin model:
+ * no extra draw calls for a kind that would look the same.
+ */
+function carrierKindOf(itemId: PlacedLift["itemId"], ownTram: boolean): CarrierKind {
+  if (itemId === "tram" && ownTram) return "tram";
   if (itemId === "cog") return "train";
   if (itemId === "tbar") return "tbar";
   if (itemId === "chair") return "chair";
@@ -908,6 +929,7 @@ function carrierKindOf(itemId: PlacedLift["itemId"]): CarrierKind {
 /** How the three kinds of carrier behave on the rope. */
 const CARRIER_RIG: Record<CarrierKind, { hang: number; speed: number }> = {
   cabin: { hang: 0.55, speed: 0.06 },
+  tram: { hang: 0.55, speed: 0.06 },
   chair: { hang: 0.72, speed: 0.075 },
   // A bar is dragged along the ground rather than hung from the rope.
   tbar: { hang: 1.9, speed: 0.075 },
@@ -961,12 +983,13 @@ function Lifts() {
   const hm = getHeightmap();
   const selectEntity = useGame((s) => s.selectEntity);
   const budget = carrierBudget(lifts.length);
+  const ownTram = useModelLibrary(() => hasModel("carrier-tram"));
 
   const rigs = useMemo<Rig[]>(
     () =>
       lifts.map((lift) => {
         const line = liftLine(lift, hm);
-        const kind = carrierKindOf(lift.itemId);
+        const kind = carrierKindOf(lift.itemId, ownTram);
         if (kind === "train") {
           // Rails, not rope: two tracks on the ground, no towers.
           const up = trackCurve(line, hm, line.side.clone().multiplyScalar(0.36));
@@ -1005,7 +1028,7 @@ function Lifts() {
           ],
         };
       }),
-    [lifts, hm, budget],
+    [lifts, hm, budget, ownTram],
   );
 
   // Every cable on the map in one mesh: two draw calls per lift added up
@@ -1177,7 +1200,7 @@ function offsetGeometry<T extends THREE.BufferGeometry>(geo: T, y: number, rotat
  */
 function CarrierField({ rigs }: { rigs: Rig[] }) {
   const byKind = useMemo(() => {
-    const out: Record<CarrierKind, Rider[]> = { cabin: [], chair: [], tbar: [], train: [] };
+    const out: Record<CarrierKind, Rider[]> = { cabin: [], chair: [], tbar: [], train: [], tram: [] };
     for (const rig of rigs) {
       const { hang, speed } = CARRIER_RIG[rig.kind];
       for (let i = 0; i < rig.riders; i++) {
@@ -1191,34 +1214,17 @@ function CarrierField({ rigs }: { rigs: Rig[] }) {
 
   return (
     <group>
-      {(["cabin", "chair", "tbar", "train"] as const).map((kind) => (
+      {CARRIER_KINDS.map((kind) => (
         <CarrierInstances key={kind} kind={kind} riders={byKind[kind]} />
       ))}
     </group>
   );
 }
 
-/**
- * A lift part from public/models, flattened into one geometry with its
- * colours baked in, so it can be drawn as instances. Null without a file.
- */
-function useFilePart(key: string): THREE.BufferGeometry | null {
-  const version = useModelLibrary((s) => s.version);
-  return useMemo(() => {
-    void version;
-    const group = modelFor(key);
-    if (!group) return null;
-    const cacheKey = `part:${key}:${version}`;
-    const cached = bakedCache.get(cacheKey);
-    if (cached) return cached.solid;
-    const baked = bake(group);
-    bakedCache.set(cacheKey, baked);
-    return baked.solid;
-  }, [key, version]);
-}
-
 function CarrierInstances({ kind, riders }: { kind: CarrierKind; riders: Rider[] }) {
-  const filePart = useFilePart(`carrier-${kind}`);
+  // The first model along the kind's chain: a tram cabin falls back to the gondola's.
+  const fileKey = useModelLibrary(() => modelKeyFor("carrier", KIND_LIFT[kind], hasModel));
+  const filePart = useFilePart(fileKey ?? "");
   const body = useRef<THREE.InstancedMesh>(null);
   const detail = useRef<THREE.InstancedMesh>(null);
   const rope = useRef<THREE.InstancedMesh>(null);
@@ -1303,7 +1309,7 @@ function carrierParts(kind: CarrierKind) {
     };
   }
   const rope = offsetGeometry(new THREE.CylinderGeometry(0.025, 0.025, hang, 5), hang / 2);
-  if (kind === "cabin") {
+  if (kind === "cabin" || kind === "tram") {
     const detail = new THREE.BoxGeometry(0.3, 0.2, 0.03);
     detail.translate(0, 0.06, 0.18);
     return {
@@ -1534,12 +1540,23 @@ function Skiers() {
   const paths = useMemo(() => pistes.filter((p) => p.hexes.length >= 2).map((p) => pistePoints(p, hm)), [pistes, hm]);
   const count = Math.min(56, Math.max(8, paths.length * 6));
   const ref = useRef<THREE.InstancedMesh>(null);
+  const boardRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const seeds = useMemo(() => Array.from({ length: 80 }, (_, i) => i * 0.137), []);
+  // Models from files: skiers, and every fifth one on a snowboard. Without
+  // a snowboarder file they all ski; without any file, the capsules stay.
+  const skierFile = useFilePart("skier");
+  const boardFile = useFilePart("snowboarder");
+  const boards = boardFile ? Math.floor(count / 5) : 0;
+  const skiers = count - boards;
+  // A model stands on the snow; the capsule hangs centred above it.
+  const lift = skierFile ? 0 : 0.2;
 
   useFrame(() => {
     if (!ref.current || paths.length === 0) return;
     const t = performance.now() / 1000;
+    let s = 0;
+    let bd = 0;
     for (let i = 0; i < count; i++) {
       const path = paths[i % paths.length]!;
       const u = (t * 0.08 + seeds[i]!) % 1;
@@ -1547,20 +1564,32 @@ function Skiers() {
       const a = path[Math.floor(idx)]!;
       const b = path[Math.min(path.length - 1, Math.floor(idx) + 1)]!;
       const f = idx % 1;
-      dummy.position.set(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f + 0.2, a.z + (b.z - a.z) * f);
+      const board = boardRef.current && i % 5 === 4 && bd < boards;
+      dummy.position.set(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f + (board ? 0 : lift), a.z + (b.z - a.z) * f);
       dummy.lookAt(b);
       dummy.updateMatrix();
-      ref.current.setMatrixAt(i, dummy.matrix);
+      if (board) boardRef.current!.setMatrixAt(bd++, dummy.matrix);
+      else if (s < skiers) ref.current.setMatrixAt(s++, dummy.matrix);
     }
     ref.current.instanceMatrix.needsUpdate = true;
+    if (boardRef.current) boardRef.current.instanceMatrix.needsUpdate = true;
   });
 
   if (paths.length === 0) return null;
   return (
-    <instancedMesh ref={ref} args={[undefined, undefined, count]}>
-      <capsuleGeometry args={[0.08, 0.22, 3, 6]} />
-      <meshStandardMaterial color="#c23b32" />
-    </instancedMesh>
+    <group>
+      {skierFile ? (
+        <instancedMesh key="file" ref={ref} args={[skierFile, SOLID, skiers]} raycast={noRaycast} />
+      ) : (
+        <instancedMesh ref={ref} args={[undefined, undefined, skiers]}>
+          <capsuleGeometry args={[0.08, 0.22, 3, 6]} />
+          <meshStandardMaterial color="#c23b32" />
+        </instancedMesh>
+      )}
+      {boardFile && boards > 0 && (
+        <instancedMesh key={`b${boards}`} ref={boardRef} args={[boardFile, SOLID, boards]} raycast={noRaycast} />
+      )}
+    </group>
   );
 }
 
@@ -1576,9 +1605,17 @@ function Traffic() {
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const road = useMemo(() => cachedValleyRoad(hm), [hm]);
   const length = useMemo(() => pathLength(road), [road]);
+  // Models from files: cars, and every fourth vehicle a coach when there is one.
+  const carFile = useFilePart("car");
+  const coachFile = useFilePart("coach");
+  const coachRef = useRef<THREE.InstancedMesh>(null);
+  const coaches = coachFile ? Math.floor(n / 4) : 0;
+  const cars = n - coaches;
   useFrame(() => {
     if (!ref.current || length <= 0) return;
     const t = performance.now() / 1000;
+    let c = 0;
+    let k = 0;
     for (let i = 0; i < n; i++) {
       const inbound = i % 2 === 0;
       const u = (t * (2.4 / length) + i / n) % 1;
@@ -1587,18 +1624,33 @@ function Traffic() {
       const side = inbound ? 0.22 : -0.22;
       const x = p.x + Math.cos(p.angle) * side;
       const z = p.z - Math.sin(p.angle) * side;
-      dummy.position.set(x, surfaceY(hm, x, z) + 0.26, z);
-      dummy.rotation.set(0, p.angle + (inbound ? 0 : Math.PI) - Math.PI / 2, 0);
+      const coach = coachRef.current && i % 4 === 3 && k < coaches;
+      const model = coach || carFile;
+      // The built-in box is centred and long along x; a model stands on the
+      // road (0.2 above the ground) and faces +z, a quarter turn on.
+      dummy.position.set(x, surfaceY(hm, x, z) + (model ? 0.2 : 0.26), z);
+      dummy.rotation.set(0, p.angle + (inbound ? 0 : Math.PI) - Math.PI / 2 + (model ? Math.PI / 2 : 0), 0);
       dummy.updateMatrix();
-      ref.current.setMatrixAt(i, dummy.matrix);
+      if (coach) coachRef.current!.setMatrixAt(k++, dummy.matrix);
+      else if (c < cars) ref.current.setMatrixAt(c++, dummy.matrix);
     }
     ref.current.instanceMatrix.needsUpdate = true;
+    if (coachRef.current) coachRef.current.instanceMatrix.needsUpdate = true;
   });
   return (
-    <instancedMesh ref={ref} args={[undefined, undefined, n]}>
-      <boxGeometry args={[0.7, 0.32, 0.38]} />
-      <meshStandardMaterial color="#1a73e8" />
-    </instancedMesh>
+    <group>
+      {carFile ? (
+        <instancedMesh key={`car${cars}`} ref={ref} args={[carFile, SOLID, cars]} raycast={noRaycast} />
+      ) : (
+        <instancedMesh ref={ref} args={[undefined, undefined, cars]}>
+          <boxGeometry args={[0.7, 0.32, 0.38]} />
+          <meshStandardMaterial color="#1a73e8" />
+        </instancedMesh>
+      )}
+      {coachFile && coaches > 0 && (
+        <instancedMesh key={`coach${coaches}`} ref={coachRef} args={[coachFile, SOLID, coaches]} raycast={noRaycast} />
+      )}
+    </group>
   );
 }
 
@@ -2258,6 +2310,8 @@ export function SkiScene() {
       <Pistes />
       <Skiers />
       <Traffic />
+      <Groomers />
+      <Props />
       <HexRaster />
       <HexCursor />
       <HexGhost />

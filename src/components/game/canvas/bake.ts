@@ -79,6 +79,8 @@ export function bake(root: THREE.Object3D): Baked {
     const mat = mesh.material as THREE.MeshStandardMaterial;
     let geo = mesh.geometry.clone();
     if (geo.index) geo = geo.toNonIndexed();
+    // Every part needs normals to be merged and lit; some exports leave them out.
+    if (!geo.getAttribute("normal")) geo.computeVertexNormals();
     // A model from a file brings its colour as vertex colours or as a
     // palette texture; both are read into the baked vertex colours.
     const ownColours = geo.getAttribute("color") as THREE.BufferAttribute | undefined;

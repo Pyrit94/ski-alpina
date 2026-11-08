@@ -52,8 +52,11 @@ export function BuildingInstances({
   shadows,
   onPick,
   level = 1,
+  mid = false,
 }: {
   itemId: ItemId;
+  /** Mid stations may have their own model ("station-mid"). */
+  mid?: boolean;
   /** Expansion level: a hotel wing or car park deck changes the model. */
   level?: number;
   lit: boolean;
@@ -62,7 +65,7 @@ export function BuildingInstances({
   onPick: (id: string) => void;
 }) {
   const version = useModelLibrary((s) => s.version);
-  const key = `${itemId}|${level}|${lit ? 1 : 0}|${version}`;
+  const key = `${itemId}|${level}|${mid ? "mid" : ""}|${lit ? 1 : 0}|${version}`;
   const [baked, setBaked] = useState<Baked | null>(() => bakedCache.get(key) ?? null);
   const proto = useRef<THREE.Group>(null);
   const solid = useRef<THREE.InstancedMesh>(null);
@@ -103,7 +106,7 @@ export function BuildingInstances({
   if (!baked) {
     return (
       <group ref={proto} visible={false}>
-        <BuildingModel itemId={itemId} lit={lit} level={level} />
+        <BuildingModel itemId={itemId} lit={lit} level={level} mid={mid} />
       </group>
     );
   }

@@ -5,18 +5,10 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CATALOG } from "@ski/config";
 import { fitModel, PART_FIT } from "@/lib/game/model-library";
+import { PART_LABEL } from "@/lib/game/model-keys";
 import type { ItemId } from "@/lib/game/types";
 import { BuildingModel } from "./canvas/models";
 import { makeHexGeometry } from "./canvas/geometry";
-
-const PART_LABEL: Record<string, string> = {
-  station: "Liftstation (alle Bahnen)",
-  pylon: "Liftmast",
-  "carrier-chair": "Sessel",
-  "carrier-cabin": "Gondelkabine",
-  "carrier-tbar": "Schleppbügel",
-  "carrier-train": "Zahnradbahn-Wagen",
-};
 
 /**
  * «Modell-Werkbank»: try a model before it goes into the game. Drop a .glb,
@@ -135,7 +127,7 @@ export function Werkbank() {
                 </option>
               ))}
             </optgroup>
-            <optgroup label="Bahnen">
+            <optgroup label="Bahnen, Dorf, Wald, Verkehr, Deko">
               {Object.entries(PART_LABEL).map(([k, label]) => (
                 <option key={k} value={k}>
                   {label} ({k})

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { create } from "zustand";
+import { modelKeyFor, type ModelSlot } from "./model-keys";
 
 /**
  * Building models from files, to replace the hand-built ones one by one.
@@ -10,9 +11,11 @@ import { create } from "zustand";
  *   { "hotel1": { "file": "hotel1.glb" },
  *     "parking": { "file": "parking.glb", "levels": { "3": "parking-3.glb" } } }
  *
- * Besides item ids, the lifts' parts: "station" (every lift's two stations),
- * "pylon" (the masts, fitted to their height), and "carrier-chair",
- * "carrier-cabin", "carrier-tbar" (what rides the rope).
+ * Besides item ids, the slots in model-keys.ts: lift parts ("station",
+ * "station-<lift>", "station-mid", "pylon", "carrier-…"), the village
+ * ("house-1".."house-6", "church"), the forest ("tree-spruce", "tree-larch"),
+ * what moves ("skier", "snowboarder", "car", "coach", "groomer-vehicle") and
+ * props ("bench", "parasol", "flag", "sign").
  *
  * Every model is fitted to the hex on load: centred, standing on y = 0 and
  * scaled so its wider side spans `footprint` world units (default 2.1). An
@@ -39,15 +42,57 @@ export const useModelLibrary = create<{ version: number }>(() => ({ version: 0 }
 
 const key = (itemId: string, level: number) => `${itemId}:${level}`;
 
-/** How each lift part is fitted when the manifest says nothing. */
+const STATION_FIT = { fit: "width", size: 2.4 } as const;
+
+/** How each slot is fitted when the manifest says nothing. */
 export const PART_FIT: Record<string, { fit: "width" | "height"; size: number }> = {
-  station: { fit: "width", size: 2.4 },
+  station: STATION_FIT,
+  "station-mid": STATION_FIT,
+  "station-tbar": STATION_FIT,
+  "station-chair": STATION_FIT,
+  "station-gondola": STATION_FIT,
+  "station-tram": STATION_FIT,
+  "station-funitel": STATION_FIT,
+  "station-glacier": STATION_FIT,
+  "station-cog": { fit: "width", size: 1.8 },
   pylon: { fit: "height", size: 3.4 },
   "carrier-chair": { fit: "width", size: 0.65 },
   "carrier-cabin": { fit: "width", size: 0.5 },
   "carrier-tbar": { fit: "width", size: 0.45 },
   "carrier-train": { fit: "width", size: 1.25 },
+  "carrier-tram": { fit: "width", size: 0.8 },
+  // Village houses are scaled again per house (0.8–2×), like the built-in chalet.
+  "house-1": { fit: "width", size: 1.1 },
+  "house-2": { fit: "width", size: 1.1 },
+  "house-3": { fit: "width", size: 1.1 },
+  "house-4": { fit: "width", size: 1.1 },
+  "house-5": { fit: "width", size: 1.1 },
+  "house-6": { fit: "width", size: 1.1 },
+  church: { fit: "width", size: 1.8 },
+  "tree-spruce": { fit: "height", size: 1.75 },
+  "tree-larch": { fit: "height", size: 1.75 },
+  skier: { fit: "height", size: 0.42 },
+  snowboarder: { fit: "height", size: 0.42 },
+  car: { fit: "width", size: 0.7 },
+  coach: { fit: "width", size: 1.3 },
+  "groomer-vehicle": { fit: "width", size: 0.9 },
+  bench: { fit: "width", size: 0.45 },
+  parasol: { fit: "height", size: 0.8 },
+  flag: { fit: "height", size: 1.4 },
+  sign: { fit: "height", size: 0.6 },
 };
+
+/** Whether a file model is filed under this key. */
+export function hasModel(key: string): boolean {
+  return modelAt(key) !== null;
+}
+
+/** The model for a slot along its fallback chain (model-keys.ts), or null for the built-in one. */
+export function slotModel(slot: ModelSlot, itemId: string): { group: THREE.Group; level: number; key: string } | null {
+  const found = modelKeyFor(slot, itemId, hasModel);
+  const m = found ? modelAt(found) : null;
+  return m && found ? { ...m, key: found } : null;
+}
 
 /** The file model for a key at a level: that level's own, else the nearest below. */
 export function modelFor(itemId: string, level = 1): THREE.Group | null {
