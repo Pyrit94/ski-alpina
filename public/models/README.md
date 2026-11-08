@@ -3,7 +3,22 @@
 Hier liegen Modelle, die die eingebauten Gebäude ersetzen. Fehlt eine Datei,
 bleibt das eingebaute Modell. So lässt sich Gebäude für Gebäude umstellen.
 
-## So kommt ein Modell ins Spiel
+## Am einfachsten: das Import-Werkzeug
+
+```bash
+npm run modelle -- ordner-mit-glb-dateien
+```
+
+Die Dateien heissen wie das, was sie ersetzen (`hotel1.glb`, `hotel1-3.glb` für
+Ausbaustufe 3, `station.glb`, `pylon.glb`, `carrier-chair.glb`, `carrier-cabin.glb`,
+`carrier-tbar.glb`). Das Werkzeug fügt die Teile zusammen, reduziert auf etwa
+2500 Dreiecke (`--dreiecke 1500` für weniger), färbt Modelle ohne Farbe nach
+Dach, Wand und Sockel ein, legt sie hier ab und trägt sie in `manifest.json` ein.
+
+Ausprobieren vorher: im Spiel `/werkbank` öffnen, die Datei hineinziehen, Grösse
+und Drehung einstellen und die Zeile fürs Manifest kopieren.
+
+## So kommt ein Modell ins Spiel (von Hand)
 
 1. Datei als **glTF binär (`.glb`)** hier ablegen, z. B. `hotel1.glb`.
 2. In `manifest.json` eintragen:
@@ -16,7 +31,12 @@ bleibt das eingebaute Modell. So lässt sich Gebäude für Gebäude umstellen.
 }
 ```
 
-- Schlüssel ist die Item-ID aus `packages/config/src/items.ts`
+- Schlüssel ist die Item-ID aus `packages/config/src/items.ts` oder ein Liftteil:
+  `station` (Tal- und Bergstation aller Bahnen), `pylon` (Mast, auf die Höhe
+  skaliert), `carrier-chair`, `carrier-cabin`, `carrier-tbar`.
+- Ist für eine Ausbaustufe keine eigene Datei da, wird das Modell der tieferen
+  Stufe pro Stufe etwas breiter und höher gezeichnet.
+- Item-IDs:
   (`restaurant`, `hut`, `hotel1`, `hotel3`, `hotel5`, `hotel-resort`, `shop`,
   `skischool`, `ticket`, `apres`, `spa`, `parking`, `bus`, `snowmaker`, …).
 - `levels`: eigene Modelle für Ausbaustufen 2–4. Ohne Eintrag gilt das

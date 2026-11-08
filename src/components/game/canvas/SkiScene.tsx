@@ -19,7 +19,8 @@ import type { ItemId, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game
 import { applyWeather, atmosphereAt, createAtmosphere, easeWeather, WEATHER_LOOK } from "./atmosphere";
 import { BuildingInstances, type Placement } from "./baked-buildings";
 import { BuildingModel } from "./models";
-import { loadModelLibrary, useModelLibrary } from "@/lib/game/model-library";
+import { loadModelLibrary, modelFor, useModelLibrary } from "@/lib/game/model-library";
+import { bake, bakedCache, SOLID } from "./bake";
 import { AutoPreview } from "./AutoPreview";
 import { ribbonGeometry } from "./geometry";
 import { makeTreeMaterial } from "./snow-shaders";
@@ -952,6 +953,7 @@ function PylonField({ rigs }: { rigs: Rig[] }) {
   const mast = useRef<THREE.InstancedMesh>(null);
   const arm = useRef<THREE.InstancedMesh>(null);
   const sheave = useRef<THREE.InstancedMesh>(null);
+  const filePylon = useFilePart("pylon");
 
   const parts = useMemo(
     () => ({
@@ -995,9 +997,14 @@ function PylonField({ rigs }: { rigs: Rig[] }) {
     for (const ref of [mast, arm, sheave]) {
       if (ref.current) ref.current.instanceMatrix.needsUpdate = true;
     }
-  }, [towers]);
+  }, [towers, filePylon]);
 
   if (towers.length === 0) return null;
+  if (filePylon) {
+    return (
+      <instancedMesh key="file" ref={mast} args={[filePylon, SOLID, towers.length]} castShadow frustumCulled={false} />
+    );
+  }
   return (
     <group>
       <instancedMesh
@@ -1070,7 +1077,27 @@ function CarrierField({ rigs }: { rigs: Rig[] }) {
   );
 }
 
+/**
+ * A lift part from public/models, flattened into one geometry with its
+ * colours baked in, so it can be drawn as instances. Null without a file.
+ */
+function useFilePart(key: string): THREE.BufferGeometry | null {
+  const version = useModelLibrary((s) => s.version);
+  return useMemo(() => {
+    void version;
+    const group = modelFor(key);
+    if (!group) return null;
+    const cacheKey = `part:${key}:${version}`;
+    const cached = bakedCache.get(cacheKey);
+    if (cached) return cached.solid;
+    const baked = bake(group);
+    bakedCache.set(cacheKey, baked);
+    return baked.solid;
+  }, [key, version]);
+}
+
 function CarrierInstances({ kind, riders }: { kind: CarrierKind; riders: Rider[] }) {
+  const filePart = useFilePart(`carrier-${kind}`);
   const body = useRef<THREE.InstancedMesh>(null);
   const detail = useRef<THREE.InstancedMesh>(null);
   const rope = useRef<THREE.InstancedMesh>(null);
@@ -1120,12 +1147,19 @@ function CarrierInstances({ kind, riders }: { kind: CarrierKind; riders: Rider[]
       <instancedMesh ref={rope} args={[parts.rope, undefined, n]} frustumCulled={false}>
         <meshStandardMaterial color="#33414d" metalness={0.5} roughness={0.4} />
       </instancedMesh>
-      <instancedMesh ref={body} args={[parts.body, undefined, n]} castShadow frustumCulled={false}>
-        <meshStandardMaterial {...parts.bodyMaterial} />
-      </instancedMesh>
-      <instancedMesh ref={detail} args={[parts.detail, undefined, n]} frustumCulled={false}>
-        <meshStandardMaterial {...parts.detailMaterial} />
-      </instancedMesh>
+      {filePart ? (
+        // A carrier from a file: one instanced mesh, hung from its top.
+        <instancedMesh key="file" ref={body} args={[filePart, SOLID, n]} castShadow frustumCulled={false} />
+      ) : (
+        <>
+          <instancedMesh ref={body} args={[parts.body, undefined, n]} castShadow frustumCulled={false}>
+            <meshStandardMaterial {...parts.bodyMaterial} />
+          </instancedMesh>
+          <instancedMesh ref={detail} args={[parts.detail, undefined, n]} frustumCulled={false}>
+            <meshStandardMaterial {...parts.detailMaterial} />
+          </instancedMesh>
+        </>
+      )}
     </group>
   );
 }
