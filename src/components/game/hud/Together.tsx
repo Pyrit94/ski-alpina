@@ -4,6 +4,7 @@ import { awayLabel } from "@/lib/game/away";
 import { fmt, fmtSigned } from "@/lib/game/format";
 import { useGame } from "@/lib/game/store";
 import { Modal, PrimaryButton } from "./MatchHUD";
+import { HelperButton, HelperCard, HelperFooter } from "./HelperCard";
 
 /** Where on the map a proposal does its work, for «Zeigen». */
 function placeOf(intents: readonly Intent[]): { x: number; z: number } | null {
@@ -38,8 +39,10 @@ export function ProposalCard() {
   const proposals = useGame((s) => s.proposals ?? []);
   const me = useGame((s) => s.playerId);
   const phase = useGame((s) => s.phase);
+  const helperOpen = useGame((s) => s.helper !== null);
   const sendIntent = useGame((s) => s.sendIntent);
-  if (proposals.length === 0 || phase !== "idle") return null;
+  // A helper card has the floor for now; the proposal waits beneath it.
+  if (proposals.length === 0 || phase !== "idle" || helperOpen) return null;
   // Theirs first: those need an answer.
   const sorted = [...proposals].sort((a, b) => Number(a.by === me) - Number(b.by === me) || a.at - b.at);
   const p = sorted[0]!;
@@ -47,24 +50,23 @@ export function ProposalCard() {
   const decide = (accept: boolean) => sendIntent({ type: "decide_proposal", proposalId: p.id, accept });
   const where = placeOf(p.intents);
   return (
-    <div className="toast-in pointer-events-auto w-[min(94vw,400px)] rounded-[18px] bg-panel/95 p-2.5 shadow-[var(--shadow-panel)] backdrop-blur-md">
-      <div className="flex items-start gap-2">
-        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-ice text-accent">
-          {mine ? <Hand className="size-4" /> : <Users className="size-4" />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold text-muted">
-            {mine ? "Dein Vorschlag wartet" : `${p.byName} schlägt vor`}
-            {sorted.length > 1 ? ` · ${sorted.length - 1} weitere` : ""}
-          </div>
-          <div className="truncate text-[13px] font-bold text-navy">{p.title}</div>
+    <HelperCard
+      icon={mine ? Hand : Users}
+      title={p.title}
+      subtitle={
+        <>
+          {mine ? "Dein Vorschlag wartet" : `${p.byName} schlägt vor`}
+          {sorted.length > 1 ? ` · ${sorted.length - 1} weitere` : ""}
           {p.cost > 0 && (
-            <div className="flex items-center gap-1 text-[11px] font-semibold text-coin">
-              <Coins className="size-3.5" /> {fmt(p.cost)}
-            </div>
+            <span className="font-semibold text-coin">
+              {" · "}
+              <Coins className="inline size-3.5 align-[-2px]" /> {fmt(p.cost)}
+            </span>
           )}
-        </div>
-        {where && (
+        </>
+      }
+      aside={
+        where ? (
           <button
             type="button"
             onClick={() => useGame.getState().focusOn(where.x, where.z)}
@@ -73,34 +75,27 @@ export function ProposalCard() {
           >
             <Eye className="size-4" />
           </button>
-        )}
-      </div>
-      <div className="mt-2 flex gap-1.5">
-        {mine ? (
-          <button type="button" onClick={() => decide(false)} className="btn-3d btn-3d-light h-11 flex-1 rounded-full bg-ice text-[12px] font-bold text-navy">
-            Zurückziehen
-          </button>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => decide(false)}
-              className="btn-3d btn-3d-light flex h-11 shrink-0 items-center gap-1 rounded-full bg-ice px-4 text-[12px] font-bold text-navy"
-            >
-              <X className="size-4" /> Ablehnen
-            </button>
-            <button
-              type="button"
-              onClick={() => decide(true)}
-              className="btn-3d flex h-11 flex-1 items-center justify-center gap-1 rounded-full bg-success text-[12px] font-bold text-panel"
-              style={{ ["--lip" as string]: "#23803f" }}
-            >
-              <Check className="size-4" /> Annehmen
-            </button>
-          </>
-        )}
-      </div>
-    </div>
+        ) : undefined
+      }
+      footer={
+        <HelperFooter>
+          {mine ? (
+            <HelperButton variant="secondary" grow onClick={() => decide(false)}>
+              Zurückziehen
+            </HelperButton>
+          ) : (
+            <>
+              <HelperButton variant="secondary" onClick={() => decide(false)}>
+                <X className="size-4" /> Ablehnen
+              </HelperButton>
+              <HelperButton variant="success" grow onClick={() => decide(true)}>
+                <Check className="size-4" /> Annehmen
+              </HelperButton>
+            </>
+          )}
+        </HelperFooter>
+      }
+    />
   );
 }
 

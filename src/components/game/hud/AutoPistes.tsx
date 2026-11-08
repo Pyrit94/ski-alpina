@@ -1,20 +1,21 @@
 import { useEffect, useMemo } from "react";
-import { Sparkles, X } from "lucide-react";
-import { BY_ID, FLOW } from "@ski/config";
+import { Sparkles, Spline } from "lucide-react";
+import { FLOW } from "@ski/config";
 import { starsFor, type AutoPlan } from "@ski/shared";
 import { RatingChip } from "./PisteRating";
-import { ReshapeAll } from "./Reshape";
-import { BusyNote, Calculating } from "./Calculating";
+import { Calculating } from "./Calculating";
+import { HelperButton, HelperCard, HelperFigure, HelperFooter, HelperLink, HelperNote } from "./HelperCard";
 import { GRADE_COLOR } from "@/lib/game/piste-editor";
 import { fmt } from "@/lib/game/format";
 import { play } from "@/lib/game/sound";
 import { useGame } from "@/lib/game/store";
 import { MIXES, openAutoPistes } from "@/lib/game/auto-pistes";
+import { liftNames } from "@/lib/game/assist";
+import { helperOf, type HelperOpen } from "@/lib/game/helpers";
 import { useMyMoney } from "@/lib/game/team";
 import { usePlanner } from "@/lib/game/planner";
 import { plannerState } from "@/lib/game/planner-jobs";
 import { useStableGame } from "../canvas/use-stable-game";
-
 
 const GRADE_NAME: Record<string, string> = { blue: "Blaue", red: "Rote", black: "Schwarze" };
 
@@ -51,31 +52,14 @@ export function AutoPistesButton({
   );
 }
 
-/** Lift names that tell two chairlifts apart. */
-function useLiftNames(): Map<string, string> {
-  const lifts = useGame((s) => s.lifts);
-  return useMemo(() => {
-    const seen = new Map<string, number>();
-    const total = new Map<string, number>();
-    for (const l of lifts) total.set(l.itemId, (total.get(l.itemId) ?? 0) + 1);
-    const out = new Map<string, string>();
-    for (const l of lifts) {
-      const n = (seen.get(l.itemId) ?? 0) + 1;
-      seen.set(l.itemId, n);
-      const name = BY_ID[l.itemId].name;
-      out.set(l.id, l.name ?? ((total.get(l.itemId) ?? 0) > 1 ? `${name} ${n}` : name));
-    }
-    return out;
-  }, [lifts]);
-}
-
 /**
  * «Pisten automatisch»: the runs the chosen lifts are missing — a way down
  * for each, and with «Gemischt» the colours the area does not offer yet —
  * drawn on the map, priced, and built with one tap.
  */
 export function AutoPistesPanel() {
-  const open = useGame((s) => s.autoPistes);
+  const open = useGame((s) => helperOf(s.helper, "auto"));
+  const openHelper = useGame((s) => s.openHelper);
   // Stable across ticks: the plan runs the simulation dozens of times, so it
   // is only worked out again when the layout, the choice or the money changes.
   const lifts = useStableGame((s) => s.lifts);
@@ -83,9 +67,11 @@ export function AutoPistesPanel() {
   const buildings = useStableGame((s) => s.buildings);
   const research = useStableGame((s) => s.research);
   const ticketPrice = useGame((s) => s.ticketPrice);
-  const names = useLiftNames();
+  const names = useMemo(() => liftNames(lifts), [lifts]);
   const money = useMyMoney().mine;
   const budget = Math.floor(money / 1000) * 1000;
+  const liftIds = open?.liftIds ?? null;
+  const mix = open?.mix ?? "mixed";
 
   // Worked out in the planner worker; the panel stays responsive meanwhile.
   const { result: planned, busy } = usePlanner<"auto">(
@@ -94,10 +80,11 @@ export function AutoPistesPanel() {
         ? {
             kind: "auto",
             state: plannerState(useGame.getState(), { lifts, pistes, buildings, research, ticketPrice }),
-            opts: { liftIds: open.liftIds ?? undefined, mix: open.mix, budget },
+            opts: { liftIds: liftIds ?? undefined, mix, budget },
           }
         : null,
-    [open, lifts, pistes, buildings, research, ticketPrice, budget],
+    // The ids by value: reopening the same choice is the same job.
+    [!!open, liftIds?.join(","), mix, lifts, pistes, buildings, research, ticketPrice, budget],
   );
   const result = open ? planned : null;
 
@@ -107,13 +94,15 @@ export function AutoPistesPanel() {
   useEffect(() => () => useGame.setState({ autoPreview: [] }), []);
 
   if (!open) return null;
-  const set = (next: Partial<NonNullable<typeof open>>) =>
-    useGame.setState({ autoPistes: { ...open, ...next }, ...(next.mix ? { pisteMix: next.mix } : {}) });
-  const close = () => useGame.setState({ autoPistes: null });
-  const all = open.liftIds === null;
+  const set = (next: Partial<Omit<Extract<HelperOpen, { id: "auto" }>, "id">>) => {
+    openHelper({ ...open, ...next });
+    if (next.mix) useGame.setState({ pisteMix: next.mix });
+  };
+  const close = () => openHelper(null);
+  const all = liftIds === null;
   const toggle = (id: string) => {
     if (all) return set({ liftIds: [id] });
-    const ids = open.liftIds!.includes(id) ? open.liftIds!.filter((x) => x !== id) : [...open.liftIds!, id];
+    const ids = liftIds.includes(id) ? liftIds.filter((x) => x !== id) : [...liftIds, id];
     set({ liftIds: ids.length === 0 || ids.length === lifts.length ? null : ids });
   };
   const plans = result?.plans ?? [];
@@ -127,45 +116,50 @@ export function AutoPistesPanel() {
     play("build");
     close();
   };
+  const hasRuns = pistes.some((p) => p.itemId === "piste");
 
   return (
-    <div className="toast-in pointer-events-auto w-[min(94vw,360px)] rounded-[20px] bg-panel/95 p-3 shadow-[var(--shadow-panel)] backdrop-blur-md">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 text-[13px] font-semibold text-navy">
-            <Sparkles className="size-4 text-accent" /> Pisten automatisch
-            {busy && result && <BusyNote />}
-          </div>
-          <p className="mt-0.5 text-[11px] leading-snug text-muted">
-            Rechnet jede mögliche Piste durch, auch geschwungene Linien: zuerst fehlende Abfahrten, dann was am meisten Gäste pro Franken bringt. Schöne Pisten geben Punkte.
-          </p>
-        </div>
-        <button type="button" onClick={close} aria-label="Schliessen" className="grid size-11 shrink-0 place-items-center rounded-full bg-ice text-muted">
-          <X className="size-4" />
-        </button>
-      </div>
-
+    <HelperCard
+      icon={Sparkles}
+      title="Pisten automatisch"
+      subtitle="Erst fehlende Abfahrten, dann Gewinn"
+      onClose={close}
+      busy={busy && !!result}
+      footer={
+        lifts.length > 0 && result ? (
+          <HelperFooter summary={plans.length > 0 ? `${km.toFixed(1)} km neu, gestrichelt auf der Karte` : undefined}>
+            <HelperButton variant="secondary" onClick={close}>
+              Abbrechen
+            </HelperButton>
+            <HelperButton grow disabled={busy || plans.length === 0} onClick={build}>
+              {plans.length === 0 ? "Nichts anzulegen" : `${plans.length} ${plans.length === 1 ? "Piste" : "Pisten"} anlegen · ${fmt(total)}`}
+            </HelperButton>
+          </HelperFooter>
+        ) : undefined
+      }
+    >
       {lifts.length === 0 ? (
-        <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-[12px] text-navy">Baue zuerst eine Bahn: Pisten führen von Bergstationen hinunter.</p>
+        <HelperNote>Baue zuerst eine Bahn: Pisten führen von Bergstationen hinunter.</HelperNote>
       ) : (
         <>
-          <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
+          <div className="-mx-3 flex gap-1 overflow-x-auto px-3">
             <Chip active={all} onClick={() => set({ liftIds: null })}>
               Ganzes Gebiet
             </Chip>
             {lifts.map((l) => (
-              <Chip key={l.id} active={!all && open.liftIds!.includes(l.id)} onClick={() => toggle(l.id)}>
+              <Chip key={l.id} active={!all && liftIds.includes(l.id)} onClick={() => toggle(l.id)}>
                 {names.get(l.id)}
               </Chip>
             ))}
           </div>
-          <div className="mt-1 grid grid-cols-4 gap-1 rounded-full bg-ice p-1">
+          <div className="grid grid-cols-4 gap-0.5 rounded-full bg-ice p-0.5">
             {MIXES.map((m) => (
               <button
                 key={m.id}
                 type="button"
+                aria-pressed={mix === m.id}
                 onClick={() => set({ mix: m.id })}
-                className={`min-h-9 rounded-full text-[11px] font-semibold ${open.mix === m.id ? "bg-accent text-panel" : "text-navy"}`}
+                className={`min-h-11 rounded-full text-[11px] font-semibold ${mix === m.id ? "bg-accent text-panel" : "text-navy"}`}
               >
                 {m.label}
               </button>
@@ -173,19 +167,19 @@ export function AutoPistesPanel() {
           </div>
 
           {!result ? (
-            <Calculating />
+            <Calculating className="" />
           ) : (
             <>
               {plans.length === 0 ? (
-                <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">
+                <HelperNote>
                   {poor > 0
                     ? "Für die fehlenden Abfahrten reicht das Geld noch nicht."
                     : terrain > 0
                       ? "Von diesen Bergstationen führt kein befahrbarer Hang hinunter. Verschiebe die Bahn oder zeichne selbst."
                       : "Keine Piste würde sich hier gerade lohnen."}
-                </p>
+                </HelperNote>
               ) : (
-                <ul className="mt-2 flex max-h-44 flex-col gap-1 overflow-y-auto">
+                <ul className="flex flex-col gap-1">
                   {plans.map((p, i) => (
                     <li key={i} className="flex items-center gap-2 rounded-[12px] bg-ice px-2.5 py-1.5 text-[12px] text-navy">
                       <span className="size-2.5 shrink-0 rounded-full" style={{ background: GRADE_COLOR[p.grade as keyof typeof GRADE_COLOR] ?? "#888" }} />
@@ -206,47 +200,37 @@ export function AutoPistesPanel() {
                 </ul>
               )}
               {plans.length > 0 && (
-                <div className="mt-2 grid grid-cols-2 gap-1.5 text-center">
+                <div className="grid grid-cols-2 gap-1.5">
                   <Outlook label="Gäste/h" from={result.before.guestsPerHour} to={result.after.guestsPerHour} />
                   <Outlook label="Gewinn/Tag" from={result.before.incomePerHour} to={result.after.incomePerHour} signed />
                 </div>
               )}
               {(terrain > 0 || poor > 0) && plans.length > 0 && (
-                <p className="mt-1.5 text-[11px] leading-snug text-warn">
+                <p className="text-[11px] leading-snug text-warn">
                   {terrain > 0 && `${terrain} ${terrain === 1 ? "Bahn hat" : "Bahnen haben"} keinen befahrbaren Hang. `}
                   {poor > 0 && `${poor} ${poor === 1 ? "Abfahrt" : "Abfahrten"} später, das Geld reicht noch nicht.`}
                 </p>
               )}
               {result.limit !== "none" && (
-                <p className="mt-1.5 rounded-[12px] bg-warn/10 px-2.5 py-1.5 text-[11px] leading-snug text-navy">
+                <HelperNote tone="warn">
                   {result.limit === "doors"
                     ? "Engpass sind die Ankünfte: Mehr Pisten bringen erst etwas, wenn mehr Gäste ankommen. Parkhaus, Bus oder Hotel ausbauen."
                     : `Engpass ist jetzt ${result.limitLabel || "eine Bahn"}: Kapazität ausbauen bringt mehr als eine weitere Piste.`}
-                </p>
+                </HelperNote>
               )}
-              <div className="mt-2 flex gap-1.5">
-                <button type="button" onClick={close} className="btn-3d btn-3d-light h-11 shrink-0 rounded-full bg-ice px-4 text-[12px] font-bold text-navy">
-                  Abbrechen
-                </button>
-                <button
-                  type="button"
-                  disabled={busy || plans.length === 0}
-                  onClick={build}
-                  className="btn-3d flex h-11 flex-1 items-center justify-center gap-1 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-50"
-                  style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
-                >
-                  {plans.length === 0
-                    ? "Nichts anzulegen"
-                    : `${plans.length} ${plans.length === 1 ? "Piste" : "Pisten"} anlegen · ${fmt(total)}`}
-                </button>
-              </div>
-              {plans.length > 0 && <p className="mt-1 text-center text-[10px] text-muted">{km.toFixed(1)} km neu, gestrichelt auf der Karte</p>}
             </>
           )}
-          <ReshapeAll />
+          <HelperNote tone="muted">
+            Rechnet jede mögliche Piste durch, auch geschwungene Linien. Schöne Pisten geben Punkte.
+          </HelperNote>
+          {hasRuns && (
+            <HelperLink icon={Spline} onClick={() => openHelper({ id: "reshape" })}>
+              Bestehende Pisten verbessern
+            </HelperLink>
+          )}
         </>
       )}
-    </div>
+    </HelperCard>
   );
 }
 
@@ -259,12 +243,9 @@ function planTitle(p: AutoPlan, lift: string): string {
 function Outlook({ label, from, to, signed = false }: { label: string; from: number; to: number; signed?: boolean }) {
   const show = (n: number) => (signed && n > 0 ? "+" : n < 0 ? "−" : "") + fmt(Math.abs(Math.round(n)));
   return (
-    <div className="rounded-[12px] bg-ice px-2 py-1.5">
-      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted">{label}</div>
-      <div className="text-[12px] font-semibold text-navy">
-        {show(from)} → <span className={to >= from ? "text-success" : "text-danger"}>{show(to)}</span>
-      </div>
-    </div>
+    <HelperFigure label={label}>
+      {show(from)} → <span className={to >= from ? "text-success" : "text-danger"}>{show(to)}</span>
+    </HelperFigure>
   );
 }
 
@@ -272,8 +253,9 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   return (
     <button
       type="button"
+      aria-pressed={active}
       onClick={onClick}
-      className={`min-h-9 shrink-0 whitespace-nowrap rounded-full px-3 text-[11px] font-semibold ${active ? "bg-navy text-panel" : "bg-ice text-navy"}`}
+      className={`min-h-11 shrink-0 whitespace-nowrap rounded-full px-3 text-[11px] font-semibold ${active ? "bg-navy text-panel" : "bg-ice text-navy"}`}
     >
       {children}
     </button>

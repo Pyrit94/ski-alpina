@@ -14,6 +14,8 @@ import { ActivityPanel, InfoPanel, OperationsPanel, TicketPricePanel, RenamePane
 import { MobileMenuBody } from "./MenuBody";
 import { BigBuildButton } from "./BuildDrawer";
 import { LongGoalsPanel, RankPanel } from "./Progression";
+import { AssistantButton } from "./Assistant";
+import { useIsDesktop } from "@/lib/game/use-breakpoint";
 
 /**
  * Betrieb, Ziele, Forschung, Team: round buttons down the right edge. Each
@@ -24,7 +26,10 @@ export function ActionRail() {
   const phase = useGame((s) => s.phase);
   const unread = useUnreadChat();
   const researchReady = useResearchReady();
-  if (phase !== "idle" || sheet === "build") return null;
+  // On a phone an open helper card needs the height; it has its own close.
+  const helperOpen = useGame((s) => s.helper !== null);
+  const desktop = useIsDesktop();
+  if (phase !== "idle" || sheet === "build" || (helperOpen && !desktop)) return null;
   const open = (next: HudSheet) => toggleSheet(sheet, next);
   return (
     <div className="pointer-events-none absolute right-3 top-3 z-20 flex flex-col gap-2.5 lg:top-1/2 lg:-translate-y-1/2">
@@ -49,14 +54,15 @@ export function ActionRail() {
   );
 }
 
-/** Desktop: menu bottom left, Bauen bottom right. */
+/** Desktop: menu and the «Assistent» above it bottom left, Bauen bottom right. */
 export function DesktopCorners() {
   const sheet = useGame((s) => s.sheet);
   const phase = useGame((s) => s.phase);
   if (phase !== "idle" || sheet === "build") return null;
   return (
     <>
-      <div className="absolute bottom-4 left-4 z-20">
+      <div className="absolute bottom-4 left-4 z-20 flex flex-col items-center gap-2.5">
+        <AssistantButton />
         <RoundButton label="Menü" active={sheet === "menu"} onClick={() => toggleSheet(sheet, "menu")}>
           <Settings className="size-6" />
         </RoundButton>

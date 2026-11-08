@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { emptyResort } from "../../../packages/shared/src/engine/state.ts";
 import type { EdgeLink } from "../../../packages/shared/src/engine/descent.ts";
 import type { FlowEdgeViz, PlacedBuilding, PlacedLift, PlacedPiste } from "../../../packages/shared/src/types.ts";
-import { nextStep, type StepInput } from "./next-step.ts";
+import { isBreakage, nextStep, type StepInput } from "./next-step.ts";
 
 const lift = (id: string): PlacedLift => ({
   id,
@@ -114,4 +114,20 @@ test("idle research is suggested once the resort runs, with the node to start", 
   // Running research, or none to start: no such tip.
   const busy = nextStep(input({ ...running, research: { busy: true, next: { id: "gastgewerbe", name: "Gastgewerbe" } } }));
   assert.notEqual(busy?.action?.kind, "research");
+});
+
+test("only real breakage holds back the discovery hints", () => {
+  assert.equal(isBreakage(nextStep(input())), true);
+  assert.equal(isBreakage(nextStep(input({ lifts: [lift("l1")], links: new Map([["l1", "no-descent"]]) }))), true);
+  const short = nextStep(
+    input({
+      lifts: [lift("l1")],
+      pistes: [piste("p1")],
+      links: new Map<string, EdgeLink>([["l1", "ok"], ["p1", "ok"]]),
+      stats: { ...emptyResort().stats, turnedAway: 80 },
+    }),
+  );
+  assert.equal(short?.tone, "fix");
+  assert.equal(isBreakage(short), false);
+  assert.equal(isBreakage(null), false);
 });

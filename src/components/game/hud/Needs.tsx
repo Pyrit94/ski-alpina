@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, BedDouble, CableCar, Car, ShoppingBag, Utensils, Wand2, X } from "lucide-react";
+import { ArrowRight, BedDouble, CableCar, Car, ShoppingBag, Utensils, Wand2 } from "lucide-react";
 import { BY_ID } from "@ski/config";
 import { getDem, hexToWorld, itemUnlocked, siteContext, siteFactors } from "@ski/shared";
 import { computeNeeds, NEED_SHORT, type Need, type NeedKey } from "@/lib/game/needs";
@@ -11,7 +11,8 @@ import { useMyMoney } from "@/lib/game/team";
 import { usePlanner } from "@/lib/game/planner";
 import { plannerState } from "@/lib/game/planner-jobs";
 import { useStableGame } from "../canvas/use-stable-game";
-import { BusyNote, Calculating } from "./Calculating";
+import { Calculating } from "./Calculating";
+import { HelperButton, HelperCard, HelperFigure, HelperFooter, HelperNote } from "./HelperCard";
 
 const ICON: Record<NeedKey, typeof Utensils> = {
   food: Utensils,
@@ -36,7 +37,8 @@ export function NeedsStrip() {
   const coins = useGame((s) => s.coins);
   const phase = useGame((s) => s.phase);
   const selectedId = useGame((s) => s.selectedId);
-  const busy = useGame((s) => s.autoPistes !== null || s.villageOpen || s.sheet !== "none");
+  const busy = useGame((s) => s.helper !== null || s.sheet !== "none");
+  const openHelper = useGame((s) => s.openHelper);
   const [open, setOpen] = useState<NeedKey | null>(null);
 
   const needs = useMemo(
@@ -54,15 +56,15 @@ export function NeedsStrip() {
   const shown = needs.find((n) => n.key === open) ?? null;
 
   return (
-    <div className="toast-in pointer-events-auto flex w-[min(94vw,400px)] flex-col gap-1 rounded-[18px] bg-panel/95 p-1 shadow-[var(--shadow-panel)] backdrop-blur-md">
+    <div className="toast-in pointer-events-auto flex w-full max-w-[380px] flex-col gap-1 rounded-[18px] bg-panel/96 p-1 shadow-[var(--shadow-panel)] backdrop-blur-md">
       <div className="flex items-stretch gap-0.5">
         {needs.map((n) => (
           <Meter key={n.key} need={n} active={open === n.key} onClick={() => setOpen(open === n.key ? null : n.key)} />
         ))}
         <button
           type="button"
-          onClick={() => useGame.setState({ villageOpen: true })}
-          className="flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-[14px] bg-ice px-1 text-[9px] font-bold text-navy"
+          onClick={() => openHelper({ id: "village" })}
+          className="flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[14px] bg-ice px-1 text-[9px] font-bold text-navy"
           aria-label="Dorf automatisch neu anordnen"
         >
           <Wand2 className="size-4 text-accent" />
@@ -100,14 +102,9 @@ function NeedDetail({ need }: { need: Need }) {
         <span className="font-bold">{Math.round(need.covered * 100)} % gedeckt.</span> {need.detail}.
       </p>
       {need.itemId && need.covered < 0.999 && (
-        <button
-          type="button"
-          onClick={() => buildAtBest(need.itemId!)}
-          className="btn-3d flex h-11 shrink-0 items-center gap-1 rounded-full bg-accent px-3 text-[11px] font-bold text-panel"
-          style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
-        >
+        <HelperButton onClick={() => buildAtBest(need.itemId!)}>
           {BY_ID[need.itemId].name} <ArrowRight className="size-3.5" />
-        </button>
+        </HelperButton>
       )}
     </div>
   );
@@ -119,7 +116,8 @@ function NeedDetail({ need }: { need: Need }) {
  * applies them in one go.
  */
 export function VillagePanel() {
-  const open = useGame((s) => s.villageOpen);
+  const open = useGame((s) => s.helper?.id === "village");
+  const openHelper = useGame((s) => s.openHelper);
   const lifts = useStableGame((s) => s.lifts);
   const pistes = useStableGame((s) => s.pistes);
   const buildings = useStableGame((s) => s.buildings);
@@ -156,7 +154,7 @@ export function VillagePanel() {
   useEffect(() => () => useGame.setState({ villagePreview: [], autoPreview: [] }), []);
 
   if (!open) return null;
-  const close = () => useGame.setState({ villageOpen: false });
+  const close = () => openHelper(null);
   const plan = result?.plan;
   const apply = () => {
     if (!plan || busy) return;
@@ -169,79 +167,66 @@ export function VillagePanel() {
     close();
   };
   const tooPoor = plan ? plan.cost > money : false;
+  const hasMoves = !!plan && plan.moves.length > 0;
 
   return (
-    <div className="toast-in pointer-events-auto w-[min(94vw,360px)] rounded-[20px] bg-panel/95 p-3 shadow-[var(--shadow-panel)] backdrop-blur-md">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 text-[13px] font-semibold text-navy">
-            <Wand2 className="size-4 text-accent" /> Dorf ordnen
-            {busy && plan && <BusyNote />}
-          </div>
-          <p className="mt-0.5 text-[11px] leading-snug text-muted">
-            Sucht für Restaurants, Läden und Hotels bessere Plätze: an der Piste, nahe der Talstation, weg vom Lärm. Parkhäuser, Busse und Bahnen bleiben stehen.
-          </p>
-        </div>
-        <button type="button" onClick={close} aria-label="Schliessen" className="grid size-11 shrink-0 place-items-center rounded-full bg-ice text-muted">
-          <X className="size-4" />
-        </button>
-      </div>
-
+    <HelperCard
+      icon={Wand2}
+      title="Dorf ordnen"
+      subtitle={plan ? `Lage im Schnitt ${pct(plan.before)}` : "Bessere Plätze für Restaurants, Läden, Hotels"}
+      onClose={close}
+      busy={busy && !!plan}
+      footer={
+        hasMoves ? (
+          <HelperFooter
+            summary={`Pfeile auf der Karte zeigen, wohin was kommt${
+              plan.roads.length > 0 ? ` · ${plan.roads.length} ${plan.roads.length === 1 ? "neue Strasse" : "neue Strassen"} gestrichelt` : ""
+            }`}
+          >
+            <HelperButton variant="secondary" onClick={close}>
+              Abbrechen
+            </HelperButton>
+            <HelperButton grow disabled={tooPoor || busy} onClick={apply}>
+              {tooPoor ? "Zu wenig Geld" : `${plan.moves.length} verschieben · ${fmt(plan.cost)}`}
+            </HelperButton>
+          </HelperFooter>
+        ) : undefined
+      }
+    >
       {!result || !plan ? (
-        <Calculating />
+        <Calculating className="" />
       ) : plan.moves.length === 0 ? (
-        <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">
-          Alles steht schon an guten Plätzen. Lage im Schnitt {pct(plan.before)}.
-        </p>
+        <HelperNote>Alles steht schon an guten Plätzen.</HelperNote>
       ) : (
         <>
-          <ul className="mt-2 flex max-h-40 flex-col gap-1 overflow-y-auto">
+          <ul className="flex flex-col gap-1">
             {plan.moves.map((m) => (
               <li key={m.id} className="flex items-center gap-2 rounded-[12px] bg-ice px-2.5 py-1.5 text-[12px] text-navy">
                 <span className="min-w-0 flex-1 truncate font-semibold">{BY_ID[m.itemId].name}</span>
-                <span className="shrink-0 text-[10px] text-muted">{Math.max(Math.abs(m.to.q - m.from.q), Math.abs(m.to.r - m.from.r), Math.abs(m.to.q + m.to.r - m.from.q - m.from.r))} Felder</span>
+                <span className="shrink-0 text-[10px] text-muted">
+                  {Math.max(Math.abs(m.to.q - m.from.q), Math.abs(m.to.r - m.from.r), Math.abs(m.to.q + m.to.r - m.from.q - m.from.r))} Felder
+                </span>
               </li>
             ))}
           </ul>
-          <div className="mt-2 grid grid-cols-2 gap-1.5 text-center">
-            <div className="rounded-[12px] bg-ice px-2 py-1.5">
-              <div className="text-[9px] font-semibold uppercase tracking-wide text-muted">Lage im Schnitt</div>
-              <div className="text-[12px] font-semibold text-navy">
-                {pct(plan.before)} → <span className="text-success">{pct(plan.after)}</span>
-              </div>
-            </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <HelperFigure label="Lage im Schnitt">
+              {pct(plan.before)} → <span className="text-success">{pct(plan.after)}</span>
+            </HelperFigure>
             {result.before && result.after && (
-              <div className="rounded-[12px] bg-ice px-2 py-1.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-muted">Gewinn/Tag</div>
-                <div className="text-[12px] font-semibold text-navy">
-                  {fmt(result.before.incomePerHour)} →{" "}
-                  <span className={result.after.incomePerHour >= result.before.incomePerHour ? "text-success" : "text-danger"}>
-                    {fmt(result.after.incomePerHour)}
-                  </span>
-                </div>
-              </div>
+              <HelperFigure label="Gewinn/Tag">
+                {fmt(result.before.incomePerHour)} →{" "}
+                <span className={result.after.incomePerHour >= result.before.incomePerHour ? "text-success" : "text-danger"}>
+                  {fmt(result.after.incomePerHour)}
+                </span>
+              </HelperFigure>
             )}
           </div>
-          <div className="mt-2 flex gap-1.5">
-            <button type="button" onClick={close} className="btn-3d btn-3d-light h-11 shrink-0 rounded-full bg-ice px-4 text-[12px] font-bold text-navy">
-              Abbrechen
-            </button>
-            <button
-              type="button"
-              disabled={tooPoor || busy}
-              onClick={apply}
-              className="btn-3d flex h-11 flex-1 items-center justify-center gap-1 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-50"
-              style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
-            >
-              {tooPoor ? "Zu wenig Geld" : `${plan.moves.length} verschieben · ${fmt(plan.cost)}`}
-            </button>
-          </div>
-          <p className="mt-1 text-center text-[10px] text-muted">
-            Pfeile auf der Karte zeigen, wohin was kommt
-            {plan.roads.length > 0 ? ` · ${plan.roads.length} ${plan.roads.length === 1 ? "neue Strasse" : "neue Strassen"} gestrichelt` : ""}
-          </p>
         </>
       )}
-    </div>
+      <HelperNote tone="muted">
+        Sucht für Restaurants, Läden und Hotels bessere Plätze: an der Piste, nahe der Talstation, weg vom Lärm. Parkhäuser, Busse und Bahnen bleiben stehen.
+      </HelperNote>
+    </HelperCard>
   );
 }
