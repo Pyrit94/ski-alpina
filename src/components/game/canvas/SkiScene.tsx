@@ -19,11 +19,12 @@ import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
 import type { ItemId, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game/types";
-import { atmosphereAt, createAtmosphere } from "./atmosphere";
+import { applyWeather, atmosphereAt, createAtmosphere, easeWeather, WEATHER_LOOK } from "./atmosphere";
 import { BuildingInstances, type Placement } from "./baked-buildings";
 import { BuildingModel } from "./models";
 import { ribbonGeometry } from "./geometry";
 import { makeTreeMaterial } from "./snow-shaders";
+import { STATION_CABLE_Y, cableGap, stationYaw } from "./station";
 import { drapedRibbon, makePisteMaterial, markerPoles, mergeRibbons, smoothPath, type Pole } from "./piste-mesh";
 import {
   buildFarLand,
@@ -320,19 +321,22 @@ function PeakLabels() {
   const quality = useGame((s) => s.quality);
   const stampMode = useGame((s) => s.stampMode);
   const phase = useGame((s) => s.phase);
-  if (layer === "pistes") return null;
-  if (stampMode && phase !== "idle") return null;
+  // Hidden, never unmounted: each label is its own React root, and tearing
+  // eight of them down in the same commit that opens the build mode threw
+  // "removeChild … not a child of this node" on phones.
+  const hidden = layer === "pistes" || (stampMode && phase !== "idle");
+  const style = { visibility: hidden ? ("hidden" as const) : ("visible" as const) };
   const compact = QUALITY[quality].compactLabels;
   return (
     <>
       {PEAKS.map((p) => (
-        <Html key={p.id} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center distanceFactor={compact ? 120 : 90} zIndexRange={LABEL_Z}>
+        <Html key={p.id} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center distanceFactor={compact ? 120 : 90} zIndexRange={LABEL_Z} style={style}>
           <div className="pointer-events-none whitespace-nowrap rounded-full bg-navy/70 px-2 py-0.5 text-[10px] font-medium text-snow backdrop-blur-sm">
             {compact ? p.name : `${p.name} · ${p.elev.toLocaleString("de-CH")} m`}
           </div>
         </Html>
       ))}
-      <Html position={[VILLAGE.x, surfaceY(hm, VILLAGE.x, VILLAGE.z) + 2.4, VILLAGE.z]} center distanceFactor={compact ? 110 : 80} zIndexRange={LABEL_Z}>
+      <Html position={[VILLAGE.x, surfaceY(hm, VILLAGE.x, VILLAGE.z) + 2.4, VILLAGE.z]} center distanceFactor={compact ? 110 : 80} zIndexRange={LABEL_Z} style={style}>
         <div className="pointer-events-none rounded-full bg-panel/90 px-2 py-0.5 text-[10px] font-semibold text-navy">
           {VILLAGE.name}
         </div>
@@ -477,6 +481,18 @@ function Structures() {
     return () => window.clearTimeout(id);
   }, [buildings, now]);
 
+  // Lift stations face along their line, open side toward the other end.
+  const lifts = useStableGame((s) => s.lifts);
+  const yaws = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const l of lifts) {
+      const a = hexToWorld(l.a.q, l.a.r);
+      const b = hexToWorld(l.b.q, l.b.r);
+      out.set(l.stationA, stationYaw(a, b));
+      out.set(l.stationB, stationYaw(b, a));
+    }
+    return out;
+  }, [lifts]);
   const { live, kinds } = useMemo(() => {
     const live: PlacedBuilding[] = [];
     const kinds = new Map<ItemId, Placement[]>();
@@ -495,10 +511,10 @@ function Structures() {
         continue;
       }
       const { x, z } = hexToWorld(b.q, b.r);
-      add(b.itemId, { id: b.id, x, y: surfaceY(hm, x, z), z, yaw: 0 });
+      add(b.itemId, { id: b.id, x, y: surfaceY(hm, x, z), z, yaw: yaws.get(b.id) ?? 0 });
     }
     return { live, kinds: [...kinds.entries()] };
-  }, [buildings, now, hm]);
+  }, [buildings, now, hm, yaws]);
 
   return (
     <group>
@@ -514,7 +530,7 @@ function Structures() {
         />
       ))}
       {live.map((b) => (
-        <PlacedStructure key={b.id} building={b} />
+        <PlacedStructure key={b.id} building={b} yaw={yaws.get(b.id) ?? 0} />
       ))}
       <SelectionRing buildings={buildings} />
     </group>
@@ -546,7 +562,7 @@ function useLampsOn(): boolean {
   return useGame((s) => s.timeOfDay < 0.29 || s.timeOfDay > 0.72);
 }
 
-function PlacedStructure({ building: b }: { building: PlacedBuilding }) {
+function PlacedStructure({ building: b, yaw }: { building: PlacedBuilding; yaw: number }) {
   const selectEntity = useGame((s) => s.selectEntity);
   const lit = useLampsOn();
   const hm = getHeightmap();
@@ -572,6 +588,7 @@ function PlacedStructure({ building: b }: { building: PlacedBuilding }) {
   return (
     <group
       position={[x, baseY, z]}
+      rotation={[0, yaw, 0]}
       onClick={(e) => {
         e.stopPropagation();
         selectEntity(b.id);
@@ -653,7 +670,7 @@ function liftLine(l: PlacedLift, hm: Heightmap): LiftLine {
     const z = a.z + (b.z - a.z) * t;
     towers.push(new THREE.Vector3(x, surfaceY(hm, x, z), z));
   }
-  const stationTop = 1.6;
+  const stationTop = STATION_CABLE_Y;
   const tops = [
     new THREE.Vector3(a.x, a.y + stationTop, a.z),
     ...towers.map((t) => new THREE.Vector3(t.x, t.y + PYLON_HEIGHT, t.z)),
@@ -757,7 +774,7 @@ function Lifts() {
         const kind = carrierKindOf(lift.itemId);
         // Two lines side by side: one going up, one coming back. A single
         // cable is the tell that a lift was drawn rather than modelled.
-        const gap = kind === "tbar" ? 0.24 : 0.38;
+        const gap = cableGap(lift.itemId);
         const up = cableCurve(line.tops, line.side.clone().multiplyScalar(gap));
         const down = cableCurve(line.tops, line.side.clone().multiplyScalar(-gap));
         const segments = Math.max(24, line.tops.length * 8);
@@ -1498,12 +1515,14 @@ function Daylight({ tier }: { tier: QualityTier }) {
       fallback: new THREE.Vector3(-23, 10, -8.5),
       air: createAtmosphere(),
       clock: { raw: -1, at: 0 },
+      look: { ...WEATHER_LOOK.sun },
+      lastMs: 0,
     }),
     [],
   );
 
   useFrame(() => {
-    const { at, dir, fallback, air, clock } = scratch;
+    const { at, dir, fallback, air, clock, look } = scratch;
     // Local clock: hold the last snapshot's time and run it forward, capped
     // so a dropped connection does not spin the sun round.
     const raw = useGame.getState().timeOfDay;
@@ -1514,9 +1533,19 @@ function Daylight({ tier }: { tier: QualityTier }) {
     }
     const ahead = Math.min(2.5, (nowMs - clock.at) / 1000) / ECONOMY.daySecondsReal;
     atmosphereAt(raw + ahead, air);
+    // The weather drifts in over a few seconds rather than switching.
+    const dt = scratch.lastMs ? Math.min(0.25, (nowMs - scratch.lastMs) / 1000) : 1;
+    scratch.lastMs = nowMs;
+    const kind = useGame.getState().weather.kind;
+    easeWeather(look, WEATHER_LOOK[kind] ?? WEATHER_LOOK.sun, Math.min(1, dt * 0.6));
+    applyWeather(air, look);
 
     const fog = scene.fog as THREE.Fog | null;
-    if (fog) fog.color.setRGB(air.fog[0], air.fog[1], air.fog[2], THREE.SRGBColorSpace);
+    if (fog) {
+      fog.color.setRGB(air.fog[0], air.fog[1], air.fog[2], THREE.SRGBColorSpace);
+      fog.near = tier.fogNear * look.haze;
+      fog.far = tier.fogFar * look.haze;
+    }
     const u = sky.mat.uniforms;
     (u.zenith!.value as THREE.Color).setRGB(air.zenith[0], air.zenith[1], air.zenith[2], THREE.SRGBColorSpace);
     (u.horizon!.value as THREE.Color).setRGB(air.horizon[0], air.horizon[1], air.horizon[2], THREE.SRGBColorSpace);
