@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Move, Trash2 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { BY_ID, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, liftThroughput, seasonPhase } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
 import { BUILDING_LEVELS, PISTE_LEVELS, TERRAIN } from "@ski/config";
-import { buildingLevel, expandable, expansionCost, expansionSpent, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, widthDef } from "@ski/shared";
+import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, siteAt, siteContext, siteKind, widthDef } from "@ski/shared";
+import { pct, siteTone } from "@/lib/game/placement";
+import { useStableGame } from "../canvas/use-stable-game";
 import { buildingLevelLabel, levelGain, pisteLevelLabel } from "@/lib/game/expansion";
 import { GRADE_COLOR } from "@/lib/game/piste-editor";
 import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
@@ -213,6 +215,7 @@ export function InfoPanel() {
           disabled={constructing}
         />
       )}
+      {b && siteKind(b.itemId) && <SiteRow id={b.id} itemId={b.itemId} q={b.q} r={b.r} />}
       {b && !isLift(b.itemId) && <MoveButton id={b.id} itemId={b.itemId} />}
       <DemolishButton id={entity.id} refund={refundFor(item.cost + (b ? expansionSpent(b) : 0))} label={item.name} />
     </Panel>
@@ -750,5 +753,29 @@ export function Quests() {
         Pisten {stats.pisteKm} km · Betten {stats.beds} · Kapazität {fmt(stats.liftCapacity)}/h
       </div>
     </Panel>
+  );
+}
+
+/** Where it stands: the location factor and why, read off runs, stations and neighbours. */
+function SiteRow({ id, itemId, q, r }: { id: string; itemId: string; q: number; r: number }) {
+  const lifts = useStableGame((s) => s.lifts);
+  const pistes = useStableGame((s) => s.pistes);
+  const buildings = useStableGame((s) => s.buildings);
+  const report = useMemo(
+    () => siteAt(siteContext({ lifts, pistes, buildings }, getDem()), itemId, { q, r }, id),
+    [lifts, pistes, buildings, itemId, q, r, id],
+  );
+  return (
+    <div className="mt-2 rounded-[14px] bg-ice px-3 py-2 text-[12px] text-navy">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold">Lage</span>
+        <span className={`value font-bold ${siteTone(report.factor)}`}>{pct(report.factor)}</span>
+      </div>
+      <p className="mt-0.5 text-[11px] leading-snug text-muted">
+        {report.effects.length === 0
+          ? "Ein gewöhnlicher Platz."
+          : report.effects.map((e) => `${e.label} ${e.delta > 0 ? "+" : "−"}${Math.round(Math.abs(e.delta) * 100)} %`).join(" · ")}
+      </p>
+    </div>
   );
 }

@@ -78,7 +78,8 @@ test("lifts, roads and plain decoration do not expand", () => {
 test("a restaurant seats more and a hotel gets more beds per level", () => {
   const r = withBuilding("restaurant");
   const grown = expand(r.state, r.id);
-  assert.equal(capacityOf(grown, r.id), (BY_ID.restaurant.seatsPerHour ?? 0) * 2);
+  // The location factor (SITE) scales both levels alike.
+  assert.ok(Math.abs(capacityOf(grown, r.id) - capacityOf(r.state, r.id) * 2) < 1e-6);
   const h = withBuilding("hotel1");
   const beds = (s: ResortState) => tickFlow(s, dem, 0, NOW).stats.beds;
   assert.equal(beds(expand(h.state, h.id)), Math.round((BY_ID.hotel1.beds ?? 0) * (1 + BUILDING_LEVELS.bedsPerLevel)));

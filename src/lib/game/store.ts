@@ -87,6 +87,10 @@ export interface GameStore extends ResortState, UiState {
   descentOffer: string | null;
   /** «Pisten automatisch» while open: which lifts (null = all) and which grades. */
   autoPistes: { liftIds: string[] | null; mix: "mixed" | "blue" | "red" | "black" } | null;
+  /** The village optimiser's card is open. */
+  villageOpen: boolean;
+  /** The moves it proposes, for the map. */
+  villagePreview: { from: { q: number; r: number }; to: { q: number; r: number } }[];
   /** Research node to open the research panel on, when a locked card asks. */
   researchFocus: string | null;
   /** The runs it would build, for the map. */
@@ -386,6 +390,8 @@ export const useGame = create<GameStore>((set, get) => ({
   regionReady: null,
   descentOffer: null,
   autoPistes: null,
+  villageOpen: false,
+  villagePreview: [],
   researchFocus: null,
   autoPreview: [],
   focusOn: (x, z) => set({ cameraFocus: { x, z, id: Date.now() } }),

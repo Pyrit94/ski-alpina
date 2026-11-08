@@ -3,6 +3,7 @@ import { BY_ID } from "../../../packages/config/src/items.ts";
 import type { ItemId } from "../../../packages/config/src/ids.ts";
 import type { EdgeLink } from "../../../packages/shared/src/engine/descent.ts";
 import type { FlowEdgeViz, PlacedBuilding, PlacedLift, PlacedPiste, SimStats } from "../../../packages/shared/src/types.ts";
+import { worstNeed, type Need } from "./needs.ts";
 
 /**
  * The one thing worth doing next, in a sentence, with the button that does it.
@@ -42,6 +43,8 @@ export interface StepInput {
    * (affordable, prerequisites met), with its name. Absent when research is off.
    */
   research?: { busy: boolean; next: { id: string; name: string } | null };
+  /** What the resort is short of (see needs.ts). */
+  needs?: readonly Need[];
 }
 
 const has = (buildings: readonly PlacedBuilding[], ids: readonly string[]) =>
@@ -119,6 +122,18 @@ export function nextStep(input: StepInput): NextStep | null {
     return {
       id: "idle-costs",
       text: "Ungenutzte Anlagen kosten jeden Tag Unterhalt. Anschliessen oder abreissen.",
+      tone: "fix",
+    };
+  }
+
+  // Guests are there, but something they want is missing: say what, and offer it.
+  const short = input.needs ? worstNeed(input.needs) : null;
+  if (short?.itemId && short.covered < 0.7) {
+    return {
+      id: `need-${short.key}`,
+      text: `Am meisten fehlt: ${short.label}. ${short.detail}.`,
+      action: { kind: "build", itemId: short.itemId },
+      actionLabel: `${name(short.itemId)} bauen`,
       tone: "fix",
     };
   }

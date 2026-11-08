@@ -22,6 +22,7 @@ import { BuildingModel } from "./models";
 import { loadModelLibrary, modelFor, useModelLibrary } from "@/lib/game/model-library";
 import { bake, bakedCache, SOLID } from "./bake";
 import { AutoPreview } from "./AutoPreview";
+import { VillagePreview } from "./VillagePreview";
 import { ribbonGeometry } from "./geometry";
 import { makeTreeMaterial } from "./snow-shaders";
 import { STATION_CABLE_Y, cableGap, stationYaw } from "./station";
@@ -2050,6 +2051,7 @@ export function SkiScene() {
       <PisteNameLabel />
       <LinkHints />
       <AutoPreview />
+      <VillagePreview />
       <CenterStamp />
       <StampFlash />
       <PeerFocus />

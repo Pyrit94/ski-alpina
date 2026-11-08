@@ -371,6 +371,26 @@ function applyOne(
     };
   }
 
+  if (intent.type === "rearrange") {
+    const to = new Map(intent.moves.map((m) => [m.entityId, m]));
+    const cost = state.buildings
+      .filter((b) => to.has(b.id))
+      .reduce((n, b) => n + discounted(state, moveCost(state, b.itemId)), 0);
+    return {
+      state: {
+        ...state,
+        coins: state.coins - cost,
+        buildings: state.buildings.map((b) => {
+          const m = to.get(b.id);
+          return m ? { ...b, q: m.q, r: m.r } : b;
+        }),
+      },
+      title: "Dorf neu angeordnet",
+      body: `${to.size} ${to.size === 1 ? "Gebäude steht" : "Gebäude stehen"} jetzt an besseren Plätzen.`,
+      kind: "ok",
+    };
+  }
+
   if (intent.type === "set_speed") {
     const label = intent.speed === 0 ? "Pausiert" : intent.speed === 1 ? "Normales Tempo" : "Schnell (3×)";
     return { state: { ...state, speed: intent.speed }, title: "Spieltempo", body: label, kind: "info" };

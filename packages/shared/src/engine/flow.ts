@@ -11,6 +11,7 @@ import { pisteWidthDraw } from "./piste-width.ts";
 import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
 import { liftResearchFactor, researchEffects, withResearchMods } from "./research.ts";
 import { bedsFactor, bonusFactor, capacityFactor, cutFactor, pisteLevel, pisteUpkeepFactor, upkeepFactor } from "./state.ts";
+import { siteContext, siteFactors } from "./site.ts";
 
 export interface FlowTick {
   stats: SimStats;
@@ -39,12 +40,18 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const readyPistes = state.pistes.filter((p) => p.readyAt <= now);
   const buildings = state.buildings.filter((b) => b.readyAt <= now);
 
+  // Where each building stands (see SITE): a hut on the run serves more than
+  // one in the woods. 1 for everything the location does not matter to.
+  const site = siteFactors(siteContext(state, dem, now));
+  const at = (b: { id: string }) => site.get(b.id) ?? 1;
   // An expanded building counts as more of itself: a level-3 ticket office
   // is two ticket offices' worth (see BUILDING_LEVELS).
-  const count = (id: string) => buildings.filter((b) => b.itemId === id).reduce((n, b) => n + bonusFactor(b), 0);
+  const count = (id: string) => buildings.filter((b) => b.itemId === id).reduce((n, b) => n + bonusFactor(b) * at(b), 0);
   // For services where one is enough, the best one on site sets the effect.
-  const best = (id: string) => buildings.filter((b) => b.itemId === id).reduce((n, b) => Math.max(n, bonusFactor(b)), 0);
+  const best = (id: string) => buildings.filter((b) => b.itemId === id).reduce((n, b) => Math.max(n, bonusFactor(b) * at(b)), 0);
   const beds = buildings.reduce((n, b) => n + (BY_ID[b.itemId].beds ?? 0) * bedsFactor(b), 0);
+  // The room rate follows the location; the bed count does not.
+  const bedValue = buildings.reduce((n, b) => n + (BY_ID[b.itemId].beds ?? 0) * bedsFactor(b) * at(b), 0);
   const school = best("skischool");
   const clinic = best("clinic");
   const lights = best("lights");
@@ -56,7 +63,9 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const sum = (field: "seatsPerHour" | "retailPerHour" | "satisfactionBonus" | "summerDraw") =>
     buildings.reduce(
       (n, b) =>
-        n + (BY_ID[b.itemId][field] ?? 0) * (field === "seatsPerHour" || field === "retailPerHour" ? capacityFactor(b) : bonusFactor(b)),
+        n +
+        (BY_ID[b.itemId][field] ?? 0) *
+          (field === "seatsPerHour" || field === "retailPerHour" ? capacityFactor(b) * at(b) : bonusFactor(b)),
       0,
     );
   const seats = sum("seatsPerHour");
@@ -289,7 +298,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     beds <= 0 ? 0 : Math.min(1, ((market / ECONOMY.ridesPerGuest) * ECONOMY.overnightShare) / beds);
   const ticketIncome =
     guests * state.ticketPrice * (1 + tickets * ECONOMY.ticketOfficeIncomeBonus) * mods.ticket;
-  const hotelIncome = beds * occupancy * ECONOMY.hotelRatePerBed;
+  const hotelIncome = bedValue * occupancy * ECONOMY.hotelRatePerBed;
   const fb = Math.min(guests, seats) * ECONOMY.fbPerGuest;
   const retail = Math.min(guests, retailCapacity) * ECONOMY.shopPerGuest;
   const revenue = ticketIncome + hotelIncome + fb + retail;
@@ -352,7 +361,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     buildings
       .filter((b) => (BY_ID[b.itemId][field] ?? 0) > 0)
       .map((b) => {
-        const cap = (BY_ID[b.itemId][field] ?? 0) * capacityFactor(b);
+        const cap = (BY_ID[b.itemId][field] ?? 0) * capacityFactor(b) * at(b);
         return {
           id: b.id,
           kind: "building" as const,
@@ -385,7 +394,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
         unit: "chf" as const,
         from: { q: b.q, r: b.r },
         to: { q: b.q, r: b.r },
-        flow: Math.round(guests * state.ticketPrice * ECONOMY.ticketOfficeIncomeBonus * bonusFactor(b) * mods.ticket),
+        flow: Math.round(guests * state.ticketPrice * ECONOMY.ticketOfficeIncomeBonus * bonusFactor(b) * at(b) * mods.ticket),
         capacity: 0,
       })),
   );

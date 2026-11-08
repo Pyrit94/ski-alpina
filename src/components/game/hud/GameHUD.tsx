@@ -3,7 +3,8 @@ import { Cloud, CloudFog, CloudLightning, Sun, Check, Gem, Snowflake, Star, X, S
 import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
 import { BY_ID, levelFromXp, xpForLevel } from "@/lib/game/catalog";
-import { TERRAIN } from "@ski/config";
+import { TERRAIN, type ItemId } from "@ski/config";
+import { pct, siteTone, useSitePreview } from "@/lib/game/placement";
 import { usePisteEditor } from "@/lib/game/piste-editor";
 import { fmt, fmtCompact } from "@/lib/game/format";
 import { ChatPanel, MarkHint } from "./TeamHUD";
@@ -12,6 +13,7 @@ import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCar
 import { DescentButton, DescentOffer } from "./LinkStatus";
 import { AutoPistesPanel } from "./AutoPistes";
 import { NextStepChip } from "./NextStepChip";
+import { NeedsStrip, VillagePanel } from "./Needs";
 import { UndoChip } from "./UndoChip";
 import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
 import { PisteEditor } from "./PisteEditor";
@@ -45,9 +47,11 @@ export function GameHUD() {
                 <BuildHint />
                 <PisteEditor />
                 <AutoPistesPanel />
+                <VillagePanel />
                 <DescentOffer />
                 <PausedChip />
                 <UndoChip />
+                <NeedsStrip />
                 <NextStepChip />
               </div>
             )}
@@ -280,6 +284,23 @@ function BuildHint() {
   const stampMode = useGame((s) => s.stampMode);
   // Drawing a run has its own editor card (PisteEditor.tsx).
   if (!buildItem || phase === "idle" || phase === "piste") return null;
+  return <BuildHintCard moving={moving} buildItem={buildItem} phase={phase} hover={hover} stampMode={stampMode} />;
+}
+
+function BuildHintCard({
+  moving,
+  buildItem,
+  phase,
+  hover,
+  stampMode,
+}: {
+  moving: boolean;
+  buildItem: ItemId;
+  phase: string;
+  hover: { valid: boolean; reason: string } | null;
+  stampMode: boolean;
+}) {
+  const { report, impacts } = useSitePreview();
   const item = BY_ID[buildItem];
   const msg = moving
     ? "Neuen Platz wählen"
@@ -292,11 +313,38 @@ function BuildHint() {
           ? "Raster auf die Bergstation"
           : "Bergstation tippen"
         : hover?.reason || (stampMode ? "Raster zielen, dann Setzen" : "Feld tippen");
+  // Where it would stand, and what it does to the neighbours: one quiet line.
+  const reason = report?.effects.slice().sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))[0];
+  const hurt = impacts.filter((i) => i.after < i.before);
+  const helped = impacts.filter((i) => i.after > i.before);
+  const showSite = !!report || impacts.length > 0;
   return (
-    <div className="pointer-events-none z-10 flex max-w-[min(92%,360px)] items-center gap-2 rounded-full bg-panel/95 px-3.5 py-2 text-[12px] shadow-[var(--shadow-panel)] max-lg:absolute max-lg:left-1/2 max-lg:top-2 max-lg:-translate-x-1/2">
-      <span className="shrink-0 font-bold text-navy">{item.name}</span>
-      <span className="min-w-0 truncate text-muted">{msg}</span>
-      {item.capacity ? <span className="value shrink-0 font-bold text-success">{fmtCompact(item.capacity)}/h</span> : null}
+    <div className="pointer-events-none z-10 flex max-w-[min(92%,380px)] flex-col gap-0.5 rounded-[18px] bg-panel/95 px-3.5 py-2 text-[12px] shadow-[var(--shadow-panel)] max-lg:absolute max-lg:left-1/2 max-lg:top-2 max-lg:-translate-x-1/2">
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 font-bold text-navy">{item.name}</span>
+        <span className="min-w-0 truncate text-muted">{msg}</span>
+        {item.capacity ? <span className="value shrink-0 font-bold text-success">{fmtCompact(item.capacity)}/h</span> : null}
+      </div>
+      {showSite && (
+        <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
+          {report && (
+            <span className={`value shrink-0 font-bold ${siteTone(report.factor)}`}>Lage {pct(report.factor)}</span>
+          )}
+          {reason && <span className="min-w-0 truncate text-muted">{reason.label}</span>}
+          {hurt.length > 0 && (
+            <span className="shrink-0 font-semibold text-warn">
+              {hurt.length === 1 ? BY_ID[hurt[0]!.itemId as ItemId].name : `${hurt.length} Nachbarn`}{" "}
+              {Math.round((hurt[0]!.after - hurt[0]!.before) * 100)} %
+            </span>
+          )}
+          {helped.length > 0 && (
+            <span className="shrink-0 font-semibold text-success">
+              {helped.length === 1 ? BY_ID[helped[0]!.itemId as ItemId].name : `${helped.length} Nachbarn`} +
+              {Math.round((helped[0]!.after - helped[0]!.before) * 100)} %
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -596,10 +644,16 @@ function MobileFloats() {
           <AutoPistesPanel />
         </div>
       )}
+      <div className="flex justify-center empty:hidden">
+        <VillagePanel />
+      </div>
       <DescentOffer />
       <div className="flex justify-center gap-2 empty:hidden">
         <PausedChip />
         <UndoChip />
+      </div>
+      <div className="flex justify-center empty:hidden">
+        <NeedsStrip />
       </div>
       <div className="flex justify-center empty:hidden">
         <NextStepChip />

@@ -324,3 +324,73 @@ export const PISTE_PLANNER = {
   /** A new run may share at most this much of its line with existing ones. */
   maxOverlap: 0.4,
 } as const;
+
+/**
+ * Where a building stands.
+ *
+ * Every building that serves guests has a location factor, 1 at an ordinary
+ * spot, that scales what it does: a restaurant's seats, a shop's customers,
+ * a hotel's room rate, a ticket office's takings, the ski school's bonus.
+ * Deliberately mild, as in a real resort: a good spot is worth about a tenth
+ * more, a poor one costs up to a quarter. Placement matters without turning
+ * the valley into a puzzle.
+ */
+export const SITE = {
+  /** Bounds of the factor. */
+  min: 0.75,
+  max: 1.2,
+  /** "Next to" a run or a station: within this many hexes. */
+  near: 2,
+
+  // Food (restaurants, huts, après-ski): lives off the skiers passing by.
+  /** Next to a run or a lift station. */
+  foodOnRun: 0.05,
+  /** At a meeting point: this many runs and lifts within `near`… */
+  junctionCount: 3,
+  /** …adds this on top. */
+  foodJunction: 0.05,
+  /** Farther than this from any run or station… */
+  foodFar: 4,
+  /** …it sees only the few who walk there. */
+  foodRemote: -0.25,
+  /** Another food place right next door shares the same passers-by. */
+  foodRival: -0.08,
+  /** At most this many rivals count. */
+  maxRivals: 2,
+
+  // Trade (shop, ski school, ticket office): where guests start their day.
+  /** Within this many hexes of a valley station or the village… */
+  tradeReach: 3,
+  /** …it does a little better. */
+  tradeNear: 0.08,
+  /** Farther than this, few guests find it. */
+  tradeFar: 6,
+  tradeRemote: -0.2,
+
+  // Hotels: the room rate.
+  /** Within this many hexes of a run: ski-in, ski-out. */
+  skiInReach: 1,
+  bedsSkiIn: 0.1,
+  /** Within this many hexes of the village centre. */
+  villageReach: 3,
+  bedsVillage: 0.05,
+  /** Per noisy neighbour within one hex (car park, bus, workshop, depot, groomers). */
+  noise: -0.06,
+  maxNoise: 3,
+  noisy: ["parking", "bus", "workshop", "depot", "groomer"],
+  /** Per stone pine within one hex. */
+  quiet: 0.02,
+  maxQuiet: 3,
+  /** A spa within this many hexes lifts the rate. */
+  spaReach: 2,
+  bedsSpa: 0.05,
+
+  // The village optimiser (proposes moves, never forced).
+  /** How far from the village and the valley stations it looks for places. */
+  villageRadius: 7,
+  stationRadius: 4,
+  /** A move must lift the building's own factor-weighted value by at least this share. */
+  minGain: 0.03,
+  /** At most this many moves per proposal. */
+  maxMoves: 12,
+} as const;
