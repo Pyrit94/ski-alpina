@@ -106,11 +106,14 @@ export function BuildingModel({
   itemId,
   constructing,
   lit,
+  level = 1,
 }: {
   itemId: ItemId;
   constructing?: boolean;
   /** Dusk or later: windows come on. Passed as a boolean so it flips rarely. */
   lit?: boolean;
+  /** Car park decks, bus lines: what has been built onto it. */
+  level?: number;
 }) {
   const opacity = constructing ? 0.72 : 1;
   const mat = { opacity, transparent: constructing };
@@ -150,32 +153,54 @@ export function BuildingModel({
           lit={lit}
         />
       );
-    case "parking":
+    case "parking": {
+      // One slab per deck; from the second deck on it is a car park house.
+      const decks = Math.max(1, Math.min(4, level));
       return (
         <group>
           <mesh position={[0, 0.08, 0]} receiveShadow>
             <boxGeometry args={[2.4, 0.12, 2.4]} />
             <meshStandardMaterial color="#4a5560" {...mat} />
           </mesh>
-          <mesh position={[0, 0.7, 0]}>
+          {decks > 1 && (
+            <mesh position={[0, (decks - 1) * 0.3 + 0.08, 0]} castShadow>
+              <boxGeometry args={[2.2, (decks - 1) * 0.6, 2.2]} />
+              <meshStandardMaterial color="#8a939b" {...mat} />
+            </mesh>
+          )}
+          {decks > 1 && (
+            <mesh position={[0, (decks - 1) * 0.6 + 0.12, 0]} receiveShadow>
+              <boxGeometry args={[2.4, 0.08, 2.4]} />
+              <meshStandardMaterial color="#4a5560" {...mat} />
+            </mesh>
+          )}
+          <mesh position={[1.05, 0.7 + (decks - 1) * 0.6, 1.05]}>
             <boxGeometry args={[0.2, 1.2, 0.2]} />
             <meshStandardMaterial color={metal} />
           </mesh>
         </group>
       );
-    case "bus":
+    }
+    case "bus": {
+      // One bus per line, side by side under the shelter.
+      const lines = Math.max(1, Math.min(4, level));
       return (
         <group>
-          <mesh position={[0, 0.45, 0]} castShadow>
-            <boxGeometry args={[2.2, 0.9, 1.1]} />
-            <meshStandardMaterial color="#1f7a4d" />
-          </mesh>
-          <mesh position={[0, 0.95, 0]}>
-            <boxGeometry args={[1.6, 0.35, 0.9]} />
-            <meshStandardMaterial color={glass} />
-          </mesh>
+          {Array.from({ length: lines }, (_, i) => (
+            <group key={i} position={[0, 0, (i - (lines - 1) / 2) * (lines > 1 ? 0.78 : 0)]}>
+              <mesh position={[0, 0.45, 0]} castShadow>
+                <boxGeometry args={[2.2, 0.9, lines > 1 ? 0.68 : 1.0]} />
+                <meshStandardMaterial color={i === 0 ? "#1f7a4d" : "#f2c230"} />
+              </mesh>
+              <mesh position={[0, 0.95, 0]}>
+                <boxGeometry args={[1.6, 0.35, lines > 1 ? 0.56 : 0.82]} />
+                <meshStandardMaterial color={glass} />
+              </mesh>
+            </group>
+          ))}
         </group>
       );
+    }
     case "snowmaker":
       return (
         <group>

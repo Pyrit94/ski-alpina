@@ -108,7 +108,7 @@ export function startMatch(
   options: Partial<MatchOptions> = {},
 ): ResortState {
   const preset = MATCH.presets.find((p) => p.id === presetId) ?? MATCH.presets[1]!;
-  const base = emptyResort(state.roomId);
+  const base = emptyResort(state.roomId, state.region);
   const match: MatchState = {
     mode: "match",
     preset: preset.id,
@@ -162,7 +162,7 @@ export function startMatch(
 
 /** Back to free play, from an empty valley. */
 export function startSandbox(state: ResortState): ResortState {
-  const base = emptyResort(state.roomId);
+  const base = emptyResort(state.roomId, state.region);
   return {
     ...base,
     resortName: state.resortName,
@@ -170,6 +170,25 @@ export function startSandbox(state: ResortState): ResortState {
     chat: state.chat,
     tutorialOpen: state.tutorialOpen,
     tutorialStep: state.tutorialStep,
+    match: sandboxMatch(),
+  };
+}
+
+/**
+ * Leave the rounds, keep the valley: everything built stays, the clock
+ * starts running, and whatever was still planned for the round end is
+ * finished now. Separate purses go back into one.
+ */
+export function continueFree(state: ResortState, now: number): ResortState {
+  if (!inMatch(state)) return state;
+  const finish = <T extends { readyAt: number }>(x: T): T => (x.readyAt >= PENDING_READY ? { ...x, readyAt: now } : x);
+  return {
+    ...state,
+    // In "roles" and "duel" `coins` already holds the sum of the purses.
+    coins: Math.max(0, state.coins),
+    buildings: state.buildings.map(finish),
+    lifts: state.lifts.map(finish),
+    pistes: state.pistes.map(finish),
     match: sandboxMatch(),
   };
 }

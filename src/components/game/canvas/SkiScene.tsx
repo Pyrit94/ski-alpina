@@ -612,7 +612,7 @@ function PlacedStructure({ building: b, yaw }: { building: PlacedBuilding; yaw: 
       }}
     >
       <group ref={group}>
-        <BuildingModel itemId={b.itemId} constructing={constructing} lit={lit} />
+        <BuildingModel itemId={b.itemId} constructing={constructing} lit={lit} level={b.level} />
         {constructing && <Scaffold />}
       </group>
     </group>

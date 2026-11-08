@@ -231,3 +231,25 @@ export const UPGRADES = [
 ];
 
 export type UpgradeKey = (typeof UPGRADES)[number]["key"];
+
+/**
+ * Car parks and bus stations grow instead of multiplying: another deck,
+ * another bus line. One building on the valley floor does the work of
+ * several, so the space by the lifts is not paved over.
+ *
+ * A building starts at level 1. Each level adds the base arrivals again and
+ * `upkeepPerLevel` of the base upkeep. Going from level n to n + 1 costs
+ * `costShare[n - 1]` of the building's price — a little less than a second
+ * building at first, a little more at the top, since the land is free.
+ */
+export const DOOR_EXPANSION = {
+  items: ["parking", "bus"] as readonly string[],
+  maxLevel: 4,
+  costShare: [0.8, 1.0, 1.2],
+  upkeepPerLevel: 0.8,
+  /** What a level is called, by item and level. */
+  labels: {
+    parking: ["Ein Deck", "Zwei Decks", "Drei Decks", "Vier Decks"],
+    bus: ["Eine Linie", "Zwei Linien", "Dichter Takt", "Drehkreuz"],
+  } as Record<string, string[]>,
+} as const;

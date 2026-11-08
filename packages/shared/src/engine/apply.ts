@@ -1,16 +1,16 @@
 import { BY_ID } from "../../../config/src/items.ts";
-import { ECONOMY, UPGRADES } from "../../../config/src/economy.ts";
+import { DOOR_EXPANSION, ECONOMY, UPGRADES } from "../../../config/src/economy.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { QuestState, ResortState } from "../types.ts";
 import { GRADE_LABEL, pisteDifficulty } from "./level.ts";
-import { entityCost, findEntity, TUTORIAL_STEPS } from "./state.ts";
+import { entityCost, expansionCost, findEntity, TUTORIAL_STEPS } from "./state.ts";
 import { followTutorial } from "./tutorial.ts";
 import { surveyPiste } from "./validate.ts";
 import { applyEditPiste } from "./piste-edit.ts";
-import { inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
+import { continueFree, inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
 import { applyEventWeights, recordVote, settleActorCoins, walletKey } from "./rules.ts";
 import { MATCH } from "../../../config/src/match.ts";
 import { applyResearch, buildCost, discounted, isResearchIntent } from "./research.ts";
@@ -252,6 +252,35 @@ function applyOne(
       },
       title: "Ausgebaut",
       body: `${BY_ID[lift.itemId].name}: ${def.label} Stufe ${next}.`,
+      kind: "ok",
+    };
+  }
+
+  if (intent.type === "expand_building") {
+    const entity = findEntity(state, intent.entityId);
+    const b = entity?.kind === "building" ? entity.building : null;
+    const list = b ? expansionCost(b) : null;
+    if (!b || list === null) return { state, title: "Ausbau", body: "Nichts auszubauen.", kind: "warn" };
+    const level = b.level + 1;
+    const label = DOOR_EXPANSION.labels[b.itemId]?.[level - 1];
+    return {
+      state: {
+        ...state,
+        coins: state.coins - discounted(state, list),
+        xp: state.xp + 12,
+        buildings: state.buildings.map((x) => (x.id === b.id ? { ...x, level } : x)),
+      },
+      title: "Ausgebaut",
+      body: `${BY_ID[b.itemId].name}: Stufe ${level}${label ? ` – ${label}` : ""}.`,
+      kind: "ok",
+    };
+  }
+
+  if (intent.type === "free_play") {
+    return {
+      state: continueFree(state, now),
+      title: "Freies Spiel",
+      body: "Keine Runden mehr: Das Tal läuft weiter, solange jemand da ist.",
       kind: "ok",
     };
   }

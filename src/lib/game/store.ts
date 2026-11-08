@@ -97,6 +97,10 @@ export interface GameStore extends ResortState, UiState {
   /** Send an intent as-is; for editors that build their own (see piste-editor.ts). */
   sendIntent: (intent: Intent) => void;
   upgrade: (id: string, key: "speed" | "cabins" | "capacity") => void;
+  /** Next level of a car park or bus station. */
+  expandBuilding: (id: string) => void;
+  /** Leave the rounds and keep playing this valley on the clock. */
+  freePlay: () => void;
   demolish: (id: string) => void;
   claimQuest: (id: string) => void;
   dismissTutorial: () => void;
@@ -561,6 +565,8 @@ export const useGame = create<GameStore>((set, get) => ({
   sendIntent: (intent) => net?.sendIntent(intent),
 
   upgrade: (id, key) => net?.sendIntent({ type: "upgrade", entityId: id, key }),
+  expandBuilding: (id) => net?.sendIntent({ type: "expand_building", entityId: id }),
+  freePlay: () => net?.sendIntent({ type: "free_play" }),
   demolish: (id) => {
     net?.sendIntent({ type: "demolish", entityId: id });
     set({ selectedId: null });
