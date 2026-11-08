@@ -56,6 +56,8 @@ import { PisteNameLabel } from "./PisteDraftLayer";
 import { LinkHints } from "./LinkHints";
 import { RIBBON_SCALE, draftColors, usePisteStroke } from "./piste-draft";
 import { usePisteEditor } from "@/lib/game/piste-editor";
+import { LAND_S, SETTLE_S, landing } from "@/lib/game/juice";
+import { BuildBursts } from "./BuildBursts";
 
 /**
  * The playable ground.
@@ -507,7 +509,7 @@ function GroundContact({ buildings }: { buildings: PlacedBuilding[] }) {
 }
 
 /** How long a new building animates in before it can join its instanced kind. */
-const DROP_MS = 700;
+const DROP_MS = (LAND_S + SETTLE_S) * 1000;
 /** Longest a timer is set for; `readyAt` can be MAX_SAFE_INTEGER during a match's planning round. */
 const MAX_WAIT_MS = 60_000;
 
@@ -666,18 +668,22 @@ function PlacedStructure({ building: b, yaw, mid }: { building: PlacedBuilding; 
   const { x, z } = hexToWorld(b.q, b.r);
   const baseY = seatOf(hm, b.itemId, x, z).y;
 
+  const reduced = useMemo(
+    () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
+    [],
+  );
   useFrame(() => {
     if (!group.current) return;
     const now = Date.now();
     const age = Math.max(0, (now - b.builtAt) / 1000);
-    const drop = Math.min(1, age / 0.42);
-    const ease = 1 - (1 - drop) ** 3;
-    const bounce = drop < 1 ? Math.sin(drop * Math.PI) * 0.14 : 0;
+    // Falls a little, lands with a squash and settles (juice.ts); the dust
+    // ring is BuildBursts'.
+    const land = landing(age, reduced);
     const span = Math.max(1, b.readyAt - b.builtAt);
     const construct = b.readyAt > now ? Math.min(1, (now - b.builtAt) / span) : 1;
-    const s = (0.22 + 0.78 * ease) * (0.55 + 0.45 * Math.max(construct, 0.35));
-    group.current.scale.setScalar(s);
-    group.current.position.y = (1 - ease) * 2.2 + bounce;
+    const s = 0.55 + 0.45 * Math.max(construct, 0.35);
+    group.current.scale.set(s * land.sxz, s * land.sy, s * land.sxz);
+    group.current.position.y = land.lift;
   });
 
   const constructing = b.readyAt > Date.now();
@@ -2230,6 +2236,7 @@ export function SkiScene() {
         <Structures />
         <Lifts />
         <Pistes />
+        <BuildBursts />
         <Skiers />
         <Traffic />
         <Groomers />
