@@ -169,3 +169,16 @@ test("an exported resort comes back as a new game, on its own map", async () => 
   const bad = await s.ask("michael", { type: "import_game", kind: "own", snapshot: { hello: 1 } });
   assert.ok(bad.sent.some((m) => m.type === "error"));
 });
+
+test("a new game has neighbour ski areas unless they are switched off", async () => {
+  const s = server();
+  await s.ask("michael", { type: "create_game", kind: "own", name: "Mit Nachbarn" });
+  await s.ask("michael", { type: "create_game", kind: "own", name: "Allein im Tal", neighbours: "off" });
+  const rooms = [...s.rooms.values()];
+  const withN = rooms.find((r) => r.state.resortName === "Mit Nachbarn")!;
+  const without = rooms.find((r) => r.state.resortName === "Allein im Tal")!;
+  assert.equal(withN.state.neighbours?.mode, "gemuetlich");
+  assert.ok((withN.state.neighbours?.list.length ?? 0) > 0);
+  assert.equal(without.state.neighbours?.mode, "off");
+  assert.equal(without.state.neighbours?.list.length ?? 0, 0);
+});

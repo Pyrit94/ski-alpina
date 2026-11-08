@@ -40,7 +40,12 @@ export interface RegionDef {
   lakes?: RegionPlace[];
   /** Houses drawn for the village: a city like Davos is bigger than Andermatt. */
   houses?: number;
+  /** Names for the neighbour ski areas the game runs (see NEIGHBOURS). */
+  neighbours?: string[];
 }
+
+/** Neighbour names for a map that names none. */
+export const NEIGHBOUR_NAMES = ["Alp Sura", "Piz Mellen"];
 
 /**
  * The look of the land by real height (the gameplay heights are shifted per
@@ -89,6 +94,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Klein Matterhorn", lat: 45.9384, lon: 7.7297 },
     ],
     houses: 70,
+    neighbours: ["Täsch-Randa", "Grächen"],
   },
   {
     id: "flims-laax",
@@ -104,6 +110,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Crap Masegn", lat: 46.8655, lon: 9.2015 },
     ],
     houses: 50,
+    neighbours: ["Brigels", "Obersaxen"],
   },
   {
     id: "st-moritz",
@@ -123,6 +130,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Silvaplanersee", lat: 46.4495, lon: 9.7895 },
     ],
     houses: 80,
+    neighbours: ["Corvatsch", "Diavolezza"],
   },
   {
     id: "davos",
@@ -138,6 +146,7 @@ export const REGIONS: RegionDef[] = [
     ],
     lakes: [{ name: "Davosersee", lat: 46.8135, lon: 9.8495 }],
     houses: 95,
+    neighbours: ["Rinerhorn", "Madrisa"],
   },
   {
     id: "arosa",
@@ -152,6 +161,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Aroser Rothorn", lat: 46.7395, lon: 9.6315 },
     ],
     houses: 45,
+    neighbours: ["Tschiertschen", "Lenzerheide"],
   },
   {
     id: "verbier",
@@ -166,6 +176,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Savoleyres", lat: 46.117, lon: 7.214 },
     ],
     houses: 55,
+    neighbours: ["Bruson", "La Tzoumaz"],
   },
   {
     id: "saas-fee",
@@ -181,6 +192,7 @@ export const REGIONS: RegionDef[] = [
     ],
     lakes: [{ name: "Mattmarksee", lat: 46.045, lon: 7.963 }],
     houses: 45,
+    neighbours: ["Saas-Grund", "Saas-Almagell"],
   },
   {
     id: "engelberg",
@@ -196,6 +208,7 @@ export const REGIONS: RegionDef[] = [
     ],
     lakes: [{ name: "Trübsee", lat: 46.7905, lon: 8.3935 }],
     houses: 50,
+    neighbours: ["Melchsee-Frutt", "Bannalp"],
   },
   {
     id: "grindelwald",
@@ -210,6 +223,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Männlichen", lat: 46.613, lon: 7.941 },
     ],
     houses: 55,
+    neighbours: ["Mürren", "Hasliberg"],
   },
   {
     id: "andermatt",
@@ -223,6 +237,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Nätschen", lat: 46.6385, lon: 8.6315 },
     ],
     houses: 35,
+    neighbours: ["Sedrun", "Realp"],
   },
   {
     id: "st-anton",
@@ -237,6 +252,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Rendl", lat: 47.118, lon: 10.236 },
     ],
     houses: 50,
+    neighbours: ["Lech", "See im Paznaun"],
   },
   {
     id: "chamonix",
@@ -251,6 +267,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Flégère", lat: 45.9585, lon: 6.8834 },
     ],
     houses: 90,
+    neighbours: ["Les Houches", "Argentière"],
   },
 ];
 

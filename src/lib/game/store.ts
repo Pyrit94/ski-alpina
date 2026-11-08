@@ -22,7 +22,7 @@ import type { Category, ItemId } from "../../../packages/config/src/ids.ts";
 import { connectGame, loadName, saveName } from "./net";
 import { play } from "./sound";
 import { finishPisteDraft, pisteClick } from "./piste-editor";
-import { emptyResort, loadRegion, setActiveRegion, TUTORIAL_STEPS } from "@ski/shared";
+import { emptyResort, loadRegion, neighbourOf, setActiveRegion, TUTORIAL_STEPS } from "@ski/shared";
 import { CLASSIC_REGION } from "@ski/config";
 import { partners, proposalFor } from "./proposals";
 import { markOf, readMark, summarize, writeMark, type AwaySummary } from "./away";
@@ -95,6 +95,8 @@ export interface GameStore extends ResortState, UiState {
   descentOffer: string | null;
   /** «Pisten automatisch» while open: which lifts (null = all) and which grades. */
   autoPistes: { liftIds: string[] | null; mix: "mixed" | "blue" | "red" | "black" } | null;
+  /** The neighbour area whose card is open (see NEIGHBOURS). */
+  neighbourOpen: string | null;
   /** The grades the piste assistant was last asked for; new stations' runs use them too. */
   pisteMix: "mixed" | "blue" | "red" | "black";
   /** «Während du weg warst», shown once after coming back. */
@@ -208,6 +210,7 @@ function flatten(s: ResortState): Partial<ResortState> {
     proposals: s.proposals ?? [],
     terrain: s.terrain ?? {},
     proposalLimit: s.proposalLimit,
+    neighbours: s.neighbours,
   };
 }
 
@@ -460,6 +463,7 @@ export const useGame = create<GameStore>((set, get) => ({
   descentOffer: null,
   autoPistes: null,
   pisteMix: "mixed",
+  neighbourOpen: null,
   awaySummary: null,
   villageOpen: false,
   villagePreview: [],
@@ -599,7 +603,12 @@ export const useGame = create<GameStore>((set, get) => ({
     get().clickHex(s.hover.q, s.hover.r);
   },
 
-  selectEntity: (id) => set({ selectedId: id, buildItem: null, phase: "idle", pisteDraft: [], liftStart: null }),
+  selectEntity: (id) => {
+    // A neighbour's lift or station: its card, not an info panel of ours.
+    const neighbour = id ? neighbourOf(id) : null;
+    if (neighbour) return set({ neighbourOpen: neighbour, selectedId: null, sheet: "none", buildItem: null, phase: "idle" });
+    set({ selectedId: id, neighbourOpen: null, buildItem: null, phase: "idle", pisteDraft: [], liftStart: null });
+  },
 
   clickHex: (q, r) => {
     const s = get();

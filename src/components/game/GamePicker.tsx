@@ -39,6 +39,7 @@ export function GamePicker({
   const [newName, setNewName] = useState("");
   const [region, setRegion] = useState(REGIONS[0]!.id);
   const [kind, setKind] = useState<GameKind>("own");
+  const [neighbours, setNeighbours] = useState<"off" | "gemuetlich">("gemuetlich");
 
   useEffect(() => {
     let live = true;
@@ -90,7 +91,7 @@ export function GamePicker({
   const suggested = `${regionName} von ${playerName}`;
   const create = () =>
     run(async () => {
-      const r = await lobbyRequest({ type: "create_game", kind, region, name: newName.trim() || suggested });
+      const r = await lobbyRequest({ type: "create_game", kind, region, neighbours, name: newName.trim() || suggested });
       if (r.created) play(r.created);
     });
 
@@ -161,6 +162,31 @@ export function GamePicker({
             text="Andere sehen das Spiel auf ihrem Startbildschirm und können jederzeit mitbauen."
           />
         </div>
+        <div className="rounded-[20px] bg-snow/10 p-1 ring-1 ring-snow/15" role="radiogroup" aria-label="Nachbar-Skigebiete">
+          <div className="flex items-center gap-1.5 px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-ice">
+            <Mountain className="size-3.5" /> Nachbar-Skigebiete
+          </div>
+          <div className="grid grid-cols-2 gap-1">
+            {(
+              [
+                { v: "gemuetlich", title: "Gemütlich", text: "Andere Gebiete im Tal, sie teilen sich die Gäste mit dir" },
+                { v: "off", title: "Allein im Tal", text: "Keine Nachbarn" },
+              ] as const
+            ).map((o) => (
+              <button
+                key={o.v}
+                type="button"
+                role="radio"
+                aria-checked={neighbours === o.v}
+                onClick={() => setNeighbours(o.v)}
+                className={`min-h-14 rounded-[16px] px-3 py-2 text-left ${neighbours === o.v ? "bg-panel text-navy" : "text-snow"}`}
+              >
+                <span className="block text-[13px] font-bold">{o.title}</span>
+                <span className={`block text-[11px] leading-snug ${neighbours === o.v ? "text-muted" : "text-ice/80"}`}>{o.text}</span>
+              </button>
+            ))}
+          </div>
+        </div>
         <label className="text-[11px] font-semibold uppercase tracking-wide text-ice">
           Name des Gebiets (freiwillig)
           <input
@@ -177,7 +203,7 @@ export function GamePicker({
           {busy ? "Gebiet wird angelegt…" : "Los geht's"} {!busy && <ChevronRight className="size-5" />}
         </PrimaryAction>
         <p className="text-center text-[11px] text-ice/80">
-          {regionName} · {kind === "own" ? "Allein" : "Gemeinsam"} · Du startest mit {fmt(ECONOMY.startingCoins)} CHF, der Ratgeber zeigt dir die ersten Schritte.
+          {regionName} · {kind === "own" ? "Allein" : "Gemeinsam"} · {neighbours === "off" ? "Ohne Nachbarn" : "Mit Nachbarn"} · Du startest mit {fmt(ECONOMY.startingCoins)} CHF, der Ratgeber zeigt dir die ersten Schritte.
         </p>
       </div>
     );

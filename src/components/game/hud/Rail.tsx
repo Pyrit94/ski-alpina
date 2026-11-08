@@ -1,3 +1,4 @@
+import { NeighboursPanel } from "./Neighbours";
 import { BarChart3, MessageCircle, ListChecks, X, FlaskConical, Settings } from "lucide-react";
 import { ChatPanel, MarkButtons, UnreadBadge } from "./TeamHUD";
 import { ResearchPanel } from "./ResearchHUD";
@@ -124,6 +125,7 @@ export function DesktopPanel() {
             <div className="flex flex-col gap-2">
               <OperationsPanel />
               <TicketPricePanel />
+              <NeighboursPanel />
               <WalletPanel />
               <RenamePanel />
               <ActivityPanel />

@@ -1,3 +1,4 @@
+import { setNeighbourMode } from "../engine/neighbours.ts";
 import { createId } from "../ids.ts";
 import type { ResortState } from "../types.ts";
 import type { ClientMessage, ServerMessage } from "../protocol/intents.ts";
@@ -289,6 +290,7 @@ export async function handleLobby(msg: LobbyMessage, ctx: LobbyContext): Promise
     const room = ctx.createRoom(id, { kind, owner: kind === "own" ? ctx.userId : null }, region);
     const name = clean(msg.name, GAME_NAME_MAX);
     if (name) room.state = { ...room.state, resortName: name };
+    room.state = setNeighbourMode(room.state, room.dem, msg.neighbours ?? "gemuetlich", Date.now());
     room.touchGame();
     ctx.send({ type: "created", reqId, roomId: id });
     await games();

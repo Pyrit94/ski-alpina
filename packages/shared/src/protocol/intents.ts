@@ -120,6 +120,11 @@ export const IntentSchema = z.discriminatedUnion("type", [
     type: z.literal("set_proposal_limit"),
     limit: z.number().int().min(0).max(10_000_000),
   }),
+  // Neighbour ski areas the game runs: off, or sharing the guests (see NEIGHBOURS).
+  z.object({
+    type: z.literal("set_neighbours"),
+    mode: z.enum(["off", "gemuetlich"]),
+  }),
   z.object({
     type: z.literal("set_speed"),
     speed: z.union([z.literal(0), z.literal(1), z.literal(3)]),
@@ -248,6 +253,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     name: z.string().max(60).optional(),
     /** Which map; unknown ids fall back to the classic valley. */
     region: z.string().max(32).optional(),
+    /** Neighbour ski areas; absent = «gemuetlich». */
+    neighbours: z.enum(["off", "gemuetlich"]).optional(),
   }),
   z.object({
     type: z.literal("save_game"),

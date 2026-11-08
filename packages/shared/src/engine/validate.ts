@@ -31,6 +31,7 @@ import { withEdits } from "../terrain/edits.ts";
 import { validateProposalIntent } from "./proposals.ts";
 import { validateReshape } from "./piste-reshape.ts";
 import { hexKey } from "../hex.ts";
+import { neighbourHexes } from "./neighbours.ts";
 
 export function validateHex(
   state: ResortState,
@@ -46,6 +47,9 @@ export function validateHex(
   const reach = isLift(itemId) ? liftReach(state, itemId) : 0;
   const ground = validateGround(dem, q, r, itemId, reach, isLift(itemId) && reachLeft(state, itemId));
   if (!ground.ok) return ground;
+  // A neighbour's stations and runs are theirs.
+  const neighbour = neighbourHexes(state).get(`${q},${r}`);
+  if (neighbour) return { ok: false, code: "collision", reason: `Gehört zum Skigebiet ${neighbour.name}` };
   // Collision is skipped for pistes: a run has to be able to reach a station,
   // and stations occupy their hex. Not building the set for them keeps a
   // 48-hex path check cheap enough to run on every pointer move.
@@ -358,6 +362,14 @@ export function validateIntent(
     if (money < cost) return { ok: false, code: "budget", reason: purse };
     const check = checkRearrange(state, dem, intent.moves);
     return check.ok ? { ok: true } : { ok: false, code: "invalid", reason: check.reason };
+  }
+
+  if (intent.type === "set_neighbours") {
+    if (match?.mode === "match" && match.phase === "plan") {
+      return { ok: false, code: "invalid", reason: "Die Nachbarn gelten für die ganze Partie" };
+    }
+    if ((state.neighbours?.mode ?? "off") === intent.mode) return { ok: false, code: "invalid", reason: "Schon so eingestellt" };
+    return { ok: true };
   }
 
   if (intent.type === "set_speed") {

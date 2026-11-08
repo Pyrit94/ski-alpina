@@ -39,6 +39,9 @@ export type {
   MatchOptions,
   VipRequest,
   ResearchState,
+  Neighbour,
+  NeighbourMode,
+  NeighbourState,
 } from "./types.ts";
 export { MAX_PISTE_HEXES, IntentSchema, ClientMessageSchema, ServerMessageSchema, ItemIdSchema, AxialSchema } from "./protocol/intents.ts";
 export type { Intent, ClientMessage, ServerMessage } from "./protocol/intents.ts";
@@ -114,6 +117,7 @@ export type { TerrainEdits } from "./terrain/edits.ts";
 export { validateLevel } from "./engine/terraform.ts";
 export { midStationCost, midStationSpots } from "./engine/mid-station.ts";
 export { missingLegs, planStationRuns, STATION_LEGS, withMidStation } from "./engine/station-runs.ts";
+export { absDay, neighbourCut, neighbourHexes, neighbourKm, neighbourOf, neighboursOn, neighbourSites, setNeighbourMode, spawnNeighbours } from "./engine/neighbours.ts";
 export type { StationLeg, StationRun, StationRunsResult } from "./engine/station-runs.ts";
 export { accessAt, accessNeed, onPiste, onRoad } from "./engine/access.ts";
 export { bestReshape, reshapeAll } from "./engine/piste-reshape.ts";

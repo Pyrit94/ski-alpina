@@ -1,3 +1,4 @@
+import { neighbourCut } from "./neighbours.ts";
 import { ECONOMY, FLOW, PISTE_LEVELS, PISTE_SCORE } from "../../../config/src/economy.ts";
 import { RESEARCH } from "../../../config/src/research.ts";
 import { isLift } from "../../../config/src/ids.ts";
@@ -141,8 +142,10 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const sightseers =
     (1 - inSeason) *
     (Math.min(3, cableways) * ECONOMY.sightseersPerCableway + summerDraw * ECONOMY.summerDrawScale);
+  // The neighbour areas take their share of the region's guests (see NEIGHBOURS).
+  const neighbourShare = neighbourCut(state, weightedKm);
   const market =
-    (ECONOMY.demandPerKm * weightedKm * varietyDraw * comfortDraw * prestige + sightseers) * appetite;
+    (ECONOMY.demandPerKm * weightedKm * varietyDraw * comfortDraw * prestige + sightseers) * appetite * (1 - neighbourShare);
 
   // The doors guests come in through. Demand beyond them is turned away.
   const arrivals: { hex: Axial; perHour: number; id?: string }[] = [
@@ -360,6 +363,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     closedPistes: graph.pistes.filter((p) => p.capacity <= 0).length,
     turnedAway: Math.round(turnedAway),
     marketPerHour: Math.round(market),
+    neighbourCut: neighbourShare,
     guestsPerHour: Math.round(guests),
     openingBoost: Math.round(opening * 100) / 100,
   };

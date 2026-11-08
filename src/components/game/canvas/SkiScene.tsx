@@ -13,7 +13,7 @@ import {
 import { ECONOMY, isLift } from "@/lib/game/catalog";
 import { HEX_SIZE, hexDistance, hexLine, hexToWorld, worldToHex } from "@/lib/game/hex";
 import { FLOW, REGION_BY_ID } from "@ski/config";
-import { regionPoint, relaxLine } from "@ski/shared";
+import { neighbourOf, neighboursOn, regionPoint, relaxLine } from "@ski/shared";
 import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
@@ -43,6 +43,8 @@ import { useTexturePack } from "./texture-pack";
 import { AlbumCapture } from "./AlbumCapture";
 import { QUALITY, type QualityTier } from "./quality";
 import { useStableGame } from "./use-stable-game";
+import { useWorldBuildings, useWorldLifts, useWorldPistes } from "./use-world";
+import { showNeighbour } from "@/lib/game/neighbours";
 import { openingView } from "./view";
 import { alongPath, cachedValleyRoad, pathLength } from "./valley-road";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
@@ -370,6 +372,39 @@ function PeakLabels() {
 }
 
 /**
+ * The neighbour areas' names at their valley stations: a tap opens their card.
+ * Greyer than the village's name, which is the players' own.
+ */
+function NeighbourLabels() {
+  const hm = getHeightmap();
+  const list = useStableGame((s) => neighboursOn(s));
+  const layer = useGame((s) => s.layer);
+  const stampMode = useGame((s) => s.stampMode);
+  const phase = useGame((s) => s.phase);
+  const hidden = layer === "pistes" || (stampMode && phase !== "idle");
+  const style = { visibility: hidden ? ("hidden" as const) : ("visible" as const) };
+  return (
+    <>
+      {list.map((n) => {
+        const { x, z } = hexToWorld(n.base.q, n.base.r);
+        return (
+          <Html key={n.id} position={[x, surfaceY(hm, x, z) + 2.4, z]} center zIndexRange={LABEL_Z} style={style}>
+            <button
+              type="button"
+              onClick={() => showNeighbour(n)}
+              className="flex min-h-8 items-center gap-1 whitespace-nowrap rounded-full bg-[#5b6b7a]/85 px-2.5 text-[11px] font-semibold text-snow shadow backdrop-blur-sm"
+            >
+              {n.name}
+              <span className="font-normal opacity-80">· Nachbar</span>
+            </button>
+          </Html>
+        );
+      })}
+    </>
+  );
+}
+
+/**
  * The radial falloff a contact patch is painted with.
  *
  * Built once into a canvas rather than shipped as a file: it is a gradient,
@@ -578,7 +613,7 @@ function seedHuts(hm: Heightmap): Array<[number, number]> {
  * it finishes, so nothing here depends on a snapshot arriving to notice.
  */
 function Structures() {
-  const buildings = useStableGame((s) => s.buildings);
+  const buildings = useWorldBuildings();
   // Models from files arrive after the scene: bake again when they do.
   const modelVersion = useModelLibrary((s) => s.version);
   useEffect(() => {
@@ -603,7 +638,7 @@ function Structures() {
   }, [buildings, now]);
 
   // Lift stations face along their line, open side toward the other end.
-  const lifts = useStableGame((s) => s.lifts);
+  const lifts = useWorldLifts();
   const yaws = useMemo(() => {
     const out = new Map<string, number>();
     for (const l of lifts) {
@@ -921,7 +956,7 @@ interface Rider {
 }
 
 function Lifts() {
-  const lifts = useStableGame((s) => s.lifts);
+  const lifts = useWorldLifts();
   const hm = getHeightmap();
   const selectEntity = useGame((s) => s.selectEntity);
   const budget = carrierBudget(lifts.length);
@@ -1290,6 +1325,9 @@ function pistePoints(p: Pick<PlacedPiste, "hexes">, hm: Heightmap) {
   });
 }
 
+/** What a neighbour's run colours are mixed toward. */
+const NEIGHBOUR_TINT = new THREE.Color("#c9d3dc");
+
 const PISTE_COLOR: Record<string, string> = {
   blue: "#2b7de9",
   red: "#d64545",
@@ -1310,8 +1348,8 @@ const ROAD_WIDTH = 1.3;
  * the same as the two flat strips they replace.
  */
 function Pistes() {
-  const pistes = useStableGame((s) => s.pistes);
-  const lifts = useStableGame((s) => s.lifts);
+  const pistes = useWorldPistes();
+  const lifts = useWorldLifts();
   const draft = useGame((s) => s.pisteDraft);
   const layer = useGame((s) => s.layer);
   const quality = useGame((s) => s.quality);
@@ -1360,6 +1398,8 @@ function Pistes() {
       const width =
         p.difficulty === "park" ? PARK_WIDTH : road ? ROAD_WIDTH : RUN_WIDTH * RIBBON_SCALE[p.width ?? 2];
       const color = new THREE.Color(PISTE_COLOR[p.difficulty] ?? "#2b7de9");
+      // A neighbour's runs in paler colours: theirs, not yours.
+      if (neighbourOf(p.id)) color.lerp(NEIGHBOUR_TINT, 0.45);
       // Where it branches off or flows into another run, it meets it
       // tangentially and melts into it.
       const joined = road ? { points: line.points, fadeIn: 0, fadeOut: 0 } : joinRun(line, runLines, near);
@@ -1473,7 +1513,7 @@ function MarkerPoles({ poles }: { poles: Pole[] }) {
 const TMP_POLE = new THREE.Object3D();
 
 function Skiers() {
-  const pistes = useStableGame((s) => s.pistes);
+  const pistes = useWorldPistes();
   const hm = getHeightmap();
   const paths = useMemo(() => pistes.filter((p) => p.hexes.length >= 2).map((p) => pistePoints(p, hm)), [pistes, hm]);
   const count = Math.min(56, Math.max(8, paths.length * 6));
@@ -2215,6 +2255,7 @@ export function SkiScene() {
       <MapMarks />
       <AlbumCapture />
       <PeakLabels />
+      <NeighbourLabels />
       <Snowfall on={weather === "snow" || weather === "storm"} />
     </Canvas>
   );
