@@ -1,47 +1,8 @@
-import { createNoise2D } from "simplex-noise";
-import { getDem } from "@ski/shared";
-// Explicit extension so the node test runner can load this module directly,
-// the same convention packages/shared uses. Vite resolves it either way.
-import { mulberry32, seedFromString } from "./rng.ts";
+import { getDem, type RegionGeo } from "@ski/shared";
 
 export const WORLD_SIZE = 196;
 export const MAP_RES = 192;
 export const ALPINE_SEED = "zermatt-alpina-wallis-2026";
-
-export interface Peak {
-  id: string;
-  name: string;
-  elev: number;
-  lat: number;
-  lon: number;
-  x: number;
-  z: number;
-  radius: number;
-  sharpness: number;
-}
-
-/** Real Walliser Gipfel, komprimiert in eine spielbare Schüssel. */
-export const PEAKS: Peak[] = [
-  { id: "matterhorn", name: "Matterhorn", elev: 4478, lat: 45.9763, lon: 7.6586, x: -46, z: -58, radius: 30, sharpness: 1.85 },
-  { id: "klein", name: "Klein Matterhorn", elev: 3883, lat: 45.9384, lon: 7.7297, x: 6, z: -64, radius: 22, sharpness: 1.35 },
-  { id: "breithorn", name: "Breithorn", elev: 4164, lat: 45.941, lon: 7.748, x: 34, z: -60, radius: 24, sharpness: 1.2 },
-  { id: "gornergrat", name: "Gornergrat", elev: 3135, lat: 45.9836, lon: 7.7847, x: 36, z: -18, radius: 20, sharpness: 0.95 },
-  { id: "rothorn", name: "Unterrothorn", elev: 3103, lat: 46.021, lon: 7.81, x: 52, z: 4, radius: 16, sharpness: 1.05 },
-  { id: "riffelhorn", name: "Riffelhorn", elev: 2928, lat: 45.982, lon: 7.76, x: 14, z: -30, radius: 10, sharpness: 1.45 },
-  { id: "stockhorn", name: "Stockhorn", elev: 3532, lat: 45.967, lon: 7.8, x: 48, z: -38, radius: 14, sharpness: 1.25 },
-];
-
-export const VILLAGE = { name: "Alpina Dorf", x: -4, z: 40, elev: 1608 };
-export const LAKE = { name: "Riffelsee", x: 22, z: -24, elev: 2757, radius: 9.5 };
-
-const RIDGES: [string, string][] = [
-  ["matterhorn", "klein"],
-  ["klein", "breithorn"],
-  ["breithorn", "stockhorn"],
-  ["gornergrat", "rothorn"],
-  ["riffelhorn", "gornergrat"],
-  ["klein", "riffelhorn"],
-];
 
 export interface Heightmap {
   n: number;
@@ -52,147 +13,21 @@ export interface Heightmap {
   worldY: (x: number, z: number) => number;
   slope: (x: number, z: number) => number;
   isWater: (x: number, z: number) => boolean;
+  /** Village, peaks, lake and horizon of the map. */
+  region: RegionGeo;
 }
 
 export function metersToWorldY(m: number) {
   return (m - 1560) * 0.0215;
 }
 
-function peakHeight(p: Peak, x: number, z: number) {
-  const dx = x - p.x;
-  const dz = z - p.z;
-  const n = Math.sqrt(dx * dx + dz * dz) / p.radius;
-  if (n > 3.2) return 0;
-  return p.elev * Math.exp(-Math.pow(n, p.sharpness));
-}
-
-function distToSegment(px: number, pz: number, ax: number, az: number, bx: number, bz: number) {
-  const abx = bx - ax;
-  const abz = bz - az;
-  const len2 = abx * abx + abz * abz || 1;
-  let t = ((px - ax) * abx + (pz - az) * abz) / len2;
-  t = Math.max(0, Math.min(1, t));
-  const qx = ax + abx * t;
-  const qz = az + abz * t;
-  return { d: Math.hypot(px - qx, pz - qz), t };
-}
-
-function fbm(noise: (x: number, y: number) => number, x: number, z: number, octaves = 5) {
-  let v = 0;
-  let a = 1;
-  let f = 1;
-  let n = 0;
-  for (let i = 0; i < octaves; i++) {
-    v += a * noise(x * f, z * f);
-    n += a;
-    a *= 0.5;
-    f *= 2.05;
-  }
-  return v / n;
-}
-
-export function createHeightmap(seed = ALPINE_SEED): Heightmap {
-  const rng = mulberry32(seedFromString(seed));
-  const noise = createNoise2D(rng);
-  const ridgeNoise = createNoise2D(mulberry32(seedFromString(seed + "-ridge")));
-  const n = MAP_RES;
-  const world = WORLD_SIZE;
-  const elev = new Float32Array(n * n);
-  const water = new Uint8Array(n * n);
-  const peakById = Object.fromEntries(PEAKS.map((p) => [p.id, p]));
-
-  for (let iz = 0; iz < n; iz++) {
-    for (let ix = 0; ix < n; ix++) {
-      const x = (ix / (n - 1) - 0.5) * world;
-      const z = (iz / (n - 1) - 0.5) * world;
-
-      const trough = 1588 + Math.pow(Math.abs(x + 2) / 26, 1.85) * 520;
-      const north = Math.max(0, -z - 8) * 9.5;
-      let h = trough + north * 0.18;
-
-      for (const p of PEAKS) {
-        h = Math.max(h, peakHeight(p, x, z));
-      }
-
-      for (const [aId, bId] of RIDGES) {
-        const a = peakById[aId];
-        const b = peakById[bId];
-        if (!a || !b) continue;
-        const { d, t } = distToSegment(x, z, a.x, a.z, b.x, b.z);
-        const ridgeH = a.elev * (1 - t) + b.elev * t;
-        const width = 7 + (1 - Math.abs(t - 0.5) * 2) * 4;
-        if (d < width * 2.4) {
-          const w = Math.exp(-Math.pow(d / width, 2));
-          h = Math.max(h, ridgeH * 0.72 * w + h * (1 - w * 0.55));
-        }
-      }
-
-      const warp = fbm(ridgeNoise, x * 0.012, z * 0.012, 3);
-      h += fbm(noise, x * 0.018 + warp * 0.4, z * 0.018, 5) * (55 + h * 0.018);
-
-      const edge = Math.max(Math.abs(x), Math.abs(z)) / (world * 0.5);
-      if (edge > 0.78) {
-        h += Math.pow((edge - 0.78) / 0.22, 1.6) * 900;
-      }
-
-      const ld = Math.hypot(x - LAKE.x, z - LAKE.z);
-      if (ld < LAKE.radius * 1.35) {
-        const k = 1 - Math.min(1, ld / (LAKE.radius * 1.35));
-        h = h * (1 - k) + LAKE.elev * k;
-        if (ld < LAKE.radius * 0.92) {
-          h = LAKE.elev - 6;
-          water[iz * n + ix] = 1;
-        }
-      }
-
-      const vd = Math.hypot(x - VILLAGE.x, z - VILLAGE.z);
-      if (vd < 16) {
-        const k = 1 - vd / 16;
-        h = h * (1 - k * 0.55) + VILLAGE.elev * (k * 0.55);
-      }
-
-      elev[iz * n + ix] = h;
-    }
-  }
-
-  const sample = (x: number, z: number) => {
-    const u = (x / world + 0.5) * (n - 1);
-    const v = (z / world + 0.5) * (n - 1);
-    const x0 = Math.max(0, Math.min(n - 2, Math.floor(u)));
-    const z0 = Math.max(0, Math.min(n - 2, Math.floor(v)));
-    const tx = u - x0;
-    const tz = v - z0;
-    const e00 = elev[z0 * n + x0];
-    const e10 = elev[z0 * n + x0 + 1];
-    const e01 = elev[(z0 + 1) * n + x0];
-    const e11 = elev[(z0 + 1) * n + x0 + 1];
-    return e00 * (1 - tx) * (1 - tz) + e10 * tx * (1 - tz) + e01 * (1 - tx) * tz + e11 * tx * tz;
-  };
-
-  const worldY = (x: number, z: number) => metersToWorldY(sample(x, z));
-
-  const slope = (x: number, z: number) => {
-    const d = 1.2;
-    const dx = worldY(x + d, z) - worldY(x - d, z);
-    const dz = worldY(x, z + d) - worldY(x, z - d);
-    return Math.hypot(dx, dz) / (2 * d);
-  };
-
-  const isWater = (x: number, z: number) => {
-    const u = Math.round((x / world + 0.5) * (n - 1));
-    const v = Math.round((z / world + 0.5) * (n - 1));
-    if (u < 0 || v < 0 || u >= n || v >= n) return false;
-    return water[v * n + u] === 1;
-  };
-
-  return { n, world, elev, water, sample, worldY, slope, isWater };
-}
-
-let cached: Heightmap | null = null;
+const cached = new WeakMap<object, Heightmap>();
+/** The active map's ground, for drawing (see `getDem`). */
 export function getHeightmap(): Heightmap {
-  if (!cached) {
-    const dem = getDem();
-    cached = {
+  const dem = getDem();
+  let hm = cached.get(dem);
+  if (!hm) {
+    hm = {
       n: dem.n,
       world: dem.world,
       elev: dem.elev,
@@ -201,9 +36,11 @@ export function getHeightmap(): Heightmap {
       worldY: dem.worldY,
       slope: dem.slope,
       isWater: dem.isWater,
+      region: dem.region,
     };
+    cached.set(dem, hm);
   }
-  return cached;
+  return hm;
 }
 
 /** Render-only micro-relief. Never used by validate/sim. */
@@ -243,7 +80,7 @@ export function biomeAt(hm: Heightmap, x: number, z: number): Biome {
   if (hm.isWater(x, z)) return "ice";
   const m = hm.sample(x, z);
   const s = hm.slope(x, z);
-  const vd = Math.hypot(x - VILLAGE.x, z - VILLAGE.z);
+  const vd = Math.hypot(x - hm.region.village.x, z - hm.region.village.z);
   if (vd < 14 && m < 1900 && s < 0.16) return "village";
   if (s > 0.62) return "rock";
   if (m > 3500 && s < 0.3) return "glacier";
@@ -334,7 +171,7 @@ export function terrainColor(
   c = mix(c, GROUND.rock, smoothstep(0.7, 1.15, s));
 
   // The valley floor around the village reads as settled land.
-  const vd = Math.hypot(x - VILLAGE.x, z - VILLAGE.z);
+  const vd = Math.hypot(x - hm.region.village.x, z - hm.region.village.z);
   c = mix(c, GROUND.village, (1 - smoothstep(6, 16, vd)) * (1 - smoothstep(0.1, 0.3, s)) * 0.75);
 
   // Relief baked into the colour, so form survives flat lighting.

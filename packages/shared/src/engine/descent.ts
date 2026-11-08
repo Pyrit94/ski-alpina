@@ -3,7 +3,7 @@ import { BY_ID } from "../../../config/src/items.ts";
 import { hexDistance, hexesInRange, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { PlacedLift, ResortState } from "../types.ts";
-import { buildResortGraph, VILLAGE_HEX, type LiftLink, type PisteLink } from "./graph.ts";
+import { buildResortGraph, type LiftLink, type PisteLink } from "./graph.ts";
 import { routeToAny, type RouteTarget } from "./piste-route.ts";
 
 /**
@@ -44,7 +44,7 @@ export function resortLinks(state: ResortState, dem: Dem): Map<string, EdgeLink>
   const graph = buildResortGraph({
     lifts: state.lifts,
     pistes: state.pistes,
-    demands: [{ hex: VILLAGE_HEX, perHour: 1 }, ...exits.map((hex) => ({ hex, perHour: 1 }))],
+    demands: [{ hex: dem.region.villageHex, perHour: 1 }, ...exits.map((hex) => ({ hex, perHour: 1 }))],
     exits,
     dem,
   });
@@ -74,7 +74,7 @@ export function descentGoals(
     seen.add(k);
     out.push(hex);
   };
-  const places = [VILLAGE_HEX, ...state.lifts.map((l) => liftEnds(dem, l).base), ...doors(state)];
+  const places = [dem.region.villageHex, ...state.lifts.map((l) => liftEnds(dem, l).base), ...doors(state)];
   for (const p of places) for (const h of hexesInRange(p, 1)) add(h);
   for (const p of state.pistes) {
     if (p.difficulty === "road" || links.get(p.id) === "dead-end") continue;

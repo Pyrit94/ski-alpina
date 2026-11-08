@@ -1,4 +1,22 @@
 import { LAKE, PEAKS, RIDGES, TERRAIN, VILLAGE } from "../../../config/src/terrain.ts";
+import { CLASSIC_REGION, REGION_BY_ID, VILLAGE_GAME_ELEV, type RegionDef } from "../../../config/src/regions.ts";
+import { worldToHex, type Axial } from "../hex.ts";
+
+/** What makes one map this map: its village, its peaks, its horizon. */
+export interface RegionGeo {
+  id: string;
+  name: string;
+  village: { name: string; x: number; z: number };
+  /** The village's hex: where guests arrive and runs can end. */
+  villageHex: Axial;
+  /** Labelled summits, `elev` in real metres. */
+  peaks: { name: string; x: number; z: number; elev: number }[];
+  /** Gameplay metres = real metres + offset (see config/regions.ts). */
+  offset: number;
+  lake: { x: number; z: number; elev: number; radius: number } | null;
+  /** The land around the play window, gameplay metres, centred on it. */
+  far: { n: number; world: number; elev: Float32Array } | null;
+}
 
 export interface Dem {
   n: number;
@@ -10,6 +28,7 @@ export interface Dem {
   aspect: (x: number, z: number) => number;
   isWater: (x: number, z: number) => boolean;
   worldY: (x: number, z: number) => number;
+  region: RegionGeo;
 }
 
 function peakHeight(
@@ -91,6 +110,23 @@ export function generateDem(): Dem {
     }
   }
 
+  return makeDem(n, world, elev, water, CLASSIC_GEO);
+}
+
+/** The hand-made valley the game started with, as a region. */
+const CLASSIC_GEO: RegionGeo = {
+  id: CLASSIC_REGION,
+  name: "Alpina",
+  village: { name: "Alpina Dorf", x: VILLAGE.x, z: VILLAGE.z },
+  villageHex: worldToHex(VILLAGE.x, VILLAGE.z),
+  peaks: PEAKS.map((p) => ({ name: p.name, x: p.x, z: p.z, elev: p.elev })),
+  offset: 0,
+  lake: { x: LAKE.x, z: LAKE.z, elev: LAKE.elev, radius: LAKE.radius },
+  far: null,
+};
+
+/** Build the sampling functions over an elevation grid. */
+function makeDem(n: number, world: number, elev: Float32Array, water: Uint8Array, region: RegionGeo): Dem {
   const sample = (x: number, z: number) => {
     const u = (x / world + 0.5) * (n - 1);
     const v = (z / world + 0.5) * (n - 1);
@@ -130,13 +166,139 @@ export function generateDem(): Dem {
 
   const worldY = (x: number, z: number) => (sample(x, z) - TERRAIN.minPlayElev) * TERRAIN.metersToWorldY;
 
-  return { n, world, elev, water, sample, slope, aspect, isWater, worldY };
+  return { n, world, elev, water, sample, slope, aspect, isWater, worldY, region };
 }
 
-let cached: Dem | null = null;
-export function getDem(): Dem {
-  cached ??= generateDem();
-  return cached;
+/** World x/z of a lat/lon in a region: +x east, +z south (see scripts/build-regions.mjs). */
+export function regionPoint(def: RegionDef, lat: number, lon: number): { x: number; z: number } {
+  const east = (lon - def.center.lon) * 111320 * Math.cos((def.center.lat * Math.PI) / 180);
+  const north = (lat - def.center.lat) * 110574;
+  return { x: east / TERRAIN.metresPerWorldUnit, z: -north / TERRAIN.metresPerWorldUnit };
+}
+
+/** How far a labelled summit may move to land on the true top, in km. */
+const PEAK_SNAP_KM = 1.0;
+
+function summitNear(dem: Dem, at: { x: number; z: number }): { x: number; z: number; elev: number } {
+  const reach = (PEAK_SNAP_KM * 1000) / TERRAIN.metresPerWorldUnit;
+  const step = dem.world / (dem.n - 1);
+  let best = { x: at.x, z: at.z, elev: dem.sample(at.x, at.z) };
+  for (let dz = -reach; dz <= reach; dz += step) {
+    for (let dx = -reach; dx <= reach; dx += step) {
+      if (dx * dx + dz * dz > reach * reach) continue;
+      const x = at.x + dx;
+      const z = at.z + dz;
+      if (Math.abs(x) > dem.world / 2 || Math.abs(z) > dem.world / 2) continue;
+      const e = dem.sample(x, z);
+      if (e > best.elev) best = { x, z, elev: e };
+    }
+  }
+  return { ...best, elev: Math.round(best.elev) };
+}
+
+function decodeInt16(b64: string): Int16Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Int16Array(bytes.buffer);
+}
+
+export interface RegionData {
+  near: { n: number; world: number; b64: string };
+  far: { n: number; world: number; b64: string };
+}
+
+/** A real region's DEM from its baked data. Elevations become gameplay metres. */
+export function regionDem(def: RegionDef, data: RegionData): Dem {
+  const n = data.near.n;
+  const world = data.near.world;
+  const real = decodeInt16(data.near.b64);
+  const raw = makeDem(n, world, Float32Array.from(real), new Uint8Array(n * n), {
+    id: def.id,
+    name: def.name,
+    village: { name: def.village.name, ...regionPoint(def, def.village.lat, def.village.lon) },
+    villageHex: { q: 0, r: 0 },
+    peaks: [],
+    offset: 0,
+    lake: null,
+    far: null,
+  });
+  const village = regionPoint(def, def.village.lat, def.village.lon);
+  const offset = Math.round(VILLAGE_GAME_ELEV - raw.sample(village.x, village.z));
+  const elev = Float32Array.from(real, (v) => v + offset);
+  const farReal = decodeInt16(data.far.b64);
+  const region: RegionGeo = {
+    id: def.id,
+    name: def.name,
+    village: { name: def.village.name, ...village },
+    villageHex: worldToHex(village.x, village.z),
+    // A name goes on the summit itself: the highest ground within
+    // PEAK_SNAP_KM of the given point, which forgives a rounded coordinate.
+    peaks: def.peaks.map((p) => ({ name: p.name, ...summitNear(raw, regionPoint(def, p.lat, p.lon)) })),
+    offset,
+    lake: null,
+    far: { n: data.far.n, world: data.far.world, elev: Float32Array.from(farReal, (v) => v + offset) },
+  };
+  return makeDem(n, world, elev, new Uint8Array(n * n), region);
+}
+
+/** Region id → its baked data, loaded on demand (one chunk per region in the browser). */
+const REGION_DATA: Record<string, () => Promise<RegionData>> = {
+  zermatt: () => import("./regions/zermatt.ts"),
+  "flims-laax": () => import("./regions/flims-laax.ts"),
+  "st-moritz": () => import("./regions/st-moritz.ts"),
+  davos: () => import("./regions/davos.ts"),
+  arosa: () => import("./regions/arosa.ts"),
+  verbier: () => import("./regions/verbier.ts"),
+  "saas-fee": () => import("./regions/saas-fee.ts"),
+  engelberg: () => import("./regions/engelberg.ts"),
+  grindelwald: () => import("./regions/grindelwald.ts"),
+  andermatt: () => import("./regions/andermatt.ts"),
+  "st-anton": () => import("./regions/st-anton.ts"),
+  chamonix: () => import("./regions/chamonix.ts"),
+};
+
+const dems = new Map<string, Dem>();
+let active = CLASSIC_REGION;
+
+/** Whether a region id names a map this build can load. */
+export function knownRegion(id: string | undefined | null): boolean {
+  return !id || id === CLASSIC_REGION || id in REGION_DATA;
+}
+
+/** Load a region's DEM (once). The classic valley needs no loading. */
+export async function loadRegion(id: string = CLASSIC_REGION): Promise<Dem> {
+  const have = dems.get(id);
+  if (have) return have;
+  if (id === CLASSIC_REGION || !(id in REGION_DATA)) return getDem(CLASSIC_REGION);
+  const def = REGION_BY_ID[id];
+  if (!def) return getDem(CLASSIC_REGION);
+  const dem = regionDem(def, await REGION_DATA[id]!());
+  dems.set(id, dem);
+  return dem;
+}
+
+/** Every region, for a server that must serve any game without waiting. */
+export async function loadAllRegions(): Promise<void> {
+  await Promise.all(Object.keys(REGION_DATA).map((id) => loadRegion(id)));
+}
+
+/** The map the client is showing; `getDem()` without an id answers with it. */
+export function setActiveRegion(id: string): void {
+  active = dems.has(id) ? id : CLASSIC_REGION;
+}
+
+/**
+ * A region's DEM, which must have been loaded (see `loadRegion`). Without an
+ * id: the active one. Unknown or unloaded regions fall back to the classic
+ * valley rather than throwing in the middle of a frame.
+ */
+export function getDem(id: string = active): Dem {
+  const have = dems.get(id);
+  if (have) return have;
+  const classic = dems.get(CLASSIC_REGION) ?? generateDem();
+  dems.set(CLASSIC_REGION, classic);
+  return classic;
 }
 
 export function encodeTerrainRgb(dem: Dem): Uint8Array {

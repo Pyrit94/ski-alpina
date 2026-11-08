@@ -5,7 +5,7 @@ import { BY_ID } from "../../../config/src/items.ts";
 import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { FlowEdgeViz, PlacedPiste, ResortState, RoundModifiers, SimStats } from "../types.ts";
-import { buildResortGraph, pisteUse, VILLAGE_HEX, type DemandSource } from "./graph.ts";
+import { buildResortGraph, pisteUse, type DemandSource } from "./graph.ts";
 import { pisteUpkeep } from "./level.ts";
 import { pisteWidthDraw } from "./piste-width.ts";
 import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
@@ -117,7 +117,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
 
   // The doors guests come in through. Demand beyond them is turned away.
   const arrivals: { hex: Axial; perHour: number; id?: string }[] = [
-    { hex: VILLAGE_HEX, perHour: ECONOMY.villageArrivalsPerHour },
+    { hex: dem.region.villageHex, perHour: ECONOMY.villageArrivalsPerHour },
   ];
   const exits: Axial[] = [];
   for (const b of buildings) {
@@ -143,7 +143,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   ];
   const linked = (hex: Axial) => ports.some((p) => hexDistance(p, hex) <= FLOW.linkRadius);
   const demands: DemandSource[] = arrivals.map((a) => ({
-    hex: linked(a.hex) ? a.hex : VILLAGE_HEX,
+    hex: linked(a.hex) ? a.hex : dem.region.villageHex,
     perHour: doorCapacity > 0 ? (admitted * a.perHour) / doorCapacity : 0,
   }));
 

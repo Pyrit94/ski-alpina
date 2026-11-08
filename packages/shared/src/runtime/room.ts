@@ -9,6 +9,7 @@ import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import { getDem } from "../terrain/dem.ts";
+import { CLASSIC_REGION } from "../../../config/src/regions.ts";
 import type { Axial } from "../hex.ts";
 import type { ChatEntry, MapMark, MarkKind, PlayerPresence, PlayerRole, ResortState } from "../types.ts";
 
@@ -57,7 +58,8 @@ export class GameRoom {
   updatedAt = Date.now();
 
   constructor(roomId: string, snapshot?: ResortState, dem?: Dem) {
-    this.dem = dem ?? getDem();
+    // Each game lives on its own map; the server loads every region at start.
+    this.dem = dem ?? getDem(snapshot?.region ?? CLASSIC_REGION);
     // Every snapshot enters the engine through here, so this is the one place
     // an older save shape has to be reconciled.
     this.state = snapshot ? migrateResort(snapshot, roomId) : emptyResort(roomId);

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { createNoise2D } from "simplex-noise";
-import { surfaceY, VILLAGE, type Heightmap, type ScatterPoint } from "@/lib/game/alpine";
+import { metersToWorldY, surfaceY, type Heightmap, type ScatterPoint } from "@/lib/game/alpine";
 import { worldToHex } from "@/lib/game/hex";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import type { MapLayer } from "@/lib/game/types";
@@ -60,7 +60,7 @@ export function groundBase(hm: Heightmap): GroundBase {
     zs[i] = z;
     elevM[i] = hm.sample(x, z);
     slope[i] = hm.slope(x, z);
-    village[i] = Math.hypot(x - VILLAGE.x, z - VILLAGE.z);
+    village[i] = Math.hypot(x - hm.region.village.x, z - hm.region.village.z);
     water[i] = hm.isWater(x, z) ? 1 : 0;
   }
   geo.computeVertexNormals();
@@ -170,7 +170,27 @@ export function buildFarLand(hm: Heightmap, snowLineM: number, reach = 470): THR
     }
     return sum / norm;
   };
+  // A real map knows what lies around it: the same mountains, coarser, from
+  // the region's far grid — so the ranges on the horizon are the real ones and
+  // the seam is the same ground on both sides. The classic valley invents
+  // ranges instead.
+  const real = hm.region.far;
+  const sampleFar = real
+    ? (x: number, z: number) => {
+        const u = (x / real.world + 0.5) * (real.n - 1);
+        const v = (z / real.world + 0.5) * (real.n - 1);
+        const x0 = Math.max(0, Math.min(real.n - 2, Math.floor(u)));
+        const z0 = Math.max(0, Math.min(real.n - 2, Math.floor(v)));
+        const tx = Math.min(1, Math.max(0, u - x0));
+        const tz = Math.min(1, Math.max(0, v - z0));
+        const e = (ix: number, iz: number) => real.elev[iz * real.n + ix]!;
+        const m =
+          e(x0, z0) * (1 - tx) * (1 - tz) + e(x0 + 1, z0) * tx * (1 - tz) + e(x0, z0 + 1) * (1 - tx) * tz + e(x0 + 1, z0 + 1) * tx * tz;
+        return metersToWorldY(m);
+      }
+    : null;
   const far = (x: number, z: number, out: number) => {
+    if (sampleFar) return sampleFar(x, z);
     // Ranges grow with distance, so the nearest land meets the rim gently and
     // the skyline is carried by the far ring.
     const grow = Math.min(1, out / 230);
@@ -192,7 +212,9 @@ export function buildFarLand(hm: Heightmap, snowLineM: number, reach = 470): THR
         const cx = THREE.MathUtils.clamp(x, -half, half);
         const cz = THREE.MathUtils.clamp(z, -half, half);
         const rim = surfaceY(hm, cx, cz);
-        const k = THREE.MathUtils.smoothstep(out, 0, 46);
+        // Real ground matches at the seam already; only smooth the step
+        // between the fine play grid and the coarse far grid.
+        const k = THREE.MathUtils.smoothstep(out, 0, real ? 12 : 46);
         y = rim + (far(x, z, out) - rim) * k;
         // Just below the seam so the map's own edge wins any depth tie, and
         // deep enough that the rim between two seam vertices never dips

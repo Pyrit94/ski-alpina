@@ -17,6 +17,8 @@ import { createServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import pg from "pg";
 import { GameRoom, PERSIST_MS, TICK_MS } from "../packages/shared/src/runtime/room.ts";
+import { emptyResort } from "../packages/shared/src/engine/state.ts";
+import { loadAllRegions } from "../packages/shared/src/terrain/dem.ts";
 import {
   canSee,
   handleLobby,
@@ -64,9 +66,10 @@ const saveStore = pool
   ? new SqlSaveStore(async (text, params) => (await pool.query(text, params)).rows)
   : new MemorySaveStore();
 
-function createRoom(id, meta) {
-  const room = getRoom(id);
+function createRoom(id, meta, region) {
+  const room = new GameRoom(id, emptyResort(id, region));
   room.meta = meta;
+  rooms.set(id, room);
   return room;
 }
 
@@ -90,6 +93,8 @@ function getRoom(id) {
  * and left untouched in the table, rather than taking every other resort down.
  */
 async function hydrate() {
+  // Every game's map must be in memory before its room is built.
+  await loadAllRegions();
   if (!pool) return;
   let rows;
   try {

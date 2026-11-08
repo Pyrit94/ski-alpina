@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { GAME_NAME_MAX, type GameInfo, type GameKind, type SaveInfo } from "@ski/shared";
 import { summaryLine, when } from "@/lib/game/saves-format";
 import { lobbyRequest } from "@/lib/game/net";
+import { REGION_BY_ID, REGIONS } from "@ski/config";
+import { RegionPicker } from "./RegionPicker";
 import { useGame } from "@/lib/game/store";
 
 type Confirm = { kind: "load" | "delete"; save: SaveInfo } | null;
@@ -23,6 +25,7 @@ export function GamePicker({ playerName }: { playerName: string }) {
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [busy, setBusy] = useState(false);
   const [newName, setNewName] = useState("");
+  const [region, setRegion] = useState(REGIONS[0]!.id);
 
   useEffect(() => {
     let live = true;
@@ -60,7 +63,7 @@ export function GamePicker({ playerName }: { playerName: string }) {
     });
   const create = (kind: GameKind) =>
     run(async () => {
-      const r = await lobbyRequest({ type: "create_game", kind, ...(newName.trim() ? { name: newName.trim() } : {}) });
+      const r = await lobbyRequest({ type: "create_game", kind, region, ...(newName.trim() ? { name: newName.trim() } : {}) });
       if (r.created) play(r.created);
     });
 
@@ -105,7 +108,10 @@ export function GamePicker({ playerName }: { playerName: string }) {
         {...{ open, setOpen, confirm, setConfirm, busy, play, load, remove }}
       />
       <div className="rounded-[20px] bg-snow/10 p-3 ring-1 ring-snow/15">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-ice">Neues Spiel</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-ice">Neues Spiel · Wo wollt ihr bauen?</div>
+        <div className="mt-2">
+          <RegionPicker value={region} onChange={setRegion} />
+        </div>
         <input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
@@ -178,7 +184,10 @@ function GameGroup({
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[15px] font-semibold text-snow">{g.name}</div>
-                  <div className="mt-0.5 text-[11px] leading-snug text-ice">{summaryLine(g.summary)}</div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-ice">
+                    <span className="font-semibold text-snow">{REGION_BY_ID[g.region]?.name ?? "Alpina (klassisch)"}</span> ·{" "}
+                    {summaryLine(g.summary)}
+                  </div>
                   <div className="mt-0.5 text-[11px] text-ice/80">
                     Zuletzt gespielt {when(g.updatedAt)}
                     {g.online > 0 && <span className="font-semibold text-[#9be3b4]"> · {g.online} online</span>}

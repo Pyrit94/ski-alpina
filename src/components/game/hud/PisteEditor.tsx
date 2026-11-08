@@ -32,6 +32,7 @@ import {
   usePisteEditor,
 } from "@/lib/game/piste-editor";
 import { useResortLinks } from "@/lib/game/links";
+import { realMetres } from "@/lib/game/real-height";
 import { useGame } from "@/lib/game/store";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
 
@@ -133,7 +134,7 @@ function ElevationProfile({ draft, snowLineM, compact }: { draft: readonly Axial
   const snowInside = snowLineM >= lo && snowLineM <= lo + span;
   const area = `M${x(0)},${H} ${elev.map((e, i) => `L${x(i)},${y(e)}`).join(" ")} L${x(elev.length - 1)},${H} Z`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }} role="img" aria-label={`Höhenprofil: ${fmt(Math.round(hi))} m bis ${fmt(Math.round(lo))} m`}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }} role="img" aria-label={`Höhenprofil: ${fmt(realMetres(hi))} m bis ${fmt(realMetres(lo))} m`}>
       <path d={area} fill="#e8f3fb" />
       {grades.map((g, i) => (
         <line
@@ -149,7 +150,7 @@ function ElevationProfile({ draft, snowLineM, compact }: { draft: readonly Axial
       ))}
       <line x1={0} x2={W} y1={snowY} y2={snowY} stroke="#7C8DA6" strokeWidth={1} strokeDasharray="4 3" />
       <text x={W - 2} y={snowY - 3} textAnchor="end" fontSize={9} fill="#7C8DA6">
-        {snowInside ? "" : snowLineM > hi ? "↑ " : "↓ "}Schneegrenze {fmt(snowLineM)} m
+        {snowInside ? "" : snowLineM > hi ? "↑ " : "↓ "}Schneegrenze {fmt(realMetres(snowLineM))} m
       </text>
     </svg>
   );

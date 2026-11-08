@@ -1,5 +1,7 @@
 import { ClientMessageSchema, type ServerMessage } from "@ski/shared";
 import { GameRoom, PERSIST_MS, TICK_MS } from "../../../../packages/shared/src/runtime/room.ts";
+import { emptyResort } from "../../../../packages/shared/src/engine/state.ts";
+import { loadAllRegions } from "../../../../packages/shared/src/terrain/dem.ts";
 import {
   canSee,
   handleLobby,
@@ -38,13 +40,16 @@ export function getRoom(roomId: string): GameRoom {
 /** Save points, in the same database as the resorts. */
 const saveStore = new SqlSaveStore(async (text, params) => (await getSql()).query(text, params));
 
-function createRoom(id: string, meta: GameMeta): GameRoom {
-  const room = getRoom(id);
+function createRoom(id: string, meta: GameMeta, region: string): GameRoom {
+  const room = new GameRoom(id, emptyResort(id, region));
   room.meta = meta;
+  rooms.set(id, room);
   return room;
 }
 
 export async function hydrateRooms(): Promise<void> {
+  // Every game's map must be in memory before its room is built.
+  await loadAllRegions();
   try {
     const sql = await getSql();
     const rows = await sql.query<{ id: string; snapshot: unknown; kind?: string; owner?: string | null; updated_at?: unknown }>(

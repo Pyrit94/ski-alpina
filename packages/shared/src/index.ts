@@ -41,8 +41,8 @@ export type {
 } from "./types.ts";
 export { MAX_PISTE_HEXES, IntentSchema, ClientMessageSchema, ServerMessageSchema, ItemIdSchema, AxialSchema } from "./protocol/intents.ts";
 export type { Intent, ClientMessage, ServerMessage } from "./protocol/intents.ts";
-export { generateDem, getDem, encodeTerrainRgb, decodeTerrainRgbSample } from "./terrain/dem.ts";
-export type { Dem } from "./terrain/dem.ts";
+export { generateDem, getDem, encodeTerrainRgb, decodeTerrainRgbSample, knownRegion, loadAllRegions, loadRegion, regionPoint, setActiveRegion } from "./terrain/dem.ts";
+export type { Dem, RegionGeo } from "./terrain/dem.ts";
 export {
   xpForLevel,
   levelFromXp,

@@ -4,13 +4,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import {
   getHeightmap,
-  LAKE,
   metersToWorldY,
-  PEAKS,
   scatterRocks,
   scatterTrees,
   surfaceY,
-  VILLAGE,
   type Heightmap,
 } from "@/lib/game/alpine";
 import { ECONOMY } from "@/lib/game/catalog";
@@ -39,6 +36,8 @@ import { useTexturePack } from "./texture-pack";
 import { AlbumCapture } from "./AlbumCapture";
 import { QUALITY, type QualityTier } from "./quality";
 import { useStableGame } from "./use-stable-game";
+import { openingView } from "./view";
+import { alongPath, cachedValleyRoad, pathLength } from "./valley-road";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
 import { PisteNameLabel } from "./PisteDraftLayer";
 import { LinkHints } from "./LinkHints";
@@ -297,10 +296,12 @@ function Forest({ quality }: { quality: "low" | "high" }) {
 }
 
 function Lake() {
-  const y = metersToWorldY(LAKE.elev) + 0.12;
+  const lake = getHeightmap().region.lake;
+  if (!lake) return null;
+  const y = metersToWorldY(lake.elev) + 0.12;
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[LAKE.x, y, LAKE.z]} receiveShadow>
-      <circleGeometry args={[LAKE.radius * 0.95, 40]} />
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[lake.x, y, lake.z]} receiveShadow>
+      <circleGeometry args={[lake.radius * 0.95, 40]} />
       <meshStandardMaterial color="#b9d7e6" roughness={0.22} metalness={0.18} />
     </mesh>
   );
@@ -327,18 +328,19 @@ function PeakLabels() {
   const hidden = layer === "pistes" || (stampMode && phase !== "idle");
   const style = { visibility: hidden ? ("hidden" as const) : ("visible" as const) };
   const compact = QUALITY[quality].compactLabels;
+  const { peaks, village } = hm.region;
   return (
     <>
-      {PEAKS.map((p) => (
-        <Html key={p.id} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center distanceFactor={compact ? 120 : 90} zIndexRange={LABEL_Z} style={style}>
+      {peaks.map((p) => (
+        <Html key={p.name} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center distanceFactor={compact ? 120 : 90} zIndexRange={LABEL_Z} style={style}>
           <div className="pointer-events-none whitespace-nowrap rounded-full bg-navy/70 px-2 py-0.5 text-[10px] font-medium text-snow backdrop-blur-sm">
             {compact ? p.name : `${p.name} · ${p.elev.toLocaleString("de-CH")} m`}
           </div>
         </Html>
       ))}
-      <Html position={[VILLAGE.x, surfaceY(hm, VILLAGE.x, VILLAGE.z) + 2.4, VILLAGE.z]} center distanceFactor={compact ? 110 : 80} zIndexRange={LABEL_Z} style={style}>
+      <Html position={[village.x, surfaceY(hm, village.x, village.z) + 2.4, village.z]} center distanceFactor={compact ? 110 : 80} zIndexRange={LABEL_Z} style={style}>
         <div className="pointer-events-none rounded-full bg-panel/90 px-2 py-0.5 text-[10px] font-semibold text-navy">
-          {VILLAGE.name}
+          {village.name}
         </div>
       </Html>
     </>
@@ -444,14 +446,29 @@ const DROP_MS = 700;
 /** Longest a timer is set for; `readyAt` can be MAX_SAFE_INTEGER during a match's planning round. */
 const MAX_WAIT_MS = 60_000;
 
-/** The decoration the village starts with: never selectable, always finished. */
+/**
+ * The decoration the village starts with: never selectable, always finished.
+ * As hex offsets from the village, kept where the ground is fit for a house.
+ */
 const SEED_HUTS: Array<[number, number]> = [
-  [-6, 12],
-  [0, 12],
-  [3, 11],
-  [-4, 13],
-  [2, 13],
+  [-1, 3],
+  [5, 3],
+  [8, 2],
+  [1, 4],
+  [7, 4],
+  [-3, 1],
+  [2, -2],
 ];
+
+function seedHuts(hm: Heightmap): Array<[number, number]> {
+  const v = hm.region.villageHex;
+  return SEED_HUTS.map(([dq, dr]) => [v.q + dq, v.r + dr] as [number, number])
+    .filter(([q, r]) => {
+      const { x, z } = hexToWorld(q, r);
+      return Math.abs(x) < hm.world / 2 - 4 && Math.abs(z) < hm.world / 2 - 4 && hm.slope(x, z) < 0.32;
+    })
+    .slice(0, 5);
+}
 
 /**
  * Every building on the map.
@@ -501,7 +518,7 @@ function Structures() {
       if (list) list.push(pl);
       else kinds.set(itemId, [pl]);
     };
-    SEED_HUTS.forEach(([q, r], i) => {
+    seedHuts(hm).forEach(([q, r], i) => {
       const { x, z } = hexToWorld(q, r);
       add("hut", { id: null, x, y: surfaceY(hm, x, z), z, yaw: i * 0.7 });
     });
@@ -1117,6 +1134,11 @@ function Pistes() {
       strips.push(drapedRibbon(path, { width, color, road, lift: road ? 0.08 : 0.12 }, ground));
       if (!road) poles.push(...markerPoles(path, width, color, ground, tier.poleSpacing));
     }
+    // The road into the valley rides in the same mesh: asphalt, no extra draw call.
+    const road = cachedValleyRoad(hm);
+    if (road.length > 1) {
+      strips.push(drapedRibbon(road, { width: ROAD_WIDTH * 1.15, color: new THREE.Color(PISTE_COLOR.road), road: true, lift: 0.1 }, ground));
+    }
     return { geo: mergeRibbons(strips), poles: poles.slice(0, tier.poles) };
   }, [pistes, hm, tier.poleSpacing, tier.poles]);
   useEffect(() => () => built.geo?.dispose(), [built]);
@@ -1224,21 +1246,31 @@ function Skiers() {
   );
 }
 
+/**
+ * Cars on the road into the valley: half driving in, half driving out, more
+ * of them the more car parks and bus stations there are to fill.
+ */
 function Traffic() {
   const hm = getHeightmap();
   const parking = useGame((s) => s.buildings.filter((b) => b.itemId === "parking" || b.itemId === "bus").length);
-  const n = Math.min(12, 3 + parking * 2);
+  const n = Math.min(14, 4 + parking * 2);
   const ref = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  const road = useMemo(() => cachedValleyRoad(hm), [hm]);
+  const length = useMemo(() => pathLength(road), [road]);
   useFrame(() => {
-    if (!ref.current) return;
+    if (!ref.current || length <= 0) return;
     const t = performance.now() / 1000;
     for (let i = 0; i < n; i++) {
-      const u = (t * 0.05 + i / n) % 1;
-      const x = -28 + u * 48;
-      const z = 44 + Math.sin(u * 6 + i) * 1.4;
-      dummy.position.set(x, surfaceY(hm, x, z) + 0.28, z);
-      dummy.rotation.set(0, u > 0.5 ? Math.PI : 0, 0);
+      const inbound = i % 2 === 0;
+      const u = (t * (2.4 / length) + i / n) % 1;
+      // Keep right: inbound and outbound cars a little to either side.
+      const p = alongPath(road, (inbound ? u : 1 - u) * length);
+      const side = inbound ? 0.22 : -0.22;
+      const x = p.x + Math.cos(p.angle) * side;
+      const z = p.z - Math.sin(p.angle) * side;
+      dummy.position.set(x, surfaceY(hm, x, z) + 0.26, z);
+      dummy.rotation.set(0, p.angle + (inbound ? 0 : Math.PI) - Math.PI / 2, 0);
       dummy.updateMatrix();
       ref.current.setMatrixAt(i, dummy.matrix);
     }
@@ -1663,7 +1695,7 @@ function keepCameraInWorld(camera: THREE.Camera, target: THREE.Vector3) {
 
 function Controls() {
   const quality = useGame((s) => s.quality);
-  const home = QUALITY[quality].cameraTarget;
+  const home = openingView(getHeightmap(), QUALITY[quality]).target;
   const tool = useGame((s) => s.tool);
   const phase = useGame((s) => s.phase);
   const stampMode = useGame((s) => s.stampMode);
@@ -1850,12 +1882,14 @@ export function SkiScene() {
   const quality = useGame((s) => s.quality);
   const weather = useGame((s) => s.weather.kind);
   const tier = QUALITY[quality];
+  // Computed once per map: the opening framing, not a leash.
+  const view = useMemo(() => openingView(getHeightmap(), tier), [tier]);
   return (
     <Canvas
       camera={{
         // Oblique, from behind the village looking up-valley at the peaks:
         // the village in the lower third, the Matterhorn against the sky.
-        position: tier.cameraAt,
+        position: view.at,
         fov: tier.fov,
         near: 0.5,
         // Past the sky dome from anywhere the camera may stand.
@@ -1874,7 +1908,7 @@ export function SkiScene() {
         gl.shadowMap.enabled = tier.shadows;
         // PCFSoft is gone in r18x and falls back to this anyway, with a warning.
         gl.shadowMap.type = THREE.PCFShadowMap;
-        camera.lookAt(tier.cameraTarget[0], tier.cameraTarget[1], tier.cameraTarget[2]);
+        camera.lookAt(view.target[0], view.target[1], view.target[2]);
       }}
     >
       <RenderProbe />

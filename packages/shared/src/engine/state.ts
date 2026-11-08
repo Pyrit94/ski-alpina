@@ -1,4 +1,5 @@
 import { ECONOMY } from "../../../config/src/economy.ts";
+import { CLASSIC_REGION, REGION_BY_ID } from "../../../config/src/regions.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import type {
@@ -104,11 +105,12 @@ export const DEFAULT_WEATHER: WeatherState = {
 /** Steps of the first-game tutorial: lift up, run down, guests ride. */
 export const TUTORIAL_STEPS = 3;
 
-export function emptyResort(roomId = "zermatt"): ResortState {
+export function emptyResort(roomId = "zermatt", region: string = CLASSIC_REGION): ResortState {
   return {
     version: SAVE_VERSION,
     roomId,
-    resortName: "Alpina",
+    resortName: REGION_BY_ID[region]?.name ?? "Alpina",
+    region,
     coins: ECONOMY.startingCoins,
     gems: ECONOMY.startingGems,
     stars: ECONOMY.startingStars,
