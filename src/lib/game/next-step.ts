@@ -212,3 +212,12 @@ export function nextStep(input: StepInput): NextStep | null {
   }
   return null;
 }
+
+/**
+ * Something is broken, not merely short: no lift yet, a lift nobody can ride
+ * down or reach, a run that ends nowhere, upkeep eating the takings. While
+ * one of these stands, the advisor speaks of nothing else — no feature hints.
+ */
+export function isBreakage(step: NextStep | null): boolean {
+  return !!step && step.tone === "fix" && /^(first-lift|descent-|access-|dead-end-|idle-costs)/.test(step.id);
+}

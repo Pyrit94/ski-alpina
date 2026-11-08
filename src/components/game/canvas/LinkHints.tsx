@@ -24,7 +24,7 @@ export function LinkHints() {
   const buildings = useStableGame((s) => s.buildings);
   const phase = useGame((s) => s.phase);
   const layer = useGame((s) => s.layer);
-  const autoOpen = useGame((s) => s.autoPistes !== null);
+  const autoOpen = useGame((s) => s.helper?.id === "auto");
   const links = useResortLinks();
   const hm = getHeightmap();
 

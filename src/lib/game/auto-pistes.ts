@@ -3,7 +3,7 @@ import { useGame } from "./store";
 
 /** Open «Pisten automatisch», for some lifts or (null) the whole area. */
 export function openAutoPistes(liftIds: string[] | null) {
-  useGame.setState({ autoPistes: { liftIds, mix: useGame.getState().pisteMix }, selectedId: null, sheet: "none" });
+  useGame.getState().openHelper({ id: "auto", liftIds, mix: useGame.getState().pisteMix });
 }
 
 /** The grade choices the assistant offers, also used for a new station's runs. */

@@ -27,6 +27,7 @@ import { keepIfSame } from "@/components/game/canvas/stable";
 import { CLASSIC_REGION } from "@ski/config";
 import { partners, proposalFor } from "./proposals";
 import { markOf, readMark, summarize, writeMark, type AwaySummary } from "./away";
+import { openHelperPatch, toggleHelperPatch, type HelperOpen } from "./helpers";
 import { setTerrainEdits } from "./alpine";
 import type { NotificationItem } from "./types";
 
@@ -94,16 +95,20 @@ export interface GameStore extends ResortState, UiState {
   showOverview: () => void;
   /** The new lift the «noch keine Abfahrt» card is offering a run for. */
   descentOffer: string | null;
-  /** «Pisten automatisch» while open: which lifts (null = all) and which grades. */
-  autoPistes: { liftIds: string[] | null; mix: "mixed" | "blue" | "red" | "black" } | null;
-  /** The neighbour area whose card is open (see NEIGHBOURS). */
-  neighbourOpen: string | null;
+  /**
+   * The one helper card open — «Pisten automatisch» (with its lifts and
+   * grades), «Dorf ordnen», «Pisten optimieren», a neighbour's card, the
+   * mid-station planner — or the «Assistent» hub listing them (see helpers.ts).
+   */
+  helper: HelperOpen | null;
+  /** Open a helper card (null closes); whatever helper was open closes. */
+  openHelper: (next: HelperOpen | null) => void;
+  /** Open it, or close it when it is the one open. */
+  toggleHelper: (next: HelperOpen) => void;
   /** The grades the piste assistant was last asked for; new stations' runs use them too. */
   pisteMix: "mixed" | "blue" | "red" | "black";
   /** «Während du weg warst», shown once after coming back. */
   awaySummary: AwaySummary | null;
-  /** The village optimiser's card is open. */
-  villageOpen: boolean;
   /** The moves it proposes, for the map. */
   villagePreview: { from: { q: number; r: number }; to: { q: number; r: number } }[];
   /** Research node to open the research panel on, when a locked card asks. */
@@ -480,11 +485,11 @@ export const useGame = create<GameStore>((set, get) => ({
   showOverview: () => set({ overviewAt: Date.now(), sheet: "none" }),
   regionReady: null,
   descentOffer: null,
-  autoPistes: null,
+  helper: null,
+  openHelper: (next) => set(openHelperPatch(next)),
+  toggleHelper: (next) => set(toggleHelperPatch(get().helper, next)),
   pisteMix: "mixed",
-  neighbourOpen: null,
   awaySummary: null,
-  villageOpen: false,
   villagePreview: [],
   researchFocus: null,
   autoPreview: [],
@@ -625,8 +630,11 @@ export const useGame = create<GameStore>((set, get) => ({
   selectEntity: (id) => {
     // A neighbour's lift or station: its card, not an info panel of ours.
     const neighbour = id ? neighbourOf(id) : null;
-    if (neighbour) return set({ neighbourOpen: neighbour, selectedId: null, sheet: "none", buildItem: null, phase: "idle" });
-    set({ selectedId: id, neighbourOpen: null, buildItem: null, phase: "idle", pisteDraft: [], liftStart: null });
+    if (neighbour) return set({ ...openHelperPatch({ id: "neighbour", neighbourId: neighbour }), buildItem: null, phase: "idle" });
+    // One of yours: a neighbour's card and the hub make way; the planners stay.
+    const open = get().helper;
+    const helper = open?.id === "neighbour" || open?.id === "hub" ? null : open;
+    set({ selectedId: id, helper, buildItem: null, phase: "idle", pisteDraft: [], liftStart: null });
   },
 
   clickHex: (q, r) => {

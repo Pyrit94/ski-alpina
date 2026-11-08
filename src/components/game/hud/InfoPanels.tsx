@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, MapPin, Move, Trash2, X } from "lucide-react";
+import { Move, Trash2 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { BY_ID, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, liftThroughput, seasonPhase } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
 import { BUILDING_LEVELS, PISTE_LEVELS, TERRAIN } from "@ski/config";
-import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, midStationCost, midStationSpots, missingLegs, scorePiste, STATION_LEGS, starsFor, type StationLeg, siteAt, siteContext, siteKind, widthDef, type ResortState } from "@ski/shared";
+import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, scorePiste, siteAt, siteContext, siteKind, widthDef } from "@ski/shared";
 import { RatingChip, RatingParts } from "./PisteRating";
 import { ReshapeOne } from "./Reshape";
 import { pct, siteTone } from "@/lib/game/placement";
@@ -15,15 +15,11 @@ import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
 import { useMyMoney } from "@/lib/game/team";
 import { LinkStatus } from "./LinkStatus";
 import { AutoPistesButton } from "./AutoPistes";
-import { MIXES } from "@/lib/game/auto-pistes";
-import { play } from "@/lib/game/sound";
+import { MidStationLink } from "./MidStation";
 import { realMetres } from "@/lib/game/real-height";
 import { PisteEditPanel } from "./PisteEditor";
 import { useBuildTerms } from "@/lib/game/research";
 import { useGame } from "@/lib/game/store";
-import { usePlanner } from "@/lib/game/planner";
-import { plannerState } from "@/lib/game/planner-jobs";
-import { BusyNote } from "./Calculating";
 import type { PlacedPiste } from "@/lib/game/types";
 import { sinceLabel, LOW_USE, refundFor } from "./hud-shared";
 import { ItemThumb, Panel, Stat, Warning, PlayersLine } from "./HudBits";
@@ -180,7 +176,7 @@ export function InfoPanel() {
       )}
       {lift && <LinkStatus id={lift.id} kind="lift" />}
       {lift && <AutoPistesButton liftId={lift.id} variant="link" className="mt-1" />}
-      {lift && !lift.mid && <MidStationOffer liftId={lift.id} />}
+      {lift && !lift.mid && <MidStationLink liftId={lift.id} />}
       {lift && edge && edge.link === "ok" && load < LOW_USE && <LowUseHint />}
       {isLift(item.id) && (
         <div className="mt-3">
@@ -799,190 +795,3 @@ function SiteRow({ id, itemId, q, r }: { id: string; itemId: string; q: number; 
   );
 }
 
-/**
- * «Mittelstation»: a stop part-way up, where guests get on and off and runs
- * can start or end. Three places along the line to choose from, and the runs
- * that come with it — top to stop, stop to valley, top to valley — each on or
- * off, laid out the way the piste assistant lays them out.
- */
-const LEG_LABEL: Record<StationLeg, string> = {
-  "top-mid": "Berg → Mitte",
-  "mid-base": "Mitte → Tal",
-  "top-base": "Berg → Tal",
-};
-
-function MidStationOffer({ liftId }: { liftId: string }) {
-  const lifts = useStableGame((s) => s.lifts);
-  const buildings = useStableGame((s) => s.buildings);
-  const pistes = useStableGame((s) => s.pistes);
-  const research = useStableGame((s) => s.research);
-  const mix = useGame((s) => s.pisteMix);
-  const money = useMyMoney().mine;
-  // In thousands: takings change every second, and replanning every second
-  // (the simulation, dozens of times) would make the panel stutter.
-  const budgetK = Math.floor(money / 1000);
-  const [open, setOpen] = useState(false);
-  const [pick, setPick] = useState<number | null>(null);
-  const [legs, setLegs] = useState<StationLeg[] | null>(null);
-  const spots = useMemo(() => {
-    if (!open) return [];
-    const all = midStationSpots({ ...useGame.getState(), lifts, buildings, pistes } as unknown as ResortState, getDem(), liftId);
-    if (all.length <= 3) return all;
-    return [all[Math.floor(all.length * 0.25)]!, all[Math.floor(all.length / 2)]!, all[Math.floor(all.length * 0.75)]!];
-  }, [open, lifts, buildings, pistes, liftId]);
-  const lift = lifts.find((l) => l.id === liftId);
-  const stationCost = lift ? midStationCost({ ...useGame.getState(), research } as unknown as ResortState, lift.itemId) : 0;
-  const spot = spots.length === 0 ? null : spots[pick ?? Math.floor((spots.length - 1) / 2)]!;
-  const chosen = useMemo(
-    () => legs ?? (open ? missingLegs({ ...useGame.getState(), lifts, pistes } as unknown as ResortState, getDem(), liftId) : []),
-    [legs, open, lifts, pistes, liftId],
-  );
-  // The assistant's own way of picking lines: every grade asked for, plain
-  // and with swings, judged by the simulation and the run's rating.
-  // Worked out in the planner worker, so the panel answers taps meanwhile.
-  const { result: planned, busy } = usePlanner<"station">(
-    () =>
-      open && spot
-        ? {
-            kind: "station",
-            state: plannerState(useGame.getState(), { lifts, pistes, buildings, research }),
-            liftId,
-            mid: spot,
-            legs: chosen,
-            opts: { mix, budget: Math.max(0, budgetK * 1000 - stationCost) },
-          }
-        : null,
-    [open, spot, chosen, mix, lifts, pistes, buildings, research, liftId, budgetK, stationCost],
-  );
-  const plan = open && spot ? planned : null;
-
-  useEffect(() => {
-    useGame.setState({ autoPreview: plan ? plan.runs.map((r) => ({ hexes: r.hexes, grade: r.grade })) : [] });
-  }, [plan]);
-  useEffect(() => () => useGame.setState({ autoPreview: [] }), []);
-
-  if (!lift) return null;
-  if (!open) {
-    return (
-      <button type="button" onClick={() => setOpen(true)} className="mt-1 flex min-h-11 items-center gap-1.5 text-[12px] font-semibold text-accent">
-        <MapPin className="size-4" /> Mittelstation bauen
-      </button>
-    );
-  }
-  const labels = ["Weiter unten", "In der Mitte", "Weiter oben"];
-  const toggle = (leg: StationLeg) => setLegs(chosen.includes(leg) ? chosen.filter((l) => l !== leg) : [...chosen, leg]);
-  const total = stationCost + (plan?.cost ?? 0);
-  const close = () => {
-    setOpen(false);
-    setPick(null);
-    setLegs(null);
-    useGame.setState({ autoPreview: [] });
-  };
-  const build = () => {
-    if (!spot) return;
-    useGame.getState().sendPlan([
-      { type: "add_mid_station", liftId, q: spot.q, r: spot.r },
-      ...(plan?.runs ?? []).map((r) => ({ type: "place_piste" as const, itemId: "piste" as const, hexes: r.hexes })),
-    ]);
-    play("build");
-    close();
-  };
-  return (
-    <div className="mt-2 rounded-[14px] bg-ice p-2.5 text-[12px] text-navy">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold">Mittelstation · {fmt(stationCost)}</span>
-        <button type="button" onClick={close} aria-label="Schliessen" className="grid size-11 shrink-0 place-items-center rounded-full text-muted">
-          <X className="size-4" />
-        </button>
-      </div>
-      <p className="text-[11px] leading-snug text-muted">Gäste steigen unterwegs ein und aus, Pisten können dort beginnen und enden.</p>
-      {spots.length === 0 ? (
-        <p className="mt-1 text-[11px] text-warn">Auf dieser Linie ist kein Platz für eine Station – zu steil oder zu kurz.</p>
-      ) : (
-        <>
-          <div className="mt-1.5 grid gap-1" style={{ gridTemplateColumns: `repeat(${spots.length}, minmax(0, 1fr))` }}>
-            {spots.map((h, i) => (
-              <button
-                key={`${h.q},${h.r}`}
-                type="button"
-                aria-pressed={spot === h}
-                onClick={() => setPick(i)}
-                className={`min-h-11 rounded-full px-2 text-[11px] font-bold ${spot === h ? "bg-accent text-panel" : "bg-panel text-navy"}`}
-              >
-                {spots.length === 3 ? labels[i] : `Platz ${i + 1}`}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-2 flex items-center gap-2 text-[11px] font-semibold">
-            Pisten dazu
-            {busy && <BusyNote />}
-          </div>
-          <div className="mt-1 flex gap-1">
-            {MIXES.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                aria-pressed={mix === m.id}
-                onClick={() => useGame.setState({ pisteMix: m.id })}
-                className={`min-h-11 flex-1 rounded-full text-[11px] font-semibold ${mix === m.id ? "bg-navy text-panel" : "bg-panel text-navy"}`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-          <ul className="mt-1 flex flex-col gap-1">
-            {STATION_LEGS.map((leg) => {
-              const on = chosen.includes(leg);
-              const run = plan?.runs.find((r) => r.leg === leg);
-              const miss = plan?.missed.find((m) => m.leg === leg);
-              return (
-                <li key={leg}>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={on}
-                    onClick={() => toggle(leg)}
-                    className={`flex min-h-11 w-full items-center gap-2 rounded-[12px] px-2.5 text-left ${on ? "bg-panel" : "bg-panel/40 text-muted"}`}
-                  >
-                    <span className={`grid size-5 shrink-0 place-items-center rounded-md border-2 ${on ? "border-accent bg-accent text-panel" : "border-line"}`}>
-                      {on && <Check className="size-3.5" />}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-semibold">{LEG_LABEL[leg]}</span>
-                      {on && run && mix !== "mixed" && run.grade !== mix && (
-                        <span className="block text-[10px] font-normal text-warn">Nur als {GRADE_LABEL[run.grade as keyof typeof GRADE_LABEL].toLowerCase()} Piste möglich</span>
-                      )}
-                    </span>
-                    {on && run && (
-                      <>
-                        <span className="size-2.5 shrink-0 rounded-full" style={{ background: GRADE_COLOR[run.grade as keyof typeof GRADE_COLOR] }} aria-label={GRADE_LABEL[run.grade as keyof typeof GRADE_LABEL]} />
-                        <RatingChip points={run.points} stars={starsFor(run.points)} />
-                        <span className="value shrink-0 text-[11px]">{fmt(run.cost)}</span>
-                      </>
-                    )}
-                    {on && miss && (
-                      <span className="shrink-0 text-[10px] text-warn">{miss.reason === "budget" ? "Zu wenig Geld" : "Gelände lässt keine zu"}</span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          <button
-            type="button"
-            disabled={!spot || busy || money < total}
-            onClick={build}
-            className="btn-3d mt-2 flex h-11 w-full items-center justify-center gap-1 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-50"
-            style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
-          >
-            {money < stationCost
-              ? "Zu wenig Geld"
-              : `Bauen${plan && plan.runs.length > 0 ? ` mit ${plan.runs.length} ${plan.runs.length === 1 ? "Piste" : "Pisten"}` : ""} · ${fmt(total)}`}
-          </button>
-          {plan && plan.runs.length > 0 && <p className="mt-1 text-center text-[10px] text-muted">Die Pisten sind auf der Karte gestrichelt</p>}
-        </>
-      )}
-    </div>
-  );
-}

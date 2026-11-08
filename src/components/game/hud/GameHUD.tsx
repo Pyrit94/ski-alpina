@@ -11,10 +11,9 @@ import { ChatPanel, MarkHint } from "./TeamHUD";
 import { ResearchPanel } from "./ResearchHUD";
 import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCard, VipCard, WalletPanel } from "./RulesHUD";
 import { DescentButton, DescentOffer } from "./LinkStatus";
-import { AutoPistesPanel } from "./AutoPistes";
-import { NextStepChip } from "./NextStepChip";
-import { NeedsStrip, VillagePanel } from "./Needs";
-import { NeighbourCard, NeighboursPanel } from "./Neighbours";
+import { AdvisorSlot, AssistantButton, HelperSlot } from "./Assistant";
+import { NeedsStrip } from "./Needs";
+import { NeighboursPanel } from "./Neighbours";
 import { AwayModal, ProposalCard } from "./Together";
 import { UndoChip } from "./UndoChip";
 import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
@@ -48,15 +47,13 @@ export function GameHUD() {
                 <EventCard />
                 <BuildHint />
                 <PisteEditor />
-                <AutoPistesPanel />
-                <VillagePanel />
-                <NeighbourCard />
+                <HelperSlot />
                 <DescentOffer />
                 <PausedChip />
                 <UndoChip />
                 <ProposalCard />
                 <NeedsStrip />
-                <NextStepChip />
+                <AdvisorSlot />
               </div>
             )}
             {!desktop && <BuildHint />}
@@ -610,6 +607,7 @@ function MobileCorners() {
         <RoundButton label="Menü" onClick={() => toggleSheet(sheet, "menu")} active={sheet === "menu"}>
           <Settings className="size-5" />
         </RoundButton>
+        <AssistantButton />
       </div>
       <BigBuildButton />
     </div>
@@ -625,6 +623,7 @@ function MobileFloats() {
   const pistes = useGame((s) => s.pistes);
   const selectEntity = useGame((s) => s.selectEntity);
   const setSheet = useGame((s) => s.setSheet);
+  const helperOpen = useGame((s) => s.helper !== null);
   const showSelected = !!selectedId && sheet === "none" && phase === "idle";
   const lift = lifts.find((l) => l.id === selectedId);
   const b = buildings.find((x) => x.id === selectedId);
@@ -638,22 +637,14 @@ function MobileFloats() {
 
   return (
     <div className="pointer-events-none absolute inset-x-3 bottom-2 z-20 hidden flex-col gap-2 max-lg:flex">
-      {phase === "idle" && !selectedId && (
+      {phase === "idle" && !selectedId && !helperOpen && (
         <div className="flex justify-center">
           <RoleChooser />
           <EventCard />
         </div>
       )}
-      {phase !== "piste" && (
-        <div className="flex justify-center empty:hidden">
-          <AutoPistesPanel />
-        </div>
-      )}
       <div className="flex justify-center empty:hidden">
-        <VillagePanel />
-      </div>
-      <div className="flex justify-center empty:hidden">
-        <NeighbourCard />
+        <HelperSlot />
       </div>
       <DescentOffer />
       <div className="flex justify-center gap-2 empty:hidden">
@@ -667,7 +658,7 @@ function MobileFloats() {
         <NeedsStrip />
       </div>
       <div className="flex justify-center empty:hidden">
-        <NextStepChip />
+        <AdvisorSlot />
       </div>
       {showSelected && selectedItem && (
         <button
