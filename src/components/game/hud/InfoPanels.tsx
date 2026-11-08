@@ -4,7 +4,7 @@ import { peerColor } from "@/lib/game/players";
 import { BY_ID, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, liftThroughput, seasonPhase } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
 import { BUILDING_LEVELS, PISTE_LEVELS, TERRAIN } from "@ski/config";
-import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, midStationCost, midStationSpots, missingLegs, planStationRuns, scorePiste, STATION_LEGS, starsFor, type StationLeg, siteAt, siteContext, siteKind, widthDef, type ResortState } from "@ski/shared";
+import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, midStationCost, midStationSpots, missingLegs, scorePiste, STATION_LEGS, starsFor, type StationLeg, siteAt, siteContext, siteKind, widthDef, type ResortState } from "@ski/shared";
 import { RatingChip, RatingParts } from "./PisteRating";
 import { ReshapeOne } from "./Reshape";
 import { pct, siteTone } from "@/lib/game/placement";
@@ -21,6 +21,9 @@ import { realMetres } from "@/lib/game/real-height";
 import { PisteEditPanel } from "./PisteEditor";
 import { useBuildTerms } from "@/lib/game/research";
 import { useGame } from "@/lib/game/store";
+import { usePlanner } from "@/lib/game/planner";
+import { plannerState } from "@/lib/game/planner-jobs";
+import { BusyNote } from "./Calculating";
 import type { PlacedPiste } from "@/lib/game/types";
 import { sinceLabel, LOW_USE, refundFor } from "./hud-shared";
 import { ItemThumb, Panel, Stat, Warning, PlayersLine } from "./HudBits";
@@ -836,11 +839,22 @@ function MidStationOffer({ liftId }: { liftId: string }) {
   );
   // The assistant's own way of picking lines: every grade asked for, plain
   // and with swings, judged by the simulation and the run's rating.
-  const plan = useMemo(() => {
-    if (!open || !spot) return null;
-    const state = { ...useGame.getState(), lifts, pistes, buildings, research } as unknown as ResortState;
-    return planStationRuns(state, getDem(), liftId, spot, chosen, { mix, budget: Math.max(0, budgetK * 1000 - stationCost) });
-  }, [open, spot, chosen, mix, lifts, pistes, buildings, research, liftId, budgetK, stationCost]);
+  // Worked out in the planner worker, so the panel answers taps meanwhile.
+  const { result: planned, busy } = usePlanner<"station">(
+    () =>
+      open && spot
+        ? {
+            kind: "station",
+            state: plannerState(useGame.getState(), { lifts, pistes, buildings, research }),
+            liftId,
+            mid: spot,
+            legs: chosen,
+            opts: { mix, budget: Math.max(0, budgetK * 1000 - stationCost) },
+          }
+        : null,
+    [open, spot, chosen, mix, lifts, pistes, buildings, research, liftId, budgetK, stationCost],
+  );
+  const plan = open && spot ? planned : null;
 
   useEffect(() => {
     useGame.setState({ autoPreview: plan ? plan.runs.map((r) => ({ hexes: r.hexes, grade: r.grade })) : [] });
@@ -900,7 +914,10 @@ function MidStationOffer({ liftId }: { liftId: string }) {
             ))}
           </div>
 
-          <div className="mt-2 text-[11px] font-semibold">Pisten dazu</div>
+          <div className="mt-2 flex items-center gap-2 text-[11px] font-semibold">
+            Pisten dazu
+            {busy && <BusyNote />}
+          </div>
           <div className="mt-1 flex gap-1">
             {MIXES.map((m) => (
               <button
@@ -954,7 +971,7 @@ function MidStationOffer({ liftId }: { liftId: string }) {
           </ul>
           <button
             type="button"
-            disabled={!spot || money < total}
+            disabled={!spot || busy || money < total}
             onClick={build}
             className="btn-3d mt-2 flex h-11 w-full items-center justify-center gap-1 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-50"
             style={{ ["--lip" as string]: "var(--color-accent-dark)" }}

@@ -226,6 +226,11 @@ export default defineConfig(({ command, isPreview }) => ({
       },
     },
   },
+  // The planner worker (src/lib/game/planner.worker.ts) loads each map's
+  // terrain on demand: dynamic imports need ES-module worker chunks.
+  worker: {
+    format: "es",
+  },
   resolve: {
     tsconfigPaths: true,
     alias: {

@@ -12,8 +12,8 @@ import {
 } from "@/lib/game/alpine";
 import { ECONOMY, isLift } from "@/lib/game/catalog";
 import { HEX_SIZE, hexDistance, hexLine, hexToWorld, worldToHex } from "@/lib/game/hex";
-import { FLOW, REGION_BY_ID } from "@ski/config";
-import { neighbourOf, neighboursOn, regionPoint, relaxLine } from "@ski/shared";
+import { FLOW } from "@ski/config";
+import { neighbourOf, relaxLine } from "@ski/shared";
 import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
@@ -44,8 +44,8 @@ import { AlbumCapture } from "./AlbumCapture";
 import { QUALITY, type QualityTier } from "./quality";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { useStableGame } from "./use-stable-game";
+import { MapLabelProjector, MapLabels } from "./MapLabels";
 import { useWorldBuildings, useWorldLifts, useWorldPistes } from "./use-world";
-import { showNeighbour } from "@/lib/game/neighbours";
 import { openingView } from "./view";
 import { alongPath, cachedValleyRoad, pathLength } from "./valley-road";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
@@ -325,85 +325,6 @@ function Lake() {
  * under it and slide beneath the panels like the rest of the world does.
  */
 const LABEL_Z: [number, number] = [5, 0];
-
-function PeakLabels() {
-  const hm = getHeightmap();
-  const layer = useGame((s) => s.layer);
-  const quality = useGame((s) => s.quality);
-  const stampMode = useGame((s) => s.stampMode);
-  const phase = useGame((s) => s.phase);
-  // Hidden, never unmounted: each label is its own React root, and tearing
-  // eight of them down in the same commit that opens the build mode threw
-  // "removeChild … not a child of this node" on phones.
-  const hidden = layer === "pistes" || (stampMode && phase !== "idle");
-  const style = { visibility: hidden ? ("hidden" as const) : ("visible" as const) };
-  const compact = QUALITY[quality].compactLabels;
-  const { peaks, village } = hm.region;
-  // Lakes the map shows, named where they are.
-  const def = REGION_BY_ID[hm.region.id];
-  const lakes = (def?.lakes ?? [])
-    .map((l) => ({ name: l.name, ...regionPoint(def!, l.lat, l.lon) }))
-    .filter((l) => [0, 1.5, -1.5].some((d) => hm.isWater(l.x + d, l.z) || hm.isWater(l.x, l.z + d)));
-  // Fixed screen size, so the names stay readable in the overview, not
-  // shrinking to specks when the whole area is in view.
-  return (
-    <>
-      {peaks.map((p) => (
-        <Html key={p.name} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center zIndexRange={LABEL_Z} style={style}>
-          <div className="pointer-events-none flex items-center gap-1 whitespace-nowrap rounded-full bg-navy/75 px-2 py-0.5 text-[11px] font-semibold text-snow backdrop-blur-sm">
-            <span aria-hidden>▲</span>
-            {compact ? p.name : `${p.name} · ${p.elev.toLocaleString("de-CH")} m`}
-          </div>
-        </Html>
-      ))}
-      {lakes.map((l) => (
-        <Html key={l.name} position={[l.x, surfaceY(hm, l.x, l.z) + 1.2, l.z]} center zIndexRange={LABEL_Z} style={style}>
-          <div className="pointer-events-none whitespace-nowrap text-[11px] font-semibold italic text-[#1d4f7a] drop-shadow-[0_1px_0_rgba(255,255,255,0.8)]">
-            {l.name}
-          </div>
-        </Html>
-      ))}
-      <Html position={[village.x, surfaceY(hm, village.x, village.z) + 2.4, village.z]} center zIndexRange={LABEL_Z} style={style}>
-        <div className="pointer-events-none rounded-full bg-panel/95 px-2.5 py-0.5 text-[12px] font-bold text-navy shadow">
-          {village.name}
-        </div>
-      </Html>
-    </>
-  );
-}
-
-/**
- * The neighbour areas' names at their valley stations: a tap opens their card.
- * Greyer than the village's name, which is the players' own.
- */
-function NeighbourLabels() {
-  const hm = getHeightmap();
-  const list = useStableGame((s) => neighboursOn(s));
-  const layer = useGame((s) => s.layer);
-  const stampMode = useGame((s) => s.stampMode);
-  const phase = useGame((s) => s.phase);
-  const hidden = layer === "pistes" || (stampMode && phase !== "idle");
-  const style = { visibility: hidden ? ("hidden" as const) : ("visible" as const) };
-  return (
-    <>
-      {list.map((n) => {
-        const { x, z } = hexToWorld(n.base.q, n.base.r);
-        return (
-          <Html key={n.id} position={[x, surfaceY(hm, x, z) + 2.4, z]} center zIndexRange={LABEL_Z} style={style}>
-            <button
-              type="button"
-              onClick={() => showNeighbour(n)}
-              className="flex min-h-8 items-center gap-1 whitespace-nowrap rounded-full bg-[#5b6b7a]/85 px-2.5 text-[11px] font-semibold text-snow shadow backdrop-blur-sm"
-            >
-              {n.name}
-              <span className="font-normal opacity-80">· Nachbar</span>
-            </button>
-          </Html>
-        );
-      })}
-    </>
-  );
-}
 
 /**
  * The radial falloff a contact patch is painted with.
@@ -2218,61 +2139,64 @@ export function SkiScene() {
   // Computed once per map: the opening framing, not a leash.
   const view = useMemo(() => openingView(getHeightmap(), tier), [tier]);
   return (
-    <Canvas
-      camera={{
-        // Oblique, from behind the village looking up-valley at the peaks:
-        // the village in the lower third, the Matterhorn against the sky.
-        position: view.at,
-        fov: tier.fov,
-        near: 0.5,
-        // Past the sky dome from anywhere the camera may stand.
-        far: SKY_RADIUS + 260,
-      }}
-      dpr={tier.dpr}
-      shadows={tier.shadows}
-      gl={{ antialias: tier.antialias, powerPreference: "high-performance", alpha: false }}
-      style={{ touchAction: "none", background: "#bcd2e6" }}
-      onCreated={({ gl, camera }) => {
-        gl.setClearColor("#bcd2e6", 1);
-        gl.toneMapping = THREE.ACESFilmicToneMapping;
-        // The ground carries its own shading now, so less exposure is needed
-        // to keep the snow from blowing out to flat white.
-        gl.toneMappingExposure = tier.exposure;
-        gl.shadowMap.enabled = tier.shadows;
-        // PCFSoft is gone in r18x and falls back to this anyway, with a warning.
-        gl.shadowMap.type = THREE.PCFShadowMap;
-        camera.lookAt(view.target[0], view.target[1], view.target[2]);
-      }}
-    >
-      <RenderProbe />
-      <AdaptiveResolution tier={tier} />
-      <LightsAndSky />
-      <Controls />
-      <Loop />
-      <Terrain />
-      <Lake />
-      <Forest quality={quality} />
-      <VillageHouses />
-      <Structures />
-      <Lifts />
-      <Pistes />
-      <Skiers />
-      <Traffic />
-      <HexRaster />
-      <HexCursor />
-      <HexGhost />
-      <PisteNameLabel />
-      <LinkHints />
-      <AutoPreview />
-      <VillagePreview />
-      <CenterStamp />
-      <StampFlash />
-      <PeerFocus />
-      <MapMarks />
-      <AlbumCapture />
-      <PeakLabels />
-      <NeighbourLabels />
-      <Snowfall on={weather === "snow" || weather === "storm"} />
-    </Canvas>
+    <>
+      <Canvas
+        camera={{
+          // Oblique, from behind the village looking up-valley at the peaks:
+          // the village in the lower third, the Matterhorn against the sky.
+          position: view.at,
+          fov: tier.fov,
+          near: 0.5,
+          // Past the sky dome from anywhere the camera may stand.
+          far: SKY_RADIUS + 260,
+        }}
+        dpr={tier.dpr}
+        shadows={tier.shadows}
+        gl={{ antialias: tier.antialias, powerPreference: "high-performance", alpha: false }}
+        style={{ touchAction: "none", background: "#bcd2e6" }}
+        onCreated={({ gl, camera }) => {
+          gl.setClearColor("#bcd2e6", 1);
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          // The ground carries its own shading now, so less exposure is needed
+          // to keep the snow from blowing out to flat white.
+          gl.toneMappingExposure = tier.exposure;
+          gl.shadowMap.enabled = tier.shadows;
+          // PCFSoft is gone in r18x and falls back to this anyway, with a warning.
+          gl.shadowMap.type = THREE.PCFShadowMap;
+          camera.lookAt(view.target[0], view.target[1], view.target[2]);
+        }}
+      >
+        <RenderProbe />
+        <AdaptiveResolution tier={tier} />
+        <LightsAndSky />
+        <Controls />
+        <Loop />
+        <Terrain />
+        <Lake />
+        <Forest quality={quality} />
+        <VillageHouses />
+        <Structures />
+        <Lifts />
+        <Pistes />
+        <Skiers />
+        <Traffic />
+        <HexRaster />
+        <HexCursor />
+        <HexGhost />
+        <PisteNameLabel />
+        <LinkHints />
+        <AutoPreview />
+        <VillagePreview />
+        <CenterStamp />
+        <StampFlash />
+        <PeerFocus />
+        <MapMarks />
+        <AlbumCapture />
+        <MapLabelProjector />
+        <Snowfall on={weather === "snow" || weather === "storm"} />
+      </Canvas>
+      {/* The map's names, one DOM layer over the canvas, moved by MapLabelProjector. */}
+      <MapLabels />
+    </>
   );
 }
