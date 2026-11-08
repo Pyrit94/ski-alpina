@@ -300,6 +300,64 @@ export interface ResortState {
   todayIncome?: number;
   /** Neighbour ski areas the game runs. Absent in older saves: none. */
   neighbours?: NeighbourState;
+  /**
+   * Free-play progression: rank, season reports, long-term goals. Absent in
+   * older saves and imports; the clock sets it up on its first tick, with
+   * whatever is already reached counted as reached (see engine/progression.ts).
+   */
+  progress?: ProgressState;
+}
+
+/** What one season has added up to so far. */
+export interface SeasonTally {
+  season: number;
+  /** Finished days counted. */
+  days: number;
+  guests: number;
+  /** Gross takings. */
+  revenue: number;
+  /** Net of upkeep and «Tarifverbund» fees. */
+  profit: number;
+  /** Most guests on one day. */
+  bestDay: number;
+  satisfactionSum: number;
+  /** Sum of the daily market share against the neighbours, 0 … 1 each. */
+  shareSum: number;
+}
+
+export type SeasonRecordKey = "guests" | "revenue" | "profit" | "bestDay" | "satisfaction";
+
+/** «Saisonbilanz»: one finished season. */
+export interface SeasonSummary {
+  season: number;
+  days: number;
+  guests: number;
+  revenue: number;
+  profit: number;
+  bestDay: number;
+  /** Mean over the season's days. */
+  satisfaction: number;
+  /** Mean market share against the neighbours, 0 … 1. */
+  share: number;
+  /** Rank tier index (see RANK.tiers) at the season's end. */
+  rank: number;
+  /** What beat every season before it. Empty in the first season. */
+  records: SeasonRecordKey[];
+}
+
+export interface ProgressState {
+  /** Best rank tier index ever reached; each tier is rewarded once. */
+  rank: number;
+  /** Long-term goals (config LONG_GOALS) met and rewarded. */
+  goals: string[];
+  /** The running season. */
+  tally: SeasonTally;
+  /** Finished seasons, oldest first, bounded (SEASON_REPORT.historySeasons). */
+  seasons: SeasonSummary[];
+  /** Best figures of any finished season, for records. */
+  best: Record<SeasonRecordKey, number> | null;
+  /** The Weltcup race: on absolute day `day` (see absDay); `held` once it ran. */
+  weltcup: { day: number; held: boolean } | null;
 }
 
 export type NeighbourMode = "off" | "gemuetlich" | "wettbewerb";

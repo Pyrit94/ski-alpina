@@ -24,6 +24,7 @@ import { useGame } from "@/lib/game/store";
 import type { PlacedPiste } from "@/lib/game/types";
 import { sinceLabel, LOW_USE, refundFor } from "./hud-shared";
 import { ItemThumb, Panel, Stat, Warning, PlayersLine } from "./HudBits";
+import { WeltcupBanner } from "./Progression";
 
 /**
  * What has happened in this resort, and who did it.
@@ -541,6 +542,7 @@ export function OperationsPanel() {
           🎉 Eröffnungssaison: +{Math.round(((stats.openingBoost ?? 1) - 1) * 100)} % Nachfrage – das neue Gebiet spricht sich herum.
         </div>
       )}
+      <WeltcupBanner />
       <div className="mt-2 flex flex-col gap-1.5">
         {stats.incomePerHour < 0 && (
           <Warning tone="bad">

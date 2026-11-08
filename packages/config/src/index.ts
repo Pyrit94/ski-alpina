@@ -26,3 +26,5 @@ export { SECRET_GOALS, VIPS, RULES } from "./match.ts";
 export type { RuleMetric, RuleCondition, SecretGoalDef, VipDef } from "./match.ts";
 export { RESEARCH, RESEARCH_BRANCHES, RESEARCH_NODES, RESEARCH_BY_ID, RESEARCH_GATE, researchCost } from "./research.ts";
 export type { ResearchBranchDef, ResearchBranchId, ResearchEffect, ResearchNodeDef } from "./research.ts";
+export { RANK, SEASON_REPORT, WELTCUP, LONG_GOALS } from "./progression.ts";
+export type { LongGoalDef, LongGoalMetric, LongGoalNeed, ProgressReward, RankFactorDef, RankFactorId, RankTierDef } from "./progression.ts";

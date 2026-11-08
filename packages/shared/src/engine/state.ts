@@ -2,6 +2,7 @@ import { BUILDING_LEVELS, ECONOMY, PISTE_LEVELS } from "../../../config/src/econ
 import { CLASSIC_REGION, REGION_BY_ID } from "../../../config/src/regions.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
+import { migrateProgress } from "./progression.ts";
 import type {
   MatchOptions,
   ResearchState,
@@ -250,6 +251,8 @@ export function migrateResort(snapshot: Partial<ResortState>, roomId?: string): 
     research: { ...emptyResearch(), ...(snapshot.research ?? {}) },
     hallOfFame: snapshot.hallOfFame ?? [],
     chat: snapshot.chat ?? [],
+    // Absent (older saves): the clock sets it up on its first tick.
+    progress: migrateProgress(snapshot.progress, snapshot.season ?? base.season),
   };
 }
 
