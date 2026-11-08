@@ -4,7 +4,7 @@ import { TERRAIN } from "@ski/config";
 import { authEnabled, signIn, signOut } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { loadName } from "@/lib/game/net";
-import { useGame } from "@/lib/game/store";
+import { GamePicker } from "./GamePicker";
 
 const FEATURES = ["Zu zweit", "Echtes Matterhorn-Gelände", "Lifte · Pisten · Hotels"];
 
@@ -17,7 +17,6 @@ function signInError(): string | null {
 }
 
 export function StartScreen() {
-  const start = useGame((s) => s.startGame);
   const [name, setName] = useState(() => (typeof window === "undefined" ? "Gast" : loadName()));
   const { user, isPending } = useCurrentUserState();
   const [busy, setBusy] = useState(false);
@@ -113,22 +112,7 @@ export function StartScreen() {
                   />
                 </label>
               )}
-              <div className="mt-4 flex w-full flex-col gap-3 sm:max-w-md sm:flex-row">
-                <button
-                  type="button"
-                  onClick={() => start(false, playerName, "zermatt")}
-                  className="flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-full bg-accent px-6 text-[15px] font-semibold text-panel sm:w-auto"
-                >
-                  Gemeinsam bauen <ChevronRight className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => start(true, playerName)}
-                  className="flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-full bg-panel/15 px-6 text-[15px] font-semibold text-snow ring-1 ring-snow/30 sm:w-auto"
-                >
-                  Eigenes Gebiet
-                </button>
-              </div>
+              <GamePicker playerName={playerName} />
             </>
           )}
           <p className="mt-4 text-[11px] leading-snug text-ice/80">{TERRAIN.attribution}</p>

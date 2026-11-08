@@ -123,6 +123,7 @@ Der Container führt beim Start `scripts/migrate.mjs` aus. Angewendet werden die
 - `0001_auth.sql` — Better-Auth-Schema (aus `migrations/auth/` hochkopiert, weil
   diese App Login nutzt)
 - `0002_ski_builder.sql` — Tabelle `resorts` mit dem Spielstand-Snapshot
+- `0003_saves.sql` — Spiele bekommen Art (`shared`/`own`) und Besitzer; Tabelle `resort_saves` mit den benannten Sicherungen. Beides liegt im Volume `ski-db` und gehört in die Sicherung des Servers.
 
 Der Socket-Prozess laedt beim Start alle Raeume aus `resorts` und schreibt sie
 alle paar Sekunden zurueck.

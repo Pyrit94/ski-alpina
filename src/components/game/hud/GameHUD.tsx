@@ -46,6 +46,7 @@ import { ResearchPanel } from "./ResearchHUD";
 import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCard, VipCard, WalletPanel } from "./RulesHUD";
 import { useMyMoney } from "@/lib/game/team";
 import { DescentButton, DescentOffer, LinkStatus } from "./LinkStatus";
+import { SavesPanel } from "./SavesPanel";
 import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
 import { PisteEditPanel, PisteEditor } from "./PisteEditor";
 import { useUnreadChat } from "@/lib/game/team";
@@ -694,6 +695,9 @@ function RightColumn() {
           </Panel>
           <Panel className="p-3 empty:hidden">
             <WalletPanel />
+          </Panel>
+          <Panel className="p-3">
+            <SavesPanel />
           </Panel>
           <RenamePanel />
           <ActivityPanel />
@@ -1917,6 +1921,9 @@ function MobileMenuBody() {
   const quality = useGame((s) => s.quality);
   return (
     <div className="flex flex-col gap-3 pb-2">
+      <div className="rounded-[16px] bg-panel p-3 ring-1 ring-line">
+        <SavesPanel />
+      </div>
       <MatchMenuButtons />
       <PhotoTextureToggle className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy" />
       <SoundToggle className="flex min-h-12 w-full items-center rounded-[16px] bg-ice px-4 text-left text-[13px] font-medium text-navy" />

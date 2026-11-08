@@ -2,6 +2,10 @@ import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import { ClientMessageSchema } from "../../../packages/shared/src/index.ts";
 import { GameRoom } from "../../../packages/shared/src/runtime/room.ts";
+import { handleLobby, isLobbyMessage, MemorySaveStore } from "../../../packages/shared/src/runtime/saves.ts";
+
+/** This stack keeps no database: saves live as long as the process. */
+const saves = new MemorySaveStore();
 
 const rooms = new Map<string, GameRoom>();
 function room(id: string): GameRoom {
@@ -55,6 +59,27 @@ app.get("/ws", { websocket: true }, (socket) => {
       return;
     }
     const msg = parsed.data;
+    if (isLobbyMessage(msg)) {
+      void handleLobby(msg, {
+        store: saves,
+        rooms,
+        createRoom: (id, meta) => {
+          const r = room(id);
+          r.meta = meta;
+          return r;
+        },
+        userId: null,
+        userName: playerId ? (room(roomId).players.get(playerId)?.name ?? "Gast") : "Gast",
+        boundRoomId: playerId ? roomId : null,
+        send: (m) => socket.send(JSON.stringify(m)),
+        // Only this socket is reachable from here; it gets what concerns its game.
+        broadcast: (id, m) => {
+          if (playerId && id === roomId) socket.send(JSON.stringify(m));
+        },
+        snapshotOf: (r) => ({ type: "snapshot", seq: r.seq, state: r.snapshot(), players: r.presence() }),
+      });
+      return;
+    }
     if (msg.type === "join") {
       const r = room(msg.roomId);
       const p = r.join(msg.name, msg.token);

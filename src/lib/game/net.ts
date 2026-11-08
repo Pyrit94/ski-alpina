@@ -1,4 +1,4 @@
-import type { ClientMessage, Intent, PlayerPresence, ResortState, ServerMessage } from "@ski/shared";
+import type { ClientMessage, GameInfo, Intent, PlayerPresence, ResortState, ServerMessage } from "@ski/shared";
 
 const TOKEN_KEY = "ski-builder-token";
 const NAME_KEY = "ski-builder-name";
@@ -47,6 +47,60 @@ export interface NetHandlers {
   ) => void;
   onError: (reason: string, code: string) => void;
   onStatus: (connected: boolean) => void;
+  /** The games and their saves, after any save, load or delete from here. */
+  onGames?: (games: GameInfo[]) => void;
+}
+
+type LobbyRequest = Extract<
+  ClientMessage,
+  { type: "list_games" | "create_game" | "save_game" | "load_save" | "delete_save" }
+>;
+/** A lobby request as the caller writes it; `reqId` is added on sending. */
+export type LobbyAsk = LobbyRequest extends infer T ? (T extends unknown ? Omit<T, "reqId"> : never) : never;
+
+export interface LobbyReply {
+  games: GameInfo[];
+  /** Set after create_game: the new game's id. */
+  created?: string;
+}
+
+/**
+ * One games-and-saves request on its own short-lived socket.
+ *
+ * For the start screen, which has no game socket yet. Resolves with the game
+ * list the server always sends last; rejects with the server's reason.
+ */
+export function lobbyRequest(msg: LobbyAsk, timeoutMs = 10_000): Promise<LobbyReply> {
+  return new Promise((resolve, reject) => {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${location.host}/ws`);
+    const reqId = `r_${Math.random().toString(36).slice(2, 10)}`;
+    let created: string | undefined;
+    let done = false;
+    const finish = (fn: () => void) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      fn();
+      ws.close();
+    };
+    const timer = setTimeout(() => finish(() => reject(new Error("Server antwortet nicht"))), timeoutMs);
+    ws.onopen = () => ws.send(JSON.stringify({ ...msg, reqId }));
+    ws.onerror = () => finish(() => reject(new Error("Keine Verbindung zum Server")));
+    ws.onclose = () => finish(() => reject(new Error("Verbindung geschlossen")));
+    ws.onmessage = (ev) => {
+      let reply: ServerMessage;
+      try {
+        reply = JSON.parse(String(ev.data)) as ServerMessage;
+      } catch {
+        return;
+      }
+      if (!("reqId" in reply) || reply.reqId !== reqId) return;
+      if (reply.type === "created") created = reply.roomId;
+      else if (reply.type === "games") finish(() => resolve({ games: reply.games as GameInfo[], created }));
+      else if (reply.type === "error") finish(() => reject(new Error(reply.reason)));
+    };
+  });
 }
 
 /**
@@ -116,6 +170,8 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
         handlers.onEvent(msg.title, msg.body, msg.kind, msg.actorId, msg.actorName);
       } else if (msg.type === "error") {
         handlers.onError(msg.reason, msg.code);
+      } else if (msg.type === "games") {
+        handlers.onGames?.(msg.games as GameInfo[]);
       }
     };
   };
@@ -146,6 +202,8 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
       send({ type: "focus", hex });
     },
     sendChat: (text: string) => send({ type: "chat", text }),
+    /** Games and saves, from inside a game: the reply arrives via onGames. */
+    sendLobby: (msg: LobbyAsk) => send(msg as ClientMessage),
     sendMark: (hex: { q: number; r: number }, kind: "look" | "build" | "warn") => send({ type: "mark", hex, kind }),
     close: () => {
       closed = true;

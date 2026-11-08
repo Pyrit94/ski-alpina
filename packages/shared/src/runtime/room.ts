@@ -51,6 +51,10 @@ export class GameRoom {
   seq = 0;
   readonly dem: Dem;
   private lastTick = Date.now();
+  /** Who may see this game (see runtime/saves.ts). */
+  meta: { kind: "shared" | "own"; owner: string | null } = { kind: "shared", owner: null };
+  /** Last time anything was played here, for ordering the game list. */
+  updatedAt = Date.now();
 
   constructor(roomId: string, snapshot?: ResortState, dem?: Dem) {
     this.dem = dem ?? getDem();
@@ -162,6 +166,7 @@ export class GameRoom {
       team,
     );
     this.state = applied.state;
+    this.updatedAt = now;
     if (inMatch(this.state)) {
       // Late joiners and new matches: purses and secret goals for everyone here.
       this.state = ensureMatchPlayers(this.state, this.builderIds());
@@ -247,6 +252,7 @@ export class GameRoom {
     }
     this.state = tickResort(this.state, this.dem, dt, now);
     this.seq += 1;
+    this.updatedAt = now;
     return true;
   }
 
@@ -288,6 +294,26 @@ export class GameRoom {
 
   snapshot(): ResortState {
     return this.state;
+  }
+
+  /** Note that the game was played just now. */
+  touchGame(now = Date.now()): void {
+    this.updatedAt = now;
+  }
+
+  /**
+   * Put a saved state back into this game.
+   *
+   * The players stay connected and keep their ids; the team chat carries on,
+   * since what was said is not part of the resort being rolled back. The
+   * snapshot goes through the same migration as any load.
+   */
+  restore(snapshot: ResortState): void {
+    const chat = this.state.chat;
+    const restored = migrateResort(snapshot, this.state.roomId);
+    this.state = { ...restored, roomId: this.state.roomId, chat };
+    if (inMatch(this.state)) this.state = withPreview(ensureMatchPlayers(this.state, this.builderIds()), this.dem);
+    this.seq += 1;
   }
 }
 
