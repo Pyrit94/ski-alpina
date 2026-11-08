@@ -3,7 +3,6 @@ import { BY_ID } from "../../../config/src/items.ts";
 import { hexDistance, hexLine, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { IntentResult, ResortState } from "../types.ts";
-import { VILLAGE_HEX } from "./graph.ts";
 
 /**
  * Helpers for drawing a run, shared so they can be tested without a browser.
@@ -96,7 +95,7 @@ export function pisteAnchors(state: ResortState, dem: Dem): Anchor[] {
     // and the graph splits a run wherever another one joins it.
     for (const hex of p.hexes) out.push({ hex, kind: "piste", id: p.id });
   }
-  out.push({ hex: VILLAGE_HEX, kind: "village" });
+  out.push({ hex: dem.region.villageHex, kind: "village" });
   for (const b of state.buildings) {
     const item = BY_ID[b.itemId];
     if (b.itemId === "parking" || b.itemId === "bus" || (item?.beds ?? 0) > 0) {

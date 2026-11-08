@@ -8,6 +8,8 @@ export function GameApp() {
   const started = useGame((s) => s.started);
   const applyWeather = useGame((s) => s.applyWeather);
   const persist = useGame((s) => s.persist);
+  const region = useGame((s) => s.region);
+  const regionReady = useGame((s) => s.regionReady);
   const [Scene, setScene] = useState<ComponentType | null>(null);
 
   useEffect(() => {
@@ -33,13 +35,15 @@ export function GameApp() {
   }, [persist]);
 
   if (!started) return <StartScreen />;
+  // The map's ground must be in memory before anything measures slopes on it.
+  const ready = Scene && regionReady !== null && regionReady === region;
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-navy">
       <div className="absolute inset-0">
-        {Scene ? <Scene /> : <div className="grid h-full place-items-center text-sm text-ice">Gelände wird geladen…</div>}
+        {ready ? <Scene /> : <div className="grid h-full place-items-center text-sm text-ice">Gelände wird geladen…</div>}
       </div>
-      <GameHUD />
+      {ready && <GameHUD />}
     </div>
   );
 }

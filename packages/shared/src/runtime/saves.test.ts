@@ -3,6 +3,8 @@ import { test } from "node:test";
 import { VILLAGE_HEX } from "../engine/graph.ts";
 import type { ServerMessage } from "../protocol/intents.ts";
 import { GameRoom } from "./room.ts";
+import { emptyResort } from "../engine/state.ts";
+import { getDem, loadRegion } from "../terrain/dem.ts";
 import {
   canSee,
   defaultSaveName,
@@ -24,8 +26,8 @@ function server() {
     const c: LobbyContext = {
       store,
       rooms,
-      createRoom: (id: string, meta: GameMeta) => {
-        const room = new GameRoom(id);
+      createRoom: (id: string, meta: GameMeta, region: string) => {
+        const room = new GameRoom(id, emptyResort(id, region));
         room.meta = meta;
         rooms.set(id, room);
         return room;
@@ -136,4 +138,18 @@ test("visibility rules", () => {
   assert.ok(canSee({ kind: "own", owner: "a" }, "a"));
   assert.ok(!canSee({ kind: "own", owner: "a" }, "b"));
   assert.ok(!canSee({ kind: "own", owner: "a" }, null));
+});
+
+test("a new game is built on the region chosen for it", async () => {
+  await loadRegion("flims-laax");
+  const s = server();
+  const { games } = await s.ask("m", { type: "create_game", kind: "shared", region: "flims-laax" });
+  assert.equal(games[0]!.region, "flims-laax");
+  assert.equal(games[0]!.name, "Flims Laax");
+  const room = [...s.rooms.values()][0]!;
+  assert.equal(room.dem.region.id, "flims-laax");
+  assert.equal(room.dem, getDem("flims-laax"));
+  // Unknown maps fall back to the classic valley instead of failing.
+  const odd = await s.ask("m", { type: "create_game", kind: "own", region: "atlantis" });
+  assert.ok(odd.games.some((g) => g.region === "classic"));
 });

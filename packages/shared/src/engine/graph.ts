@@ -7,7 +7,10 @@ import type { PlacedLift, PlacedPiste } from "../types.ts";
 import { liftThroughput, pisteCapacity } from "./level.ts";
 import { FlowNetwork, UNCAPPED } from "./maxflow.ts";
 
-/** Where guests enter the valley. Always a node, always a way out. */
+/**
+ * The classic valley's village hex. Every map has its own (`dem.region.villageHex`);
+ * this one stays for the tests and old code paths that know only the classic map.
+ */
 export const VILLAGE_HEX: Axial = worldToHex(VILLAGE.x, VILLAGE.z);
 
 export interface DemandSource {
@@ -205,8 +208,9 @@ export function junctionsOn(hexes: readonly Axial[], anchors: readonly Axial[], 
 
 /** Whether the village reaches a valley station by itself, without a road. */
 export function villageReaches(dem: Dem, base: Axial): boolean {
-  if (hexDistance(base, VILLAGE_HEX) > FLOW.villageAccessRadius) return false;
-  return elevationAt(dem, base) - elevationAt(dem, VILLAGE_HEX) <= FLOW.villageAccessRise;
+  const village = dem.region.villageHex;
+  if (hexDistance(base, village) > FLOW.villageAccessRadius) return false;
+  return elevationAt(dem, base) - elevationAt(dem, village) <= FLOW.villageAccessRise;
 }
 
 /**
@@ -232,7 +236,7 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
   const ports: Axial[] = [];
   const addPort = (hex: Axial): number => ports.push(hex) - 1;
 
-  const villagePort = addPort(VILLAGE_HEX);
+  const villagePort = addPort(dem.region.villageHex);
   const liftPorts = lifts.map((lift) => {
     const [base, top] = byElevation(dem, lift.a, lift.b);
     return { lift, base, top, basePort: addPort(base), topPort: addPort(top) };
@@ -257,7 +261,7 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
   });
   const runEnds = oriented.flatMap((o) => [o.hexes[0]!, o.hexes[o.hexes.length - 1]!]);
   const fixed = [
-    VILLAGE_HEX,
+    dem.region.villageHex,
     ...liftPorts.flatMap((p) => [p.base, p.top]),
     ...runEnds,
     ...demands.map((d) => d.hex),

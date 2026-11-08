@@ -175,6 +175,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     reqId: z.string().max(40).optional(),
     kind: z.enum(["shared", "own"]),
     name: z.string().max(60).optional(),
+    /** Which map; unknown ids fall back to the classic valley. */
+    region: z.string().max(32).optional(),
   }),
   z.object({
     type: z.literal("save_game"),

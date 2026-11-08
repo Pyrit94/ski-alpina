@@ -50,9 +50,8 @@ export function validateGround(dem: Dem, q: number, r: number, itemId: ItemId): 
   if (dem.isWater(x, z)) return { ok: false, code: "terrain", reason: "Auf dem See" };
   const elev = dem.sample(x, z);
   const slope = dem.slope(x, z);
-  if (elev < item.minElev || elev > item.maxElev) {
-    return { ok: false, code: "terrain", reason: "Falsche Höhe" };
-  }
+  if (elev < item.minElev) return { ok: false, code: "terrain", reason: `Zu tief für ${item.name}` };
+  if (elev > item.maxElev) return { ok: false, code: "terrain", reason: `Zu hoch für ${item.name}` };
   if (slope > item.maxSlope) return { ok: false, code: "slope", reason: "Zu steil" };
   return { ok: true };
 }

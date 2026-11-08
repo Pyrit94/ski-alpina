@@ -2,6 +2,10 @@ import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import { ClientMessageSchema } from "../../../packages/shared/src/index.ts";
 import { GameRoom } from "../../../packages/shared/src/runtime/room.ts";
+import { emptyResort } from "../../../packages/shared/src/engine/state.ts";
+import { loadAllRegions } from "../../../packages/shared/src/terrain/dem.ts";
+
+await loadAllRegions();
 import { handleLobby, isLobbyMessage, MemorySaveStore } from "../../../packages/shared/src/runtime/saves.ts";
 
 /** This stack keeps no database: saves live as long as the process. */
@@ -63,9 +67,10 @@ app.get("/ws", { websocket: true }, (socket) => {
       void handleLobby(msg, {
         store: saves,
         rooms,
-        createRoom: (id, meta) => {
-          const r = room(id);
+        createRoom: (id, meta, region) => {
+          const r = new GameRoom(id, emptyResort(id, region));
           r.meta = meta;
+          rooms.set(id, r);
           return r;
         },
         userId: null,

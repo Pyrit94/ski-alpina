@@ -2,6 +2,8 @@ import { createId } from "../ids.ts";
 import type { ResortState } from "../types.ts";
 import type { ClientMessage, ServerMessage } from "../protocol/intents.ts";
 import type { GameRoom } from "./room.ts";
+import { CLASSIC_REGION } from "../../../config/src/regions.ts";
+import { knownRegion } from "../terrain/dem.ts";
 
 /**
  * Games and save points.
@@ -57,6 +59,8 @@ export interface GameInfo {
   id: string;
   name: string;
   kind: GameKind;
+  /** The map: a region id from config/regions.ts, or "classic". */
+  region: string;
   /** Whether the asking account owns it (always false for shared games). */
   mine: boolean;
   updatedAt: number;
@@ -222,8 +226,8 @@ export function isLobbyMessage(msg: ClientMessage): msg is LobbyMessage {
 export interface LobbyContext {
   store: SaveStore;
   rooms: Map<string, GameRoom>;
-  /** Make (and register) a new room. */
-  createRoom: (id: string, meta: GameMeta) => GameRoom;
+  /** Make (and register) a new room, on a fresh resort of `region`. */
+  createRoom: (id: string, meta: GameMeta, region: string) => GameRoom;
   /** Signed-in account, or null without sign-in (local play). */
   userId: string | null;
   userName: string;
@@ -247,6 +251,7 @@ export async function listGames(ctx: LobbyContext): Promise<GameInfo[]> {
       id: r.state.roomId,
       name: r.state.resortName,
       kind: r.meta.kind,
+      region: r.state.region ?? CLASSIC_REGION,
       mine: r.meta.kind === "own" && r.meta.owner !== null && r.meta.owner === ctx.userId,
       updatedAt: r.updatedAt,
       online: r.presence().length,
@@ -279,7 +284,8 @@ export async function handleLobby(msg: LobbyMessage, ctx: LobbyContext): Promise
   if (msg.type === "create_game") {
     const kind = msg.kind;
     const id = createId(kind === "shared" ? "g" : "own");
-    const room = ctx.createRoom(id, { kind, owner: kind === "own" ? ctx.userId : null });
+    const region = msg.region && knownRegion(msg.region) ? msg.region : CLASSIC_REGION;
+    const room = ctx.createRoom(id, { kind, owner: kind === "own" ? ctx.userId : null }, region);
     const name = clean(msg.name, GAME_NAME_MAX);
     if (name) room.state = { ...room.state, resortName: name };
     room.touchGame();

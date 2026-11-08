@@ -217,6 +217,8 @@ export interface ResortState {
   version: number;
   roomId: string;
   resortName: string;
+  /** Which map this resort is built on (config/regions.ts); absent: the classic valley. */
+  region?: string;
   coins: number;
   gems: number;
   stars: number;

@@ -21,7 +21,8 @@ import type { Category, ItemId } from "../../../packages/config/src/ids.ts";
 import { connectGame, loadName, saveName } from "./net";
 import { play } from "./sound";
 import { finishPisteDraft, pisteClick } from "./piste-editor";
-import { emptyResort, TUTORIAL_STEPS } from "@ski/shared";
+import { emptyResort, loadRegion, setActiveRegion, TUTORIAL_STEPS } from "@ski/shared";
+import { CLASSIC_REGION } from "@ski/config";
 import type { NotificationItem } from "./types";
 
 type Net = ReturnType<typeof connectGame>;
@@ -77,6 +78,8 @@ export interface GameStore extends ResortState, UiState {
   deleteSave: (saveId: string) => void;
   /** Back to the start screen, to pick another game. */
   leaveGame: () => void;
+  /** The map whose ground is loaded and active; the scene waits for it. */
+  regionReady: string | null;
   /** Where the camera should glide to next (world x/z), with a serial. */
   cameraFocus: { x: number; z: number; id: number } | null;
   /** The new lift the «noch keine Abfahrt» card is offering a run for. */
@@ -134,6 +137,7 @@ function flatten(s: ResortState): Partial<ResortState> {
     version: s.version,
     roomId: s.roomId,
     resortName: s.resortName,
+    region: s.region ?? CLASSIC_REGION,
     coins: s.coins,
     gems: s.gems,
     stars: s.stars,
@@ -269,6 +273,15 @@ export const useGame = create<GameStore>((set, get) => ({
         // A new match starts its reports from zero; the count seen in the
         // previous one would otherwise hide the first reports of this one.
         const newMatch = !first && prev.match.startedAt !== state.match?.startedAt;
+        // A game on a real map: its ground is loaded once, then made the
+        // one every getDem() answers with. The scene waits for it.
+        const region = state.region ?? CLASSIC_REGION;
+        if (get().regionReady !== region) {
+          void loadRegion(region).then(() => {
+            setActiveRegion(region);
+            set({ regionReady: region });
+          });
+        }
         set({
           ...flatten(state),
           players,
@@ -348,6 +361,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
   setStarted: (v) => set({ started: v }),
   cameraFocus: null,
+  regionReady: null,
   descentOffer: null,
   focusOn: (x, z) => set({ cameraFocus: { x, z, id: Date.now() } }),
   games: [],

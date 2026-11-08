@@ -47,6 +47,7 @@ import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCar
 import { useMyMoney } from "@/lib/game/team";
 import { DescentButton, DescentOffer, LinkStatus } from "./LinkStatus";
 import { SavesPanel } from "./SavesPanel";
+import { realMetres } from "@/lib/game/real-height";
 import { NextStepChip } from "./NextStepChip";
 import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
 import { PisteEditPanel, PisteEditor } from "./PisteEditor";
@@ -945,7 +946,7 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
       </div>
       {closed && (
         <p className="mt-2 rounded-[12px] bg-danger/10 px-2 py-1.5 text-[11px] leading-snug text-danger">
-          Zu: die Talseite dieser Abfahrt liegt unter der Schneegrenze von {fmt(stats.snowLineM)} m.
+          Zu: die Talseite dieser Abfahrt liegt unter der Schneegrenze von {fmt(realMetres(stats.snowLineM))} m.
         </p>
       )}
       {!closed && piste.difficulty !== "road" && <LinkStatus id={piste.id} kind="piste" />}
@@ -1096,7 +1097,7 @@ function OperationsPanel() {
       </div>
       <div className="mt-2 grid grid-cols-2 gap-x-2 text-[10px] text-muted">
         <span>{SEASON_LABEL[phase]}</span>
-        <span>Schneegrenze {fmt(stats.snowLineM)} m</span>
+        <span>Schneegrenze {fmt(realMetres(stats.snowLineM))} m</span>
         <span>Pisten {stats.pisteKm} km</span>
         <span>Liftkapazität {fmt(stats.liftCapacity)}/h</span>
         <span>Betten {fmt(stats.beds)}</span>
