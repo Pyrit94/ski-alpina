@@ -89,7 +89,7 @@ interface Candidate {
 }
 
 /** A value raised by a run's rating: a better run to ski is worth a share more. */
-const rated = (value: number, points: number) => {
+export const rated = (value: number, points: number) => {
   const share = (PISTE_SCORE.plannerWeight * points) / 100;
   return value >= 0 ? value * (1 + share) : value * (1 - share / 2);
 };
@@ -175,14 +175,7 @@ function plan(
   const byTop = [...chosen].sort((a, b) => elevOf(dem, tops.get(a.id)!) - elevOf(dem, tops.get(b.id)!));
   const grades: PisteGrade[] = opts.mix === "mixed" ? GRADES : [opts.mix];
 
-  // Judge on a good day: midday, in season, everything planned counted as built.
-  const day = seasonDemandShare(state.day) >= 1 ? state.day : 10;
-  const judge = (s: ResortState): SimStats => {
-    const probe = { ...s, day, timeOfDay: 0.5 };
-    const first = tickFlow(probe, dem, 0, PENDING_READY).stats;
-    // Once more with the reputation the first pass earned.
-    return tickFlow({ ...probe, stats: first }, dem, 0, PENDING_READY).stats;
-  };
+  const judge = goodDayJudge(state, dem);
   const outlook = (st: SimStats): AutoOutlook => ({
     guestsPerHour: st.guestsPerHour,
     incomePerHour: st.incomePerHour,
@@ -334,6 +327,20 @@ function plan(
   };
 }
 
+/**
+ * How the simulation sees a layout on a good day: midday, in season,
+ * everything planned counted as built, run twice so reputation catches up.
+ */
+export function goodDayJudge(state: ResortState, dem: Dem): (s: ResortState) => SimStats {
+  const day = seasonDemandShare(state.day) >= 1 ? state.day : 10;
+  return (s) => {
+    const probe = { ...s, day, timeOfDay: 0.5 };
+    const first = tickFlow(probe, dem, 0, PENDING_READY).stats;
+    // Once more with the reputation the first pass earned.
+    return tickFlow({ ...probe, stats: first }, dem, 0, PENDING_READY).stats;
+  };
+}
+
 function elevOf(dem: Dem, hex: Axial): number {
   const { x, z } = hexToWorld(hex.q, hex.r);
   return dem.sample(x, z);
@@ -350,7 +357,7 @@ function dedupe(list: Candidate[]): Candidate[] {
 }
 
 /** Share of a line's hexes already under another run. */
-function overlap(hexes: readonly Axial[], pistes: readonly PlacedPiste[]): number {
+export function overlap(hexes: readonly Axial[], pistes: readonly { hexes: readonly Axial[] }[]): number {
   const taken = new Set<string>();
   for (const p of pistes) for (const h of p.hexes) taken.add(`${h.q},${h.r}`);
   const inner = hexes.slice(1, -1);
