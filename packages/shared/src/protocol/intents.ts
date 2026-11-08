@@ -53,6 +53,12 @@ export const IntentSchema = z.discriminatedUnion("type", [
     name: z.string().trim().max(32).optional(),
     width: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   }),
+  // «Gelände ebnen»: make one hex of valley floor level.
+  z.object({
+    type: z.literal("level_ground"),
+    q: z.number().int(),
+    r: z.number().int(),
+  }),
   // A better line for a run already built: same start, same end, new course.
   z.object({
     type: z.literal("reshape_piste"),

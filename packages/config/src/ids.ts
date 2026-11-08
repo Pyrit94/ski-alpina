@@ -40,6 +40,8 @@ export const ITEM_IDS = [
   // railway up the mountain (a lift on rails).
   "train",
   "cog",
+  // Not a building: the «Gelände ebnen» tool, picked from the build menu like one.
+  "level",
 ] as const;
 
 export type ItemId = (typeof ITEM_IDS)[number];

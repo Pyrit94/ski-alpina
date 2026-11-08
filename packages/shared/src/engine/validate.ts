@@ -25,17 +25,22 @@ import type { PisteWidth } from "../types.ts";
 import { validateEditPiste } from "./piste-edit.ts";
 import { villageMovable } from "./site.ts";
 import { accessAt } from "./access.ts";
+import { validateLevel } from "./terraform.ts";
+import { withEdits } from "../terrain/edits.ts";
 import { validateProposalIntent } from "./proposals.ts";
 import { validateReshape } from "./piste-reshape.ts";
 import { hexKey } from "../hex.ts";
 
 export function validateHex(
   state: ResortState,
-  dem: Dem,
+  baseDem: Dem,
   q: number,
   r: number,
   itemId: ItemId,
 ): IntentResult {
+  // The ground as the players have shaped it (see «Gelände ebnen»).
+  const dem = withEdits(baseDem, state.terrain);
+  if (itemId === "level") return validateLevel(state, baseDem, q, r);
   // Lifts climb higher with research (see liftReach).
   const reach = isLift(itemId) ? liftReach(state, itemId) : 0;
   const ground = validateGround(dem, q, r, itemId, reach, isLift(itemId) && reachLeft(state, itemId));
@@ -219,7 +224,7 @@ export function validateIntent(
 
   if (intent.type === "place_building") {
     const item = BY_ID[intent.itemId];
-    if (!item || isLift(intent.itemId) || isPiste(intent.itemId)) {
+    if (!item || isLift(intent.itemId) || isPiste(intent.itemId) || intent.itemId === "level") {
       return { ok: false, code: "invalid", reason: "Kein Gebäude" };
     }
     if (!itemUnlocked(state, intent.itemId)) {
@@ -375,6 +380,7 @@ export function validateIntent(
 
   if (intent.type === "edit_piste") return validateEditPiste(state, dem, intent, actorId);
   if (intent.type === "reshape_piste") return validateReshape(state, dem, intent, money);
+  if (intent.type === "level_ground") return validateLevel(state, dem, intent.q, intent.r, money);
 
 
   if (isResearchIntent(intent)) return validateResearch(state, intent, ctx);
@@ -399,10 +405,11 @@ export function validateIntent(
  * ground, off the runs' stations, and no two buildings on one hex.
  */
 export function checkRearrange(
-  state: Pick<ResortState, "lifts" | "buildings" | "pistes">,
-  dem: Dem,
+  state: Pick<ResortState, "lifts" | "buildings" | "pistes" | "terrain">,
+  natural: Dem,
   moves: readonly { entityId: string; q: number; r: number }[],
 ): { ok: true } | { ok: false; reason: string } {
+  const dem = withEdits(natural, state.terrain);
   const ids = new Set<string>();
   for (const m of moves) {
     if (ids.has(m.entityId)) return { ok: false, reason: "Ein Gebäude doppelt in der Liste" };

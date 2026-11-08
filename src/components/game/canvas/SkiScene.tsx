@@ -2138,6 +2138,8 @@ function AdaptiveResolution({ tier }: { tier: QualityTier }) {
 
 export function SkiScene() {
   const quality = useGame((s) => s.quality);
+  // Levelled ground changes the heightmap: redraw everything that stands on it.
+  useGame((s) => s.terrainVersion);
   const weather = useGame((s) => s.weather.kind);
   const tier = QUALITY[quality];
   // Computed once per map: the opening framing, not a leash.

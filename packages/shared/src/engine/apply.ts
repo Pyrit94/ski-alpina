@@ -17,6 +17,7 @@ import { applyResearch, buildCost, discounted, isResearchIntent } from "./resear
 import { applyProposalIntent } from "./proposals.ts";
 import { scorePiste } from "./piste-score.ts";
 import { applyReshape } from "./piste-reshape.ts";
+import { applyLevel } from "./terraform.ts";
 
 export interface Applied {
   state: ResortState;
@@ -625,6 +626,7 @@ function applyOne(
 
   if (intent.type === "edit_piste") return applyEditPiste(state, intent, dem);
   if (intent.type === "reshape_piste") return applyReshape(state, dem, intent);
+  if (intent.type === "level_ground") return applyLevel(state, dem, intent);
 
   if (intent.type === "dismiss_tutorial") {
     return {
