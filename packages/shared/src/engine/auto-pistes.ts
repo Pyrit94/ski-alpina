@@ -1,25 +1,38 @@
-import { hexToWorld, type Axial } from "../hex.ts";
-import type { Dem } from "../terrain/dem.ts";
-import type { PisteDifficulty, PlacedPiste, ResortState } from "../types.ts";
-import { descentGoals, liftEnds, resortLinks } from "./descent.ts";
+import { FLOW, PISTE_PLANNER } from "../../../config/src/economy.ts";
 import type { PisteGrade } from "../../../config/src/terrain.ts";
+import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
+import type { Dem } from "../terrain/dem.ts";
+import type { PisteDifficulty, PlacedPiste, ResortState, SimStats } from "../types.ts";
+import { descentGoals, liftEnds, resortLinks } from "./descent.ts";
+import { tickFlow } from "./flow.ts";
+import { PENDING_READY } from "./match.ts";
 import { routeToAny } from "./piste-route.ts";
 import { discounted } from "./research.ts";
+import { seasonDemandShare } from "./season.ts";
 import { surveyPiste, validatePistePath } from "./validate.ts";
 
 /**
- * «Pisten automatisch»: the runs a layout is missing, planned in one go.
+ * «Pisten automatisch»: the runs a layout is missing, and the ones that would
+ * make it carry more — chosen by running the simulation, not by rule of thumb.
  *
- * Two passes, both over the same graph and rules the simulation uses:
- * 1. Every chosen lift with no way down gets one — lowest top station first,
- *    so a higher lift's run can end on a lower lift's new run instead of
- *    running all the way to the valley.
- * 2. With "gemischt", each grade the area does not offer yet (blue, red,
- *    black) is tried from the chosen lifts' tops: variety draws guests.
+ * 1. Every chosen lift with no way down gets one first, lowest top station
+ *    first so a higher lift's run can end on a lower lift's new run. Of the
+ *    lines the ground allows (each grade, any grade), the one the simulation
+ *    likes best wins.
+ * 2. Then, greedily: every candidate line from every chosen top — each grade,
+ *    to the nearest place it may end and to a different one for a second,
+ *    parallel run — is built on a copy of the resort and simulated. The one
+ *    that adds the most per franc is kept, as long as it pays for itself
+ *    within `PISTE_PLANNER.paybackDays`; then the next round starts from the
+ *    resort with that run in it. This is what relieves a lift whose run is
+ *    full, adds the colour a lift is missing, and stops once the limit is no
+ *    longer the runs but the car parks.
+ *
+ * The simulation is judged at midday on a good winter day, twice over, so a
+ * run that makes guests happier is credited with the guests that brings.
  *
  * Nothing is placed here. Each plan is an ordinary `place_piste` the server
- * validates again; plans build on each other in order, so they must be sent
- * in order.
+ * validates again; plans build on each other in order and are sent in order.
  */
 
 export type AutoMix = "mixed" | PisteGrade;
@@ -30,18 +43,39 @@ export interface AutoPlan {
   grade: PisteDifficulty;
   /** CHF, research discount included. */
   cost: number;
-  why: "descent" | "variety";
+  /** "descent": the lift had no way down; "relief": its runs were full; "draw": more guests come. */
+  why: "descent" | "relief" | "draw";
+  /** What the simulation says this run adds, per hour and per day. */
+  gainGuests: number;
+  gainIncome: number;
+}
+
+export interface AutoOutlook {
+  guestsPerHour: number;
+  incomePerHour: number;
+  satisfaction: number;
 }
 
 export interface AutoResult {
   plans: AutoPlan[];
   /** Lifts that needed a run but got none, and why. */
   missed: { liftId: string; reason: "terrain" | "budget" }[];
+  before: AutoOutlook;
+  after: AutoOutlook;
+  /** What holds the resort back once the plan is built. */
+  limit: "doors" | "lift" | "none";
+  /** Name of the busiest lift, when that is the limit. */
+  limitLabel: string;
 }
 
 const GRADES: PisteGrade[] = ["blue", "red", "black"];
-/** A new run may share at most this much of its line with existing ones. */
-const MAX_OVERLAP = 0.4;
+
+interface Candidate {
+  liftId: string;
+  hexes: Axial[];
+  grade: PisteDifficulty;
+  cost: number;
+}
 
 export function planAutoPistes(
   state: ResortState,
@@ -51,87 +85,169 @@ export function planAutoPistes(
   const chosen = state.lifts.filter((l) => !opts.liftIds || opts.liftIds.includes(l.id));
   const tops = new Map(chosen.map((l) => [l.id, liftEnds(dem, l).top]));
   const byTop = [...chosen].sort((a, b) => elevOf(dem, tops.get(a.id)!) - elevOf(dem, tops.get(b.id)!));
+  const grades: PisteGrade[] = opts.mix === "mixed" ? GRADES : [opts.mix];
+
+  // Judge on a good day: midday, in season, everything planned counted as built.
+  const day = seasonDemandShare(state.day) >= 1 ? state.day : 10;
+  const judge = (s: ResortState): SimStats => {
+    const probe = { ...s, day, timeOfDay: 0.5 };
+    const first = tickFlow(probe, dem, 0, PENDING_READY).stats;
+    // Once more with the reputation the first pass earned.
+    return tickFlow({ ...probe, stats: first }, dem, 0, PENDING_READY).stats;
+  };
+  const outlook = (st: SimStats): AutoOutlook => ({
+    guestsPerHour: st.guestsPerHour,
+    incomePerHour: st.incomePerHour,
+    satisfaction: st.satisfaction,
+  });
 
   let sim: ResortState = state;
+  let current = judge(sim);
+  const before = outlook(current);
   let spent = 0;
   const plans: AutoPlan[] = [];
   const missed: AutoResult["missed"] = [];
 
-  const offered = () => new Set(sim.pistes.map((p) => p.difficulty));
-  const nextGrade = (): PisteGrade => {
-    if (opts.mix !== "mixed") return opts.mix;
-    const have = offered();
-    return GRADES.find((g) => !have.has(g)) ?? "blue";
-  };
-
   /** Survey, price and check a line; null if it cannot be built as it stands. */
-  const assess = (hexes: Axial[]) => {
-    if (hexes.length < 2) return null;
+  const assess = (liftId: string, hexes: Axial[] | null): Candidate | null => {
+    if (!hexes || hexes.length < 2) return null;
     if (!validatePistePath(sim, dem, "piste", hexes).ok) return null;
     const survey = surveyPiste(dem, "piste", hexes);
     if (!survey) return null;
-    return { grade: survey.grade, cost: discounted(state, survey.cost) };
+    return { liftId, hexes, grade: survey.grade, cost: discounted(state, survey.cost) };
   };
-
-  const add = (liftId: string, hexes: Axial[], grade: PisteDifficulty, cost: number, why: AutoPlan["why"]) => {
-    spent += cost;
-    plans.push({ liftId, hexes, grade, cost, why });
+  const withRun = (c: Candidate): ResortState => {
     const piste: PlacedPiste = {
-      id: `auto-${plans.length}`,
+      id: `auto-${plans.length + 1}`,
       itemId: "piste",
-      difficulty: grade,
-      hexes,
+      difficulty: c.grade,
+      hexes: c.hexes,
       builtAt: 0,
       readyAt: 0,
     };
-    sim = { ...sim, pistes: [...sim.pistes, piste] };
+    return { ...sim, pistes: [...sim.pistes, piste] };
   };
+  const score = (st: SimStats) => st.incomePerHour;
+  const add = (c: Candidate, next: ResortState, stats: SimStats, why: AutoPlan["why"]) => {
+    plans.push({
+      ...c,
+      why,
+      gainGuests: Math.round(stats.guestsPerHour - current.guestsPerHour),
+      gainIncome: Math.round(stats.incomePerHour - current.incomePerHour),
+    });
+    spent += c.cost;
+    sim = next;
+    current = stats;
+  };
+  const affordable = (c: Candidate) => spent + c.cost <= opts.budget;
 
   // 1. A way down for every chosen lift that has none.
-  for (const lift of byTop) {
-    const links = resortLinks(sim, dem);
-    if (links.get(lift.id) !== "no-descent") continue;
-    const top = tops.get(lift.id)!;
-    const goals = descentGoals(sim, dem, top, links);
-    const want = nextGrade();
-    const route = routeToAny(dem, top, goals, want) ?? routeToAny(dem, top, goals, "any");
-    const fit = route ? assess(route) : null;
-    if (!route || !fit) {
-      missed.push({ liftId: lift.id, reason: "terrain" });
-      continue;
-    }
-    if (spent + fit.cost > opts.budget) {
-      missed.push({ liftId: lift.id, reason: "budget" });
-      continue;
-    }
-    add(lift.id, route, fit.grade, fit.cost, "descent");
-  }
-
-  // 2. The grades the area does not offer yet, from the highest tops down.
-  if (opts.mix === "mixed") {
-    for (const grade of GRADES) {
-      if (offered().has(grade)) continue;
-      for (const lift of [...byTop].reverse()) {
-        const top = tops.get(lift.id)!;
-        const links = resortLinks(sim, dem);
-        if (links.get(lift.id) === "no-access") continue;
-        const route = routeToAny(dem, top, descentGoals(sim, dem, top, links), grade);
-        if (!route) continue;
-        const fit = assess(route);
-        if (!fit || fit.grade !== grade || spent + fit.cost > opts.budget) continue;
-        if (overlap(route, sim.pistes) > MAX_OVERLAP) continue;
-        add(lift.id, route, fit.grade, fit.cost, "variety");
-        break;
+  const descents = (record: boolean) => {
+    for (const lift of byTop) {
+      const links = resortLinks(sim, dem);
+      if (links.get(lift.id) !== "no-descent") continue;
+      const top = tops.get(lift.id)!;
+      const goals = descentGoals(sim, dem, top, links);
+      const options = dedupe(
+        [...grades.map((g) => routeToAny(dem, top, goals, g)), routeToAny(dem, top, goals, "any")]
+          .map((h) => assess(lift.id, h))
+          .filter((c): c is Candidate => c !== null),
+      );
+      const inBudget = options.filter(affordable);
+      if (inBudget.length === 0) {
+        if (record) missed.push({ liftId: lift.id, reason: options.length === 0 ? "terrain" : "budget" });
+        continue;
+      }
+      // Prefer the grade asked for; among those, what the simulation likes best.
+      const wanted = inBudget.filter((c) => grades.includes(c.grade as PisteGrade));
+      let best: { c: Candidate; next: ResortState; stats: SimStats } | null = null;
+      for (const c of wanted.length > 0 ? wanted : inBudget) {
+        const next = withRun(c);
+        const stats = judge(next);
+        if (!best || score(stats) > score(best.stats)) best = { c, next, stats };
+      }
+      add(best!.c, best!.next, best!.stats, "descent");
+      if (!record) {
+        const i = missed.findIndex((m) => m.liftId === lift.id);
+        if (i >= 0) missed.splice(i, 1);
       }
     }
+  };
+  descents(true);
+
+  // 2. Whatever pays: greedy, one run per round, judged by the simulation.
+  for (let round = 0; round < PISTE_PLANNER.maxExtraRuns; round++) {
+    const links = resortLinks(sim, dem);
+    const candidates: Candidate[] = [];
+    for (const lift of [...byTop].reverse()) {
+      if (links.get(lift.id) === "no-access" || links.get(lift.id) === "no-descent") continue;
+      const top = tops.get(lift.id)!;
+      const goals = descentGoals(sim, dem, top, links);
+      // A second line should not end where this top's runs already end.
+      const ownEnds = sim.pistes
+        .filter((p) => hexDistance(p.hexes[0]!, top) <= FLOW.linkRadius)
+        .map((p) => p.hexes[p.hexes.length - 1]!);
+      const elsewhere = goals.filter((g) => ownEnds.every((e) => hexDistance(e, g) > 2));
+      for (const g of grades) {
+        candidates.push(...[routeToAny(dem, top, goals, g), routeToAny(dem, top, elsewhere, g)]
+          .map((h) => assess(lift.id, h))
+          .filter((c): c is Candidate => c !== null));
+      }
+    }
+    const fresh = dedupe(candidates)
+      .filter((c) => grades.includes(c.grade as PisteGrade))
+      .filter(affordable)
+      .filter((c) => overlap(c.hexes, sim.pistes) <= PISTE_PLANNER.maxOverlap)
+      .slice(0, PISTE_PLANNER.candidateLimit);
+    let best: { c: Candidate; next: ResortState; stats: SimStats; value: number } | null = null;
+    for (const c of fresh) {
+      const next = withRun(c);
+      const stats = judge(next);
+      const gain = score(stats) - score(current);
+      // Pays for itself within the payback window, measured on good days.
+      if (gain <= 0 || gain * PISTE_PLANNER.paybackDays < c.cost) continue;
+      const value = gain / c.cost;
+      if (!best || value > best.value) best = { c, next, stats, value };
+    }
+    if (!best) break;
+    // Relief when the busiest thing on the mountain was this lift or a run off its top.
+    const top = tops.get(best.c.liftId)!;
+    const jammed =
+      current.bottleneckUse >= 0.9 &&
+      (current.bottleneckId === best.c.liftId ||
+        sim.pistes.some((p) => p.id === current.bottleneckId && hexDistance(p.hexes[0]!, top) <= FLOW.linkRadius));
+    add(best.c, best.next, best.stats, jammed ? "relief" : "draw");
   }
 
-  return { plans, missed };
+  // New runs are new places to end on: try the lifts still without a way down once more.
+  if (missed.length > 0) descents(false);
+
+  const after = outlook(current);
+  const doorsFull = current.turnedAway > Math.max(20, current.marketPerHour * 0.1);
+  const liftFull = !doorsFull && current.bottleneckUse >= 0.95 && state.lifts.some((l) => l.id === current.bottleneckId);
+  return {
+    plans,
+    missed,
+    before,
+    after,
+    limit: doorsFull ? "doors" : liftFull ? "lift" : "none",
+    limitLabel: liftFull ? current.bottleneckLabel : "",
+  };
 }
 
 function elevOf(dem: Dem, hex: Axial): number {
   const { x, z } = hexToWorld(hex.q, hex.r);
   return dem.sample(x, z);
+}
+
+function dedupe(list: Candidate[]): Candidate[] {
+  const seen = new Set<string>();
+  return list.filter((c) => {
+    const k = c.hexes.map((h) => `${h.q},${h.r}`).join(";");
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 /** Share of a line's hexes already under another run. */

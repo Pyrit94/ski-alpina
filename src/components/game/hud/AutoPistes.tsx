@@ -1,13 +1,14 @@
 import { useEffect, useMemo } from "react";
 import { Sparkles, X } from "lucide-react";
 import { BY_ID, FLOW } from "@ski/config";
-import { getDem, planAutoPistes, type AutoMix } from "@ski/shared";
+import { getDem, planAutoPistes, type AutoMix, type AutoPlan } from "@ski/shared";
 import { GRADE_COLOR } from "@/lib/game/piste-editor";
 import { fmt } from "@/lib/game/format";
 import { play } from "@/lib/game/sound";
 import { useGame } from "@/lib/game/store";
 import { openAutoPistes } from "@/lib/game/auto-pistes";
 import { useMyMoney } from "@/lib/game/team";
+import { useStableGame } from "../canvas/use-stable-game";
 
 const MIXES: { id: AutoMix; label: string }[] = [
   { id: "mixed", label: "Gemischt" },
@@ -57,20 +58,23 @@ function useLiftNames(): Map<string, string> {
  */
 export function AutoPistesPanel() {
   const open = useGame((s) => s.autoPistes);
-  const lifts = useGame((s) => s.lifts);
-  const pistes = useGame((s) => s.pistes);
-  const buildings = useGame((s) => s.buildings);
-  const research = useGame((s) => s.research);
-  const match = useGame((s) => s.match);
+  // Stable across ticks: the plan runs the simulation dozens of times, so it
+  // is only worked out again when the layout, the choice or the money changes.
+  const lifts = useStableGame((s) => s.lifts);
+  const pistes = useStableGame((s) => s.pistes);
+  const buildings = useStableGame((s) => s.buildings);
+  const research = useStableGame((s) => s.research);
+  const ticketPrice = useGame((s) => s.ticketPrice);
   const sendIntent = useGame((s) => s.sendIntent);
   const names = useLiftNames();
   const money = useMyMoney().mine;
+  const budget = Math.floor(money / 1000) * 1000;
 
   const result = useMemo(() => {
     if (!open) return null;
-    const state = { ...useGame.getState(), lifts, pistes, buildings, research, match };
-    return planAutoPistes(state, getDem(), { liftIds: open.liftIds ?? undefined, mix: open.mix, budget: money });
-  }, [open, lifts, pistes, buildings, research, match, money]);
+    const state = { ...useGame.getState(), lifts, pistes, buildings, research, ticketPrice };
+    return planAutoPistes(state, getDem(), { liftIds: open.liftIds ?? undefined, mix: open.mix, budget });
+  }, [open, lifts, pistes, buildings, research, ticketPrice, budget]);
 
   useEffect(() => {
     useGame.setState({ autoPreview: result ? result.plans.map((p) => ({ hexes: p.hexes, grade: p.grade })) : [] });
@@ -89,7 +93,7 @@ export function AutoPistesPanel() {
   const total = result.plans.reduce((n, p) => n + p.cost, 0);
   const km = result.plans.reduce((n, p) => n + (p.hexes.length - 1) * FLOW.kmPerSegment, 0);
   const terrain = result.missed.filter((m) => m.reason === "terrain").length;
-  const budget = result.missed.filter((m) => m.reason === "budget").length;
+  const poor = result.missed.filter((m) => m.reason === "budget").length;
   const build = () => {
     for (const p of result.plans) sendIntent({ type: "place_piste", itemId: "piste", hexes: p.hexes });
     play("build");
@@ -104,7 +108,7 @@ export function AutoPistesPanel() {
             <Sparkles className="size-4 text-accent" /> Pisten automatisch
           </div>
           <p className="mt-0.5 text-[11px] leading-snug text-muted">
-            Jede Bahn bekommt eine Abfahrt. «Gemischt» ergänzt die Farben, die noch fehlen.
+            Rechnet jede mögliche Piste durch: zuerst fehlende Abfahrten, dann was am meisten Gäste pro Franken bringt.
           </p>
         </div>
         <button type="button" onClick={close} aria-label="Schliessen" className="grid size-11 shrink-0 place-items-center rounded-full bg-ice text-muted">
@@ -141,30 +145,47 @@ export function AutoPistesPanel() {
 
           {result.plans.length === 0 ? (
             <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">
-              {budget > 0
+              {poor > 0
                 ? "Für die fehlenden Abfahrten reicht das Geld noch nicht."
                 : terrain > 0
                   ? "Von diesen Bergstationen führt kein befahrbarer Hang hinunter. Verschiebe die Bahn oder zeichne selbst."
-                  : "Alles da: Jede gewählte Bahn hat eine Abfahrt, und es fehlt keine Farbe."}
+                  : "Keine Piste würde sich hier gerade lohnen."}
             </p>
           ) : (
-            <ul className="mt-2 flex max-h-40 flex-col gap-1 overflow-y-auto">
+            <ul className="mt-2 flex max-h-44 flex-col gap-1 overflow-y-auto">
               {result.plans.map((p, i) => (
                 <li key={i} className="flex items-center gap-2 rounded-[12px] bg-ice px-2.5 py-1.5 text-[12px] text-navy">
                   <span className="size-2.5 shrink-0 rounded-full" style={{ background: GRADE_COLOR[p.grade as keyof typeof GRADE_COLOR] ?? "#888" }} />
-                  <span className="min-w-0 flex-1 truncate">
-                    {p.why === "descent" ? `Abfahrt ${names.get(p.liftId) ?? ""}` : `${GRADE_NAME[p.grade] ?? "Neue"} Piste ab ${names.get(p.liftId) ?? ""}`}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{planTitle(p, names.get(p.liftId) ?? "")}</span>
+                    <span className="block truncate text-[10px] text-muted">
+                      {((p.hexes.length - 1) * FLOW.kmPerSegment).toFixed(1)} km
+                      {p.gainGuests > 0 ? ` · +${fmt(p.gainGuests)} Gäste/h` : ""}
+                      {p.gainIncome !== 0 ? ` · ${p.gainIncome > 0 ? "+" : "−"}${fmt(Math.abs(p.gainIncome))}/Tag` : ""}
+                    </span>
                   </span>
-                  <span className="shrink-0 text-[11px] text-muted">{((p.hexes.length - 1) * FLOW.kmPerSegment).toFixed(1)} km</span>
                   <span className="shrink-0 text-[11px] font-semibold text-coin">{fmt(p.cost)}</span>
                 </li>
               ))}
             </ul>
           )}
-          {result.plans.length > 0 && (terrain > 0 || budget > 0) && (
+          {result.plans.length > 0 && (
+            <div className="mt-2 grid grid-cols-2 gap-1.5 text-center">
+              <Outlook label="Gäste/h" from={result.before.guestsPerHour} to={result.after.guestsPerHour} />
+              <Outlook label="Gewinn/Tag" from={result.before.incomePerHour} to={result.after.incomePerHour} signed />
+            </div>
+          )}
+          {(terrain > 0 || poor > 0) && result.plans.length > 0 && (
             <p className="mt-1.5 text-[11px] leading-snug text-warn">
               {terrain > 0 && `${terrain} ${terrain === 1 ? "Bahn hat" : "Bahnen haben"} keinen befahrbaren Hang. `}
-              {budget > 0 && `${budget} ${budget === 1 ? "Abfahrt" : "Abfahrten"} später, das Geld reicht noch nicht.`}
+              {poor > 0 && `${poor} ${poor === 1 ? "Abfahrt" : "Abfahrten"} später, das Geld reicht noch nicht.`}
+            </p>
+          )}
+          {result.limit !== "none" && (
+            <p className="mt-1.5 rounded-[12px] bg-warn/10 px-2.5 py-1.5 text-[11px] leading-snug text-navy">
+              {result.limit === "doors"
+                ? "Engpass sind die Ankünfte: Mehr Pisten bringen erst etwas, wenn mehr Gäste ankommen. Parkhaus, Bus oder Hotel ausbauen."
+                : `Engpass ist jetzt ${result.limitLabel || "eine Bahn"}: Kapazität ausbauen bringt mehr als eine weitere Piste.`}
             </p>
           )}
           <div className="mt-2 flex gap-1.5">
@@ -186,6 +207,24 @@ export function AutoPistesPanel() {
           {result.plans.length > 0 && <p className="mt-1 text-center text-[10px] text-muted">{km.toFixed(1)} km neu, gestrichelt auf der Karte</p>}
         </>
       )}
+    </div>
+  );
+}
+
+function planTitle(p: AutoPlan, lift: string): string {
+  if (p.why === "descent") return `Abfahrt ${lift}`;
+  if (p.why === "relief") return `Entlastet ${lift}`;
+  return `${GRADE_NAME[p.grade] ?? "Neue"} Piste ab ${lift}`;
+}
+
+function Outlook({ label, from, to, signed = false }: { label: string; from: number; to: number; signed?: boolean }) {
+  const show = (n: number) => (signed && n > 0 ? "+" : n < 0 ? "−" : "") + fmt(Math.abs(Math.round(n)));
+  return (
+    <div className="rounded-[12px] bg-ice px-2 py-1.5">
+      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted">{label}</div>
+      <div className="text-[12px] font-semibold text-navy">
+        {show(from)} → <span className={to >= from ? "text-success" : "text-danger"}>{show(to)}</span>
+      </div>
     </div>
   );
 }

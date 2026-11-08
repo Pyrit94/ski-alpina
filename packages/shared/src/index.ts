@@ -104,7 +104,7 @@ export { buildResortGraph, clusterPorts, junctionsOn, pisteUse, villageReaches, 
 export type { LiftLink, PisteLink } from "./engine/graph.ts";
 export { descentGoals, liftEnds, resortLinks, suggestDescent } from "./engine/descent.ts";
 export { planAutoPistes } from "./engine/auto-pistes.ts";
-export type { AutoMix, AutoPlan, AutoResult } from "./engine/auto-pistes.ts";
+export type { AutoMix, AutoOutlook, AutoPlan, AutoResult } from "./engine/auto-pistes.ts";
 export type { EdgeLink } from "./engine/descent.ts";
 export type { DemandSource, GraphInput, LiftEdge, PisteEdge, ResortGraph } from "./engine/graph.ts";
 export { FlowNetwork, UNCAPPED } from "./engine/maxflow.ts";

@@ -1,4 +1,4 @@
-import { History, LogOut, Save, Trash2 } from "lucide-react";
+import { ChevronDown, History, LogOut, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { defaultSaveName, SAVE_NAME_MAX, type SaveInfo } from "@ski/shared";
 import { summaryLine, when } from "@/lib/game/saves-format";
@@ -9,7 +9,7 @@ import { useGame } from "@/lib/game/store";
  * back to the start screen to pick another game. As many saves as anyone
  * likes; loading saves the state it replaces first, for everyone in the game.
  */
-export function SavesPanel() {
+export function SavesPanel({ compact = false }: { compact?: boolean }) {
   const roomId = useGame((s) => s.roomId);
   const games = useGame((s) => s.games);
   const saveGame = useGame((s) => s.saveGame);
@@ -20,6 +20,8 @@ export function SavesPanel() {
   const [name, setName] = useState("");
   const [confirm, setConfirm] = useState<{ kind: "load" | "delete"; save: SaveInfo } | null>(null);
   const [showAll, setShowAll] = useState(false);
+  // On the phone the list folds away: saving is one tap, browsing is a second.
+  const [open, setOpen] = useState(!compact);
   const game = games.find((g) => g.id === roomId);
   const saves = game?.saves ?? [];
   const shown = showAll ? saves : saves.slice(0, 5);
@@ -28,10 +30,61 @@ export function SavesPanel() {
     refreshGames();
   }, [refreshGames, roomId]);
 
+  const [justSaved, setJustSaved] = useState(false);
+  useEffect(() => {
+    if (!justSaved) return;
+    const t = setTimeout(() => setJustSaved(false), 2000);
+    return () => clearTimeout(t);
+  }, [justSaved]);
+
+  if (compact && !open) {
+    return (
+      <section>
+        <h3 className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+          <History className="size-3.5" /> <span className="truncate">Spielstand{game ? ` · ${game.name}` : ""}</span>
+        </h3>
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              saveGame("");
+              setJustSaved(true);
+            }}
+            className="btn-3d flex h-12 flex-1 items-center justify-center gap-1.5 rounded-full bg-accent px-4 text-[14px] font-bold text-panel"
+            style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
+          >
+            <Save className="size-4" /> {justSaved ? "Gesichert" : "Jetzt sichern"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-expanded={false}
+            className="flex h-12 shrink-0 items-center gap-1 rounded-full bg-ice px-4 text-[13px] font-semibold text-navy"
+          >
+            {saves.length > 0 ? `${saves.length} ${saves.length === 1 ? "Sicherung" : "Sicherungen"}` : "Sicherungen"}
+            <ChevronDown className="size-4" />
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={leaveGame}
+          className="mt-1.5 flex h-12 w-full items-center justify-center gap-1.5 rounded-full text-[13px] font-semibold text-navy ring-1 ring-line"
+        >
+          <LogOut className="size-4" /> Anderes Spiel wählen
+        </button>
+      </section>
+    );
+  }
+
   return (
-    <div>
+    <div className={compact ? "rounded-[18px] bg-snow p-3 ring-1 ring-line" : ""}>
       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
-        <History className="size-3.5" /> Spielstände {game ? `· ${game.name}` : ""}
+        <History className="size-3.5" /> <span className="min-w-0 flex-1 truncate">Spielstände {game ? `· ${game.name}` : ""}</span>
+        {compact && (
+          <button type="button" onClick={() => setOpen(false)} className="-my-2 grid size-11 place-items-center rounded-full text-muted" aria-label="Sicherungen zuklappen">
+            <ChevronDown className="size-4 rotate-180" />
+          </button>
+        )}
       </div>
       <form
         className="mt-2 flex gap-1.5"
