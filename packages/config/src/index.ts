@@ -18,7 +18,7 @@ export {
   DEFAULT_PISTE_WIDTH,
 } from "./terrain.ts";
 export type { PisteGrade } from "./terrain.ts";
-export { REGIONS, REGION_BY_ID, CLASSIC_REGION, VILLAGE_GAME_ELEV, ALPS_MAP } from "./regions.ts";
+export { REGIONS, REGION_BY_ID, CLASSIC_REGION, VILLAGE_GAME_ELEV, ALPS_MAP, LANDSCAPE } from "./regions.ts";
 export type { RegionDef, RegionPlace } from "./regions.ts";
 export { MATCH, EVENTS } from "./match.ts";
 export type { MatchPresetId, MatchPresetDef, EventDef, EventEffect, EventOption } from "./match.ts";

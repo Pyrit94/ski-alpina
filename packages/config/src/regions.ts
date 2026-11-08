@@ -32,7 +32,31 @@ export interface RegionDef {
   village: RegionPlace;
   /** Labelled on the map. */
   peaks: RegionPlace[];
+  /**
+   * Lakes, by a point on each. The shore is read off the ground: the elevation
+   * model holds a lake as one flat level, which is flooded from this point.
+   * Lakes too small for the 110 m grid simply do not show.
+   */
+  lakes?: RegionPlace[];
+  /** Houses drawn for the village: a city like Davos is bigger than Andermatt. */
+  houses?: number;
 }
+
+/**
+ * The look of the land by real height (the gameplay heights are shifted per
+ * region, see VILLAGE_GAME_ELEV): where the forest ends, where the ice starts.
+ * Visual only; nothing here changes what can be built.
+ */
+export const LANDSCAPE = {
+  /** Upper edge of the forest belt, real metres. */
+  treeLine: 2050,
+  /** Above this, real metres, gentle ground carries a glacier. */
+  glacierFrom: 2950,
+  /** Steeper than this (rise over run), no glacier holds. */
+  glacierMaxSlope: 0.5,
+  /** Houses when a region names none. */
+  houses: 45,
+} as const;
 
 /** Where every region's village lands in gameplay metres. */
 export const VILLAGE_GAME_ELEV = 1600;
@@ -64,6 +88,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Riffelhorn", lat: 45.982, lon: 7.76 },
       { name: "Klein Matterhorn", lat: 45.9384, lon: 7.7297 },
     ],
+    houses: 70,
   },
   {
     id: "flims-laax",
@@ -78,6 +103,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Cassons", lat: 46.866, lon: 9.279 },
       { name: "Crap Masegn", lat: 46.8655, lon: 9.2015 },
     ],
+    houses: 50,
   },
   {
     id: "st-moritz",
@@ -91,6 +117,12 @@ export const REGIONS: RegionDef[] = [
       { name: "Corviglia", lat: 46.516, lon: 9.81 },
       { name: "Corvatsch", lat: 46.418, lon: 9.821 },
     ],
+    lakes: [
+      { name: "St. Moritzersee", lat: 46.4925, lon: 9.8445 },
+      { name: "Lej da Champfèr", lat: 46.4705, lon: 9.8085 },
+      { name: "Silvaplanersee", lat: 46.4495, lon: 9.7895 },
+    ],
+    houses: 80,
   },
   {
     id: "davos",
@@ -104,6 +136,8 @@ export const REGIONS: RegionDef[] = [
       { name: "Jakobshorn", lat: 46.772, lon: 9.85 },
       { name: "Pischa", lat: 46.8215, lon: 9.893 },
     ],
+    lakes: [{ name: "Davosersee", lat: 46.8135, lon: 9.8495 }],
+    houses: 95,
   },
   {
     id: "arosa",
@@ -117,6 +151,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Hörnli", lat: 46.76, lon: 9.645 },
       { name: "Aroser Rothorn", lat: 46.7395, lon: 9.6315 },
     ],
+    houses: 45,
   },
   {
     id: "verbier",
@@ -130,6 +165,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Les Attelas", lat: 46.0985, lon: 7.27 },
       { name: "Savoleyres", lat: 46.117, lon: 7.214 },
     ],
+    houses: 55,
   },
   {
     id: "saas-fee",
@@ -143,6 +179,8 @@ export const REGIONS: RegionDef[] = [
       { name: "Mittelallalin", lat: 46.067, lon: 7.92 },
       { name: "Plattjen", lat: 46.096, lon: 7.954 },
     ],
+    lakes: [{ name: "Mattmarksee", lat: 46.045, lon: 7.963 }],
+    houses: 45,
   },
   {
     id: "engelberg",
@@ -156,6 +194,8 @@ export const REGIONS: RegionDef[] = [
       { name: "Graustock", lat: 46.7865, lon: 8.3605 },
       { name: "Brunni", lat: 46.838, lon: 8.42 },
     ],
+    lakes: [{ name: "Trübsee", lat: 46.7905, lon: 8.3935 }],
+    houses: 50,
   },
   {
     id: "grindelwald",
@@ -169,6 +209,7 @@ export const REGIONS: RegionDef[] = [
       { name: "First", lat: 46.659, lon: 8.054 },
       { name: "Männlichen", lat: 46.613, lon: 7.941 },
     ],
+    houses: 55,
   },
   {
     id: "andermatt",
@@ -181,6 +222,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Gemsstock", lat: 46.602, lon: 8.611 },
       { name: "Nätschen", lat: 46.6385, lon: 8.6315 },
     ],
+    houses: 35,
   },
   {
     id: "st-anton",
@@ -194,6 +236,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Galzig", lat: 47.141, lon: 10.236 },
       { name: "Rendl", lat: 47.118, lon: 10.236 },
     ],
+    houses: 50,
   },
   {
     id: "chamonix",
@@ -207,6 +250,7 @@ export const REGIONS: RegionDef[] = [
       { name: "Brévent", lat: 45.9346, lon: 6.8378 },
       { name: "Flégère", lat: 45.9585, lon: 6.8834 },
     ],
+    houses: 90,
   },
 ];
 

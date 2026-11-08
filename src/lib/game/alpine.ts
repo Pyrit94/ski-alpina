@@ -1,4 +1,5 @@
 import { getDem, type RegionGeo } from "@ski/shared";
+import { LANDSCAPE } from "../../../packages/config/src/regions.ts";
 
 export const WORLD_SIZE = 196;
 export const MAP_RES = 192;
@@ -43,6 +44,39 @@ export function getHeightmap(): Heightmap {
   return hm;
 }
 
+/** Real metres of a gameplay height on this map (see config/regions.ts). */
+export function realHeight(hm: Heightmap, gameMetres: number): number {
+  return gameMetres - hm.region.offset;
+}
+
+function hash2(ix: number, iz: number): number {
+  let h = Math.imul(ix, 374761393) + Math.imul(iz, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+
+function valueNoise(x: number, z: number): number {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fz = z - iz;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sz = fz * fz * (3 - 2 * fz);
+  const a = hash2(ix, iz) + (hash2(ix + 1, iz) - hash2(ix, iz)) * sx;
+  const b = hash2(ix, iz + 1) + (hash2(ix + 1, iz + 1) - hash2(ix, iz + 1)) * sx;
+  return a + (b - a) * sz;
+}
+
+/**
+ * Where the forest stands, 0…1: two octaves of noise, about half a kilometre
+ * across, so the belt below the tree line breaks into stands and clearings.
+ * The ground colour and the trees read the same field, so trees grow where
+ * the map is green.
+ */
+export function forestPatch(x: number, z: number): number {
+  return valueNoise(x / 6.5, z / 6.5) * 0.7 + valueNoise(x / 2.2 + 31, z / 2.2 - 17) * 0.3;
+}
+
 /** Render-only micro-relief. Never used by validate/sim. */
 export function visualRelief(x: number, z: number): number {
   return Math.sin(x * 0.21) * Math.cos(z * 0.17) * 0.28 + Math.sin(x * 0.73 + z * 0.41) * 0.12;
@@ -79,13 +113,14 @@ export type Biome = "ice" | "snow" | "rock" | "forest" | "meadow" | "village" | 
 export function biomeAt(hm: Heightmap, x: number, z: number): Biome {
   if (hm.isWater(x, z)) return "ice";
   const m = hm.sample(x, z);
+  const real = realHeight(hm, m);
   const s = hm.slope(x, z);
   const vd = Math.hypot(x - hm.region.village.x, z - hm.region.village.z);
   if (vd < 14 && m < 1900 && s < 0.16) return "village";
   if (s > 0.62) return "rock";
-  if (m > 3500 && s < 0.3) return "glacier";
-  if (m > 2500) return "snow";
-  if (m > 1800 && s < 0.5) return "forest";
+  if (real > LANDSCAPE.glacierFrom && s < LANDSCAPE.glacierMaxSlope) return "glacier";
+  if (real > LANDSCAPE.treeLine + 450) return "snow";
+  if (real < LANDSCAPE.treeLine && s > 0.05 && s < 0.6 && forestPatch(x, z) > 0.42) return "forest";
   if (s < 0.3) return "meadow";
   return "snow";
 }
@@ -220,13 +255,16 @@ export function scatterTrees(hm: Heightmap, count: number, rng: () => number): S
     guard += 1;
     const x = (rng() - 0.5) * hm.world * 0.92;
     const z = (rng() - 0.5) * hm.world * 0.92;
+    // Trees grow in the forest belt, up to the tree line of the real
+    // mountain, where the ground is painted as forest — plus a few strays
+    // just above it and in the meadows.
     const b = biomeAt(hm, x, z);
-    if (b !== "forest" && b !== "meadow") continue;
+    const stray = rng() < 0.08;
+    if (b !== "forest" && !(stray && (b === "meadow" || b === "snow"))) continue;
     if (hm.isWater(x, z)) continue;
     const s = hm.slope(x, z);
-    if (s > 0.46) continue;
-    const m = hm.sample(x, z);
-    if (m > 2460 || m < 1680) continue;
+    if (s > 0.6) continue;
+    if (realHeight(hm, hm.sample(x, z)) > LANDSCAPE.treeLine + 120) continue;
     out.push({
       x,
       y: surfaceY(hm, x, z),

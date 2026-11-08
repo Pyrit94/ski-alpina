@@ -8,6 +8,8 @@
  * while the sun still reaches whatever it actually hits.
  */
 
+import { LANDSCAPE } from "../../../../packages/config/src/regions.ts";
+
 export type Rgb = [number, number, number];
 
 /** sRGB hex to linear, which is what three expects in a colour attribute. */
@@ -37,6 +39,9 @@ export const PALETTE = {
   darkRock: lin(0x564c45),
   village: lin(0xb3a488),
   water: lin(0x86aec6),
+  ice: lin(0xdbe7f1),
+  /** A conifer stand under snow, seen from above: dark, a little frosted. */
+  snowyForest: lin(0x5d6d5c),
 };
 
 function smoothstep(e0: number, e1: number, x: number) {
@@ -56,9 +61,15 @@ const SNOW_FEATHER = 130;
 /**
  * Albedo at one point.
  *
- * `slope` is a real tangent (rise over run in metres), `villageDist` in world
- * units. The snow line is the simulation's, so the map never contradicts the
- * HUD: if the run is open, the ground under it is white.
+ * `elevM` is in gameplay metres; `offset` turns it into the real height
+ * (gameplay = real + offset, see config/regions.ts), which decides what grows
+ * and where the ice is — so Flims, with its village at 1'080 m, is green with
+ * forest far up its slopes, while St. Moritz at 1'822 m has only a thin belt
+ * before the open alpine ground. Snow follows the simulation's snow line in
+ * gameplay metres, so the map never contradicts the HUD.
+ *
+ * `slope` is a real tangent, `villageDist` in world units, `patch` a 0…1
+ * noise that breaks the forest into stands.
  */
 export function groundAlbedo(
   elevM: number,
@@ -67,29 +78,50 @@ export function groundAlbedo(
   villageDist: number,
   water: boolean,
   out: Rgb = [0, 0, 0],
+  offset = 0,
+  patch = 0.5,
 ): Rgb {
+  const real = elevM - offset;
+  const cover = smoothstep(snowLineM - SNOW_FEATHER, snowLineM + SNOW_FEATHER, elevM);
   if (water) {
+    // Open water in summer, frozen and snowed over in winter, as the lakes of the Engadin are.
     out[0] = PALETTE.water[0];
     out[1] = PALETTE.water[1];
     out[2] = PALETTE.water[2];
+    mixInto(out, PALETTE.ice, cover * 0.9);
     return out;
   }
   out[0] = PALETTE.meadow[0];
   out[1] = PALETTE.meadow[1];
   out[2] = PALETTE.meadow[2];
-  mixInto(out, PALETTE.forest, smoothstep(1700, 1950, elevM));
-  mixInto(out, PALETTE.alpine, smoothstep(2100, 2450, elevM));
+
+  // Above the tree line: alpine grass and heath, then scree.
+  mixInto(out, PALETTE.alpine, smoothstep(LANDSCAPE.treeLine, LANDSCAPE.treeLine + 260, real));
+
+  // The forest belt: below the tree line, on slopes a forest holds to (the
+  // valley floor is meadow and village), in stands rather than a carpet.
+  const belt = 1 - smoothstep(LANDSCAPE.treeLine - 180, LANDSCAPE.treeLine + 30, real);
+  const growable = smoothstep(0.05, 0.16, slope) * (1 - smoothstep(0.62, 0.85, slope));
+  const stands = smoothstep(0.32, 0.58, patch);
+  const forest = belt * growable * stands * smoothstep(4, 9, villageDist);
+  mixInto(out, PALETTE.forest, forest);
 
   // Snow holds on anything a skier could stand on and slides off the rest.
-  const cover = smoothstep(snowLineM - SNOW_FEATHER, snowLineM + SNOW_FEATHER, elevM);
+  // Under trees it only frosts the crowns, so a forest stays dark in winter.
   const holds = 1 - smoothstep(0.75, 1.05, slope);
-  mixInto(out, PALETTE.snow, cover * holds);
-  mixInto(out, PALETTE.glacier, smoothstep(3400, 3900, elevM) * (1 - smoothstep(0.3, 0.55, slope)));
+  mixInto(out, PALETTE.snow, cover * holds * (1 - forest * 0.85));
+  mixInto(out, PALETTE.snowyForest, cover * forest * 0.35);
+
+  // Glaciers: high and not too steep.
+  const ice =
+    smoothstep(LANDSCAPE.glacierFrom - 80, LANDSCAPE.glacierFrom + 160, real) *
+    (1 - smoothstep(LANDSCAPE.glacierMaxSlope - 0.15, LANDSCAPE.glacierMaxSlope + 0.1, slope));
+  mixInto(out, PALETTE.glacier, ice);
 
   // Steep ground: scree, then rock, darker the higher and steeper it gets.
   mixInto(out, PALETTE.scree, smoothstep(0.72, 0.95, slope) * 0.7);
   mixInto(out, PALETTE.rock, smoothstep(0.9, 1.25, slope));
-  mixInto(out, PALETTE.darkRock, smoothstep(1.1, 1.7, slope) * smoothstep(2600, 3600, elevM));
+  mixInto(out, PALETTE.darkRock, smoothstep(1.1, 1.7, slope) * smoothstep(2600, 3600, real));
 
   // Settled ground around the village.
   const settled = (1 - smoothstep(6, 16, villageDist)) * (1 - smoothstep(0.1, 0.3, slope)) * 0.55;
