@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { withRoofSnow } from "./snow-shaders";
 
 /**
  * Flatten a model into one or two geometries with its colours in the
@@ -30,7 +31,7 @@ function toonRamp(): THREE.DataTexture {
   tex.needsUpdate = true;
   return tex;
 }
-export const SOLID = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: toonRamp() });
+export const SOLID = withRoofSnow(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: toonRamp() }), "solid");
 
 /**
  * One palette for everything: colours a little richer and their darks lifted,
@@ -118,6 +119,10 @@ export function bake(root: THREE.Object3D): Baked {
       colours[i * 3 + 2] = c.b;
     }
     geo.setAttribute("color", new THREE.BufferAttribute(colours, 3));
+    // Snow on a roof or a tree top, tagged so the season can take it away
+    // (see withRoofSnow). Every part carries the attribute, or they would not merge.
+    const tag = typeof mat.userData?.roofSnow === "number" ? (mat.userData.roofSnow as number) : 0;
+    geo.setAttribute("roofSnow", new THREE.BufferAttribute(new Float32Array(count).fill(tag), 1));
     (glows ? glow : solid).push(geo);
   });
   const merge = (parts: THREE.BufferGeometry[]) => {

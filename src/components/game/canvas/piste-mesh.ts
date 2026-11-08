@@ -1,6 +1,7 @@
 // Explicit extensions so the node test runner can load this directly.
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { SEASON_UNIFORMS } from "./snow-shaders.ts";
 
 /**
  * Runs as groomed snow lying on the mountain, not as coloured tape.
@@ -282,7 +283,16 @@ export function markerPoles(
  * scene's lights, fog, shadows and tone mapping. `fine` adds the corduroy
  * texture inside each groomer lane; the phone tier keeps only the lanes.
  */
-export function makePisteMaterial(fine: boolean, opacity = 1): THREE.MeshStandardMaterial {
+/**
+ * `outline` keeps the grade line strong off the snow — the «Pisten» layer,
+ * where a run in July still has to be found and picked.
+ *
+ * Off the snow a run is a faint mown track: white only where the season's
+ * snow lies or the simulation keeps the run open (snowmaking included), so
+ * the ribbon says what the run does today. Both lines come in through
+ * SEASON_UNIFORMS; nothing here is rebuilt when they move.
+ */
+export function makePisteMaterial(fine: boolean, opacity = 1, outline = false): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.62,
@@ -294,12 +304,17 @@ export function makePisteMaterial(fine: boolean, opacity = 1): THREE.MeshStandar
   });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uOpacity = { value: opacity };
+    shader.uniforms.uSnowLineY = SEASON_UNIFORMS.uSnowLineY;
+    shader.uniforms.uRunLineY = SEASON_UNIFORMS.uRunLineY;
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nattribute vec2 pisteUv;\nattribute float pisteW;\nattribute float pisteFade;\nvarying vec2 vPisteUv;\nvarying float vPisteW;\nvarying float vPisteFade;",
+        "#include <common>\nattribute vec2 pisteUv;\nattribute float pisteW;\nattribute float pisteFade;\nvarying vec2 vPisteUv;\nvarying float vPisteW;\nvarying float vPisteFade;\nvarying float vPisteY;",
       )
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvPisteUv = pisteUv;\nvPisteW = pisteW;\nvPisteFade = pisteFade;");
+      .replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\nvPisteUv = pisteUv;\nvPisteW = pisteW;\nvPisteFade = pisteFade;\nvPisteY = (modelMatrix * vec4(transformed, 1.0)).y;",
+      );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
@@ -307,7 +322,10 @@ export function makePisteMaterial(fine: boolean, opacity = 1): THREE.MeshStandar
 varying vec2 vPisteUv;
 varying float vPisteW;
 varying float vPisteFade;
-uniform float uOpacity;`,
+varying float vPisteY;
+uniform float uOpacity;
+uniform float uSnowLineY;
+uniform float uRunLineY;`,
       )
       .replace(
         "#include <color_fragment>",
@@ -333,17 +351,28 @@ uniform float uOpacity;`,
     rib = mix(rib, 0.5, clamp(fwidth(ribX) * 1.2, 0.0, 1.0));
     snow *= 0.975 + 0.025 * rib;
   #endif
-  vec3 runColor = mix(snow, vColor.rgb, line * 0.95);
+  // Snow where the season lays it, or where the run is still open: the
+  // simulation fades a run out over 400 m below its line, about 8.6 units.
+  float onSnow = max(
+    smoothstep(uSnowLineY - 2.8, uSnowLineY + 2.8, vPisteY),
+    smoothstep(uRunLineY - 6.0, uRunLineY - 1.0, vPisteY));
+  // Off the snow, a mown track: a shade lighter and yellower than the meadow,
+  // the lanes still showing where the mower went.
+  vec3 grass = vec3(0.25, 0.33, 0.1) * (0.92 + 0.12 * lane);
+  vec3 ground = mix(grass, snow, onSnow);
+  vec3 runColor = mix(ground, vColor.rgb, line * 0.95 * mix(${outline ? "0.95" : "0.3"}, 1.0, onSnow));
   // Asphalt: the stored colour, a dashed white centre line.
   float dash = step(0.5, fract(vPisteUv.y * 0.35)) * (1.0 - smoothstep(0.03, 0.06, abs(pu - 0.5) * width));
   vec3 roadColor = mix(vColor.rgb * 0.85, vec3(0.92), dash * 0.8);
   diffuseColor.rgb = mix(runColor, roadColor, road);
   // A soft outer border so the run melts into the open snow beside it.
   diffuseColor.a *= uOpacity * smoothstep(0.0, mix(0.22, 0.05, road), fromEdge) * smoothstep(0.0, 1.0, vPisteFade);
+  // A track in the grass is faint; the road and the runs on snow are not.
+  diffuseColor.a *= mix(mix(${outline ? "0.8" : "0.45"}, 1.0, onSnow), 1.0, road);
 `,
       );
   };
   // Distinct program per variant: the define above is baked into the source.
-  mat.customProgramCacheKey = () => `piste-${fine ? 1 : 0}`;
+  mat.customProgramCacheKey = () => `piste-${fine ? 1 : 0}-${outline ? 1 : 0}`;
   return mat;
 }
