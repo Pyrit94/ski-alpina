@@ -5,6 +5,9 @@ import { LANDSCAPE, REGION_BY_ID } from "@ski/config";
 import { getHeightmap, realHeight, surfaceY } from "@/lib/game/alpine";
 import { hexKey, worldToHex } from "@/lib/game/hex";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
+import { HOUSE_KEYS, houseVariant } from "@/lib/game/model-keys";
+import { SOLID } from "./bake";
+import { useFilePart, useFileParts } from "./file-parts";
 import { useStableGame } from "./use-stable-game";
 
 /** A chalet: white walls, a dark timber roof with snow on it. One geometry, coloured per vertex. */
@@ -40,7 +43,8 @@ const MAX_HOUSES = 140;
  * The village itself: chalets around the centre, more in a town like Davos
  * than in Andermatt (`houses` in config/regions.ts). They stand on gentle
  * ground near the village height, keep their distance from each other, and
- * give way to anything the players build. One instanced mesh.
+ * give way to anything the players build. One instanced mesh per kind of
+ * house: the built-in chalet, or each house model in public/models.
  */
 export function VillageHouses() {
   const hm = getHeightmap();
@@ -96,31 +100,80 @@ export function VillageHouses() {
     return set;
   }, [buildings, lifts, pistes]);
 
+  // Houses from files (house-1..6), picked per house so the same house keeps
+  // its look, and the church once, on the free spot nearest the centre.
+  const houseFiles = useFileParts(HOUSE_KEYS);
+  const churchFile = useFilePart("church");
+  const batches = useMemo(() => {
+    const available = houseFiles.map((f) => f.key);
+    const out = new Map<string, HousePlacement[]>([["", []]]);
+    const free = (p: { x: number; z: number }) => {
+      const h = worldToHex(p.x, p.z);
+      return !taken.has(hexKey(h.q, h.r));
+    };
+    let church = -1;
+    if (churchFile) {
+      const v = hm.region.village;
+      let best = Infinity;
+      spots.forEach((p, i) => {
+        const d = Math.hypot(p.x - v.x, p.z - v.z);
+        if (d < best && free(p)) {
+          best = d;
+          church = i;
+        }
+      });
+    }
+    const o = new THREE.Object3D();
+    const rng = mulberry32(seedFromString("village-tint"));
+    spots.forEach((p, i) => {
+      if (!free(p)) return;
+      const key = i === church ? "church" : (houseVariant(i, available) ?? "");
+      o.position.set(p.x, surfaceY(hm, p.x, p.z) - 0.05, p.z);
+      o.rotation.set(0, p.r, 0);
+      // A church model comes at its own size; houses grow like the chalets.
+      o.scale.setScalar(key === "church" ? 1 : p.s);
+      o.updateMatrix();
+      const k = 0.86 + rng() * 0.14;
+      const colour = new THREE.Color(k, k * (0.97 + rng() * 0.03), k * 0.95);
+      const list = out.get(key) ?? [];
+      list.push({ matrix: o.matrix.clone(), colour });
+      out.set(key, list);
+    });
+    return out;
+  }, [spots, taken, hm, houseFiles, churchFile]);
+
+  return (
+    <group>
+      {houseFiles.length === 0 && <HouseBatch geometry={geometry} material={material} items={batches.get("") ?? []} />}
+      {houseFiles.map(({ key, geometry: g }) =>
+        batches.get(key)?.length ? <HouseBatch key={key} geometry={g} material={SOLID} items={batches.get(key)!} /> : null,
+      )}
+      {churchFile && batches.get("church")?.length ? (
+        <HouseBatch key="church" geometry={churchFile} material={SOLID} items={batches.get("church")!} />
+      ) : null}
+    </group>
+  );
+}
+
+interface HousePlacement {
+  matrix: THREE.Matrix4;
+  colour: THREE.Color;
+}
+
+/** One kind of house, every one of it in one instanced mesh. */
+function HouseBatch({ geometry, material, items }: { geometry: THREE.BufferGeometry; material: THREE.Material; items: HousePlacement[] }) {
   const mesh = useRef<THREE.InstancedMesh>(null);
   useLayoutEffect(() => {
     const m = mesh.current;
     if (!m) return;
-    const o = new THREE.Object3D();
-    const tint = new THREE.Color();
-    const rng = mulberry32(seedFromString("village-tint"));
-    let i = 0;
-    for (const p of spots) {
-      const h = worldToHex(p.x, p.z);
-      if (taken.has(hexKey(h.q, h.r))) continue;
-      o.position.set(p.x, surfaceY(hm, p.x, p.z) - 0.05, p.z);
-      o.rotation.set(0, p.r, 0);
-      o.scale.setScalar(p.s);
-      o.updateMatrix();
-      m.setMatrixAt(i, o.matrix);
-      const k = 0.86 + rng() * 0.14;
-      m.setColorAt(i, tint.setRGB(k, k * (0.97 + rng() * 0.03), k * 0.95));
-      i++;
-    }
-    m.count = i;
+    items.forEach((it, i) => {
+      m.setMatrixAt(i, it.matrix);
+      m.setColorAt(i, it.colour);
+    });
+    m.count = items.length;
     m.instanceMatrix.needsUpdate = true;
     if (m.instanceColor) m.instanceColor.needsUpdate = true;
     m.computeBoundingSphere();
-  }, [spots, taken, hm]);
-
+  }, [items]);
   return <instancedMesh ref={mesh} args={[geometry, material, MAX_HOUSES]} castShadow receiveShadow frustumCulled={false} />;
 }

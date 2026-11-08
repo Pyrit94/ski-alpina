@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Document, NodeIO } from "@gltf-transform/core";
-import { importFolder, parseName } from "./import-models.mjs";
+import { PART_KEYS, importFolder, parseName, triangleBudget } from "./import-models.mjs";
 
 /** A dense, colourless "building": a box made of many small triangles. */
 async function writeDenseBox(path, n = 60) {
@@ -39,6 +39,34 @@ test("names map to items, levels and lift parts", () => {
   assert.deepEqual(parseName("hotel1"), { key: "hotel1", level: 1 });
   assert.deepEqual(parseName("hotel1-3"), { key: "hotel1", level: 3 });
   assert.deepEqual(parseName("carrier-chair"), { key: "carrier-chair", level: 1 });
+});
+
+test("slot names stay whole, even when they end in a number", () => {
+  for (const n of [1, 2, 3, 4, 5, 6]) assert.deepEqual(parseName(`house-${n}`), { key: `house-${n}`, level: 1 });
+  for (const key of ["station-mid", "station-chair", "station-cog", "carrier-tram", "church", "tree-spruce", "tree-larch",
+    "skier", "snowboarder", "car", "coach", "groomer-vehicle", "bench", "parasol", "flag", "sign"]) {
+    assert.ok(PART_KEYS.includes(key), key);
+    assert.deepEqual(parseName(key), { key, level: 1 });
+  }
+  // A level of a slot still parses as a level.
+  assert.deepEqual(parseName("station-mid-2"), { key: "station-mid", level: 2 });
+  assert.deepEqual(parseName("hotel5-4"), { key: "hotel5", level: 4 });
+});
+
+test("the slot list matches the game's (src/lib/game/model-keys.ts)", async () => {
+  const text = await readFile(new URL("../src/lib/game/model-keys.ts", import.meta.url), "utf8");
+  const block = /PART_LABEL[^=]*= \{([\s\S]*?)\n\};/.exec(text)?.[1] ?? "";
+  const keys = [...block.matchAll(/^\s*"?([a-z0-9-]+)"?:/gm)].map((m) => m[1]);
+  assert.deepEqual([...keys].sort(), [...PART_KEYS].sort());
+});
+
+test("each kind has its triangle budget", () => {
+  assert.equal(triangleBudget("tree-spruce"), 150);
+  assert.equal(triangleBudget("skier"), 200);
+  assert.equal(triangleBudget("sign"), 200);
+  assert.equal(triangleBudget("house-4"), 1500);
+  assert.equal(triangleBudget("station-tram"), 2500);
+  assert.equal(triangleBudget("hotel1"), 3000);
 });
 
 test("a dense, colourless model is reduced, coloured and entered in the manifest", async () => {

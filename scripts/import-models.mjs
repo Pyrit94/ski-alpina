@@ -7,7 +7,9 @@
  * Every .glb/.gltf in the folder is named after what it replaces:
  *   hotel1.glb      → the hotel ★
  *   hotel1-3.glb    → the hotel ★ at expansion level 3
- *   station.glb, pylon.glb, carrier-chair.glb, carrier-cabin.glb, carrier-tbar.glb
+ *   station.glb, station-chair.glb, station-mid.glb, pylon.glb, carrier-cabin.glb, …
+ *   house-1.glb … house-6.glb, church.glb, tree-spruce.glb, skier.glb, car.glb, …
+ *   (PART_KEYS below; public/models/README.md lists what each one is)
  *
  * For each model the tool
  *   1. merges and welds its meshes and drops what is unused,
@@ -26,8 +28,61 @@ import { NodeIO } from "@gltf-transform/core";
 import { dedup, flatten, join as joinMeshes, prune, simplify, weld } from "@gltf-transform/functions";
 import { MeshoptSimplifier } from "meshoptimizer";
 
-/** Lift parts the game reads besides the catalogue's item ids. */
-export const PART_KEYS = ["station", "pylon", "carrier-chair", "carrier-cabin", "carrier-tbar", "carrier-train"];
+/**
+ * Slots the game reads besides the catalogue's item ids. Mirrors PART_LABEL
+ * in src/lib/game/model-keys.ts (a test keeps the two in step). These names
+ * are always whole: `house-3` is the third house, not `house` at level 3.
+ */
+export const PART_KEYS = [
+  "station",
+  "station-mid",
+  "station-tbar",
+  "station-chair",
+  "station-gondola",
+  "station-tram",
+  "station-funitel",
+  "station-glacier",
+  "station-cog",
+  "pylon",
+  "carrier-chair",
+  "carrier-cabin",
+  "carrier-tram",
+  "carrier-tbar",
+  "carrier-train",
+  "house-1",
+  "house-2",
+  "house-3",
+  "house-4",
+  "house-5",
+  "house-6",
+  "church",
+  "tree-spruce",
+  "tree-larch",
+  "skier",
+  "snowboarder",
+  "car",
+  "coach",
+  "groomer-vehicle",
+  "bench",
+  "parasol",
+  "flag",
+  "sign",
+];
+
+/** Most triangles a model of this kind keeps (README: «Dreiecke»). */
+export function triangleBudget(key) {
+  if (key.startsWith("station")) return 2500;
+  if (key === "pylon") return 600;
+  if (key.startsWith("carrier")) return 800;
+  if (key.startsWith("house")) return 1500;
+  if (key === "church") return 1500;
+  if (key.startsWith("tree")) return 150;
+  if (key === "skier" || key === "snowboarder") return 200;
+  if (key === "car" || key === "coach") return 800;
+  if (key === "groomer-vehicle") return 1000;
+  if (["bench", "parasol", "flag", "sign"].includes(key)) return 200;
+  return 3000;
+}
 
 /** Colours for shape-only models, by what they are: roof, walls, base. */
 const ZONES = {
@@ -37,18 +92,28 @@ const ZONES = {
   station: { roof: [0.76, 0.23, 0.2], wall: [0.93, 0.93, 0.9], base: [0.55, 0.55, 0.53] },
   metal: { roof: [0.28, 0.33, 0.37], wall: [0.28, 0.33, 0.37], base: [0.28, 0.33, 0.37] },
   carrier: { roof: [0.2, 0.25, 0.3], wall: [0.18, 0.44, 0.93], base: [0.2, 0.25, 0.3] },
+  tree: { roof: [0.24, 0.42, 0.26], wall: [0.16, 0.3, 0.2], base: [0.29, 0.2, 0.15] },
+  vehicle: { roof: [0.2, 0.25, 0.3], wall: [0.76, 0.23, 0.2], base: [0.15, 0.15, 0.17] },
+  person: { roof: [0.9, 0.8, 0.3], wall: [0.76, 0.23, 0.2], base: [0.2, 0.25, 0.4] },
 };
 
 function zonesFor(key) {
   if (key.startsWith("hotel")) return ZONES.hotel;
   if (key === "parking" || key === "bus") return ZONES.parking;
-  if (key === "station") return ZONES.station;
+  if (key.startsWith("station")) return ZONES.station;
   if (key === "pylon") return ZONES.metal;
   if (key.startsWith("carrier")) return ZONES.carrier;
+  if (key.startsWith("tree")) return ZONES.tree;
+  if (["car", "coach", "groomer-vehicle"].includes(key)) return ZONES.vehicle;
+  if (key === "skier" || key === "snowboarder") return ZONES.person;
   return ZONES.default;
 }
 
-/** "hotel1-3" → { key: "hotel1", level: 3 }; "carrier-chair" stays whole. */
+/**
+ * "hotel1-3" → { key: "hotel1", level: 3 }; slot names ("carrier-chair",
+ * "house-3", "station-mid") stay whole, since a trailing 2–4 there is part of
+ * the name, not a level.
+ */
 export function parseName(stem) {
   if (PART_KEYS.includes(stem)) return { key: stem, level: 1 };
   const m = /^(.+?)-([2-4])$/.exec(stem);
@@ -139,6 +204,7 @@ export async function importModel(file, outDir, { targetTriangles = 2500 } = {})
   const stem = basename(file, extname(file));
   const { key, level } = parseName(stem);
   const before = triangles(doc);
+  targetTriangles = Math.min(targetTriangles, triangleBudget(key));
   await doc.transform(dedup(), flatten(), joinMeshes(), weld(), prune());
   // Reduce in steps, allowing a little more error each time, until it fits.
   for (const error of [0.002, 0.01, 0.05]) {
