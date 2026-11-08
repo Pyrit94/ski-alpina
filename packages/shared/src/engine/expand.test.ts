@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BUILDING_LEVELS, ECONOMY, PISTE_LEVELS } from "../../../config/src/economy.ts";
 import { BY_ID } from "../../../config/src/items.ts";
+import { RESEARCH_GATE } from "../../../config/src/research.ts";
 import { hexesInRange, type Axial } from "../hex.ts";
 import type { ResortState } from "../types.ts";
 import { generateDem } from "../terrain/dem.ts";
@@ -18,7 +19,14 @@ const BUILT = NOW - 120_000;
 
 /** A resort with one car park somewhere legal near the village. */
 function withBuilding(itemId: "parking" | "bus" | "restaurant" | "hotel1"): { state: ResortState; id: string } {
-  const base: ResortState = { ...emptyResort(), timeOfDay: 0.5, xp: 999_999, coins: 500_000 };
+  const base: ResortState = {
+    ...emptyResort(),
+    timeOfDay: 0.5,
+    xp: 999_999,
+    coins: 500_000,
+    // Everything researched: these tests are about expanding, not unlocking.
+    research: { ...emptyResort().research, done: [...new Set(Object.values(RESEARCH_GATE))] as string[] },
+  };
   for (const hex of hexesInRange(VILLAGE_HEX, 6) as Axial[]) {
     const intent = { type: "place_building" as const, itemId, q: hex.q, r: hex.r };
     if (!validateIntent(base, dem, intent, "builder", BUILT).ok) continue;

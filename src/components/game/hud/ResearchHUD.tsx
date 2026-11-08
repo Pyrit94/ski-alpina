@@ -4,7 +4,15 @@ import { createPortal } from "react-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   Armchair,
+  Bath,
+  BedDouble,
+  Building2,
+  Bus,
   Cable,
+  CableCar,
+  Crown,
+  Hotel,
+  Mountain,
   Check,
   CloudSnow,
   Flame,
@@ -58,7 +66,15 @@ import { useGame } from "@/lib/game/store";
 
 const ICONS: Record<string, LucideIcon> = {
   Armchair,
+  Bath,
+  BedDouble,
+  Building2,
+  Bus,
   Cable,
+  CableCar,
+  Crown,
+  Hotel,
+  Mountain,
   CloudSnow,
   Flame,
   Gauge,
@@ -130,9 +146,14 @@ const STATUS_LABEL: Record<NodeStatus, string> = {
 
 export function ResearchPanel({ compact = false }: { compact?: boolean }) {
   const view = useResearch();
-  const [branch, setBranch] = useState<ResearchBranchId>("bahnen");
-  const [selected, setSelected] = useState<string | null>(null);
+  // A locked card in the build menu can ask for its node: open on it.
+  const focus = useGame((s) => s.researchFocus);
+  const [branch, setBranch] = useState<ResearchBranchId>(() => (focus ? (RESEARCH_BY_ID[focus]?.branch ?? "bahnen") : "bahnen"));
+  const [selected, setSelected] = useState<string | null>(focus);
   const [wide, setWide] = useState(false);
+  useEffect(() => {
+    if (focus) useGame.setState({ researchFocus: null });
+  }, [focus]);
 
   if (!view.enabled) {
     return (

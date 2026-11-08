@@ -36,7 +36,7 @@ import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
 import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
-import { BUILDING_LEVELS, PISTE_LEVELS, TERRAIN } from "@ski/config";
+import { BUILDING_LEVELS, PISTE_LEVELS, RESEARCH_BY_ID, TERRAIN } from "@ski/config";
 import { buildingLevel, expandable, expansionCost, expansionSpent, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, widthDef } from "@ski/shared";
 import { buildingLevelLabel, levelGain, pisteLevelLabel } from "@/lib/game/expansion";
 import { GRADE_COLOR, usePisteEditor } from "@/lib/game/piste-editor";
@@ -1628,10 +1628,17 @@ function BuildDrawer() {
                 <span className="relative block">
                   <ItemThumb id={it.id} className={`h-20 w-full lg:h-24 ${locked ? "grayscale" : ""}`} iconClass="size-8" />
                   {locked && (
-                    <span className="absolute inset-0 grid place-items-center bg-snow/85 text-[11px] font-bold text-muted">
-                      <span className="flex items-center gap-1">
-                        <Lock className="size-4" /> Level {it.unlockLevel}
-                      </span>
+                    <span className="absolute inset-0 grid place-items-center bg-snow/85 px-1.5 text-center text-[11px] font-bold">
+                      {terms.lock(it.id)?.kind === "research" ? (
+                        <span className="flex flex-col items-center gap-0.5 text-accent">
+                          <FlaskConical className="size-5" />
+                          <span className="line-clamp-2 leading-tight">{RESEARCH_BY_ID[(terms.lock(it.id) as { nodeId: string }).nodeId]?.name}</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-muted">
+                          <Lock className="size-4" /> Level {it.unlockLevel}
+                        </span>
+                      )}
                     </span>
                   )}
                 </span>
@@ -1724,7 +1731,7 @@ function StampTray() {
               <Icon className="size-4" />
               <span className="mt-0.5 max-w-full truncate text-[9px] font-bold">{it.name.split(" ")[0]}</span>
               <span className={`value text-[9px] font-semibold ${active ? "text-panel/85" : tooExpensive ? "text-danger" : "text-muted"}`}>
-                {locked ? `Lv ${it.unlockLevel}` : it.id === "piste" ? `ab ${fmtCompact(terms.cost(it.id))}` : fmtCompact(terms.cost(it.id))}
+                {locked ? (terms.lock(it.id)?.kind === "research" ? "Forschung" : `Lv ${it.unlockLevel}`) : it.id === "piste" ? `ab ${fmtCompact(terms.cost(it.id))}` : fmtCompact(terms.cost(it.id))}
               </span>
             </button>
           );

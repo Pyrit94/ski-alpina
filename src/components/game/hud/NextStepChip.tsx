@@ -5,6 +5,7 @@ import { useResortLinks } from "@/lib/game/links";
 import { nextStep } from "@/lib/game/next-step";
 import { runStepAction } from "@/lib/game/step-actions";
 import { useGame } from "@/lib/game/store";
+import { researchHint } from "@/lib/game/research-ready";
 
 /** Tips dismissed this session, by id: one stays away until the situation changes. */
 const dismissed = new Set<string>();
@@ -37,6 +38,7 @@ export function NextStepChip({ className = "" }: { className?: string }) {
         links,
         coins,
         unlocked: (id) => itemUnlocked(useGame.getState(), id),
+        research: researchHint(useGame.getState()),
       }),
     [lifts, pistes, buildings, stats, flow, links, coins],
   );

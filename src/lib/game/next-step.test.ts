@@ -101,3 +101,17 @@ test("a saturated bottleneck asks to be upgraded", () => {
   assert.equal(step?.id, "bottleneck-l1");
   assert.deepEqual(step?.action, { kind: "select", id: "l1" });
 });
+
+test("idle research is suggested once the resort runs, with the node to start", () => {
+  const running = {
+    lifts: [lift("l1")],
+    pistes: [piste("p1"), piste("p2", "red")],
+    links: new Map<string, EdgeLink>([["l1", "ok"], ["p1", "ok"], ["p2", "ok"]]),
+    buildings: [building("b1", "parking"), building("b2", "restaurant")],
+  };
+  const idle = nextStep(input({ ...running, research: { busy: false, next: { id: "gastgewerbe", name: "Gastgewerbe" } } }));
+  assert.deepEqual(idle?.action, { kind: "research", nodeId: "gastgewerbe" });
+  // Running research, or none to start: no such tip.
+  const busy = nextStep(input({ ...running, research: { busy: true, next: { id: "gastgewerbe", name: "Gastgewerbe" } } }));
+  assert.notEqual(busy?.action?.kind, "research");
+});

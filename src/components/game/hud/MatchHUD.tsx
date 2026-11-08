@@ -21,6 +21,7 @@ import { DEFAULT_MATCH_OPTIONS, duelScores, scoreBreakdown, secretGoalResults, w
 import { fmt, fmtSigned } from "@/lib/game/format";
 import { peerColor } from "@/lib/game/players";
 import { useGame } from "@/lib/game/store";
+import { researchHint } from "@/lib/game/research-ready";
 import { useMyMoney, useResortView } from "@/lib/game/team";
 import { itemUnlocked } from "@ski/shared";
 import { useResortLinks } from "@/lib/game/links";
@@ -529,7 +530,7 @@ function ReportNextStep({ onAction }: { onAction?: () => void }) {
   const coins = useGame((s) => s.coins);
   const links = useResortLinks();
   const step = useMemo(
-    () => nextStep({ lifts, pistes, buildings, stats, flow, links, coins, unlocked: (id) => itemUnlocked(useGame.getState(), id) }),
+    () => nextStep({ lifts, pistes, buildings, stats, flow, links, coins, unlocked: (id) => itemUnlocked(useGame.getState(), id), research: researchHint(useGame.getState()) }),
     [lifts, pistes, buildings, stats, flow, links, coins],
   );
   if (!step) return null;
