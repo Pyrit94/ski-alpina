@@ -85,6 +85,9 @@ export interface GameStore extends ResortState, UiState {
   regionReady: string | null;
   /** Where the camera should glide to next (world x/z), with a serial. */
   cameraFocus: { x: number; z: number; id: number } | null;
+  /** A request to rise over the whole area, with a serial (0: none yet). */
+  overviewAt: number;
+  showOverview: () => void;
   /** The new lift the «noch keine Abfahrt» card is offering a run for. */
   descentOffer: string | null;
   /** «Pisten automatisch» while open: which lifts (null = all) and which grades. */
@@ -351,6 +354,15 @@ export const useGame = create<GameStore>((set, get) => ({
           }
         }
         if (first || get().sheet === "chat") set({ chatSeen: chat.length });
+        // A brand-new valley: show the whole area first, then fly into the village.
+        if (first && state.lifts.length === 0 && state.buildings.length === 0) {
+          set({ overviewAt: Date.now() });
+          setTimeout(() => {
+            const dem = getDem(state.region ?? CLASSIC_REGION);
+            const v = dem.region.village;
+            get().focusOn(v.x, v.z);
+          }, 3200);
+        }
         // «Während du weg warst»: compare with this device's last mark, then keep it fresh.
         const me = get().playerId;
         if (me) {
@@ -426,6 +438,8 @@ export const useGame = create<GameStore>((set, get) => ({
 
   setStarted: (v) => set({ started: v }),
   cameraFocus: null,
+  overviewAt: 0,
+  showOverview: () => set({ overviewAt: Date.now(), sheet: "none" }),
   regionReady: null,
   descentOffer: null,
   autoPistes: null,

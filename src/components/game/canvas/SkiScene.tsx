@@ -12,8 +12,8 @@ import {
 } from "@/lib/game/alpine";
 import { ECONOMY, isLift } from "@/lib/game/catalog";
 import { HEX_SIZE, hexDistance, hexLine, hexToWorld, worldToHex } from "@/lib/game/hex";
-import { FLOW } from "@ski/config";
-import { relaxLine } from "@ski/shared";
+import { FLOW, REGION_BY_ID } from "@ski/config";
+import { regionPoint, relaxLine } from "@ski/shared";
 import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
@@ -25,6 +25,7 @@ import { loadModelLibrary, modelFor, useModelLibrary } from "@/lib/game/model-li
 import { bake, bakedCache, SOLID } from "./bake";
 import { AutoPreview } from "./AutoPreview";
 import { VillagePreview } from "./VillagePreview";
+import { VillageHouses } from "./village";
 import { ribbonGeometry } from "./geometry";
 import { makeTreeMaterial } from "./snow-shaders";
 import { STATION_CABLE_Y, cableGap, stationYaw } from "./station";
@@ -335,17 +336,32 @@ function PeakLabels() {
   const style = { visibility: hidden ? ("hidden" as const) : ("visible" as const) };
   const compact = QUALITY[quality].compactLabels;
   const { peaks, village } = hm.region;
+  // Lakes the map shows, named where they are.
+  const def = REGION_BY_ID[hm.region.id];
+  const lakes = (def?.lakes ?? [])
+    .map((l) => ({ name: l.name, ...regionPoint(def!, l.lat, l.lon) }))
+    .filter((l) => [0, 1.5, -1.5].some((d) => hm.isWater(l.x + d, l.z) || hm.isWater(l.x, l.z + d)));
+  // Fixed screen size, so the names stay readable in the overview, not
+  // shrinking to specks when the whole area is in view.
   return (
     <>
       {peaks.map((p) => (
-        <Html key={p.name} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center distanceFactor={compact ? 120 : 90} zIndexRange={LABEL_Z} style={style}>
-          <div className="pointer-events-none whitespace-nowrap rounded-full bg-navy/70 px-2 py-0.5 text-[10px] font-medium text-snow backdrop-blur-sm">
+        <Html key={p.name} position={[p.x, surfaceY(hm, p.x, p.z) + 3.2, p.z]} center zIndexRange={LABEL_Z} style={style}>
+          <div className="pointer-events-none flex items-center gap-1 whitespace-nowrap rounded-full bg-navy/75 px-2 py-0.5 text-[11px] font-semibold text-snow backdrop-blur-sm">
+            <span aria-hidden>▲</span>
             {compact ? p.name : `${p.name} · ${p.elev.toLocaleString("de-CH")} m`}
           </div>
         </Html>
       ))}
-      <Html position={[village.x, surfaceY(hm, village.x, village.z) + 2.4, village.z]} center distanceFactor={compact ? 110 : 80} zIndexRange={LABEL_Z} style={style}>
-        <div className="pointer-events-none rounded-full bg-panel/90 px-2 py-0.5 text-[10px] font-semibold text-navy">
+      {lakes.map((l) => (
+        <Html key={l.name} position={[l.x, surfaceY(hm, l.x, l.z) + 1.2, l.z]} center zIndexRange={LABEL_Z} style={style}>
+          <div className="pointer-events-none whitespace-nowrap text-[11px] font-semibold italic text-[#1d4f7a] drop-shadow-[0_1px_0_rgba(255,255,255,0.8)]">
+            {l.name}
+          </div>
+        </Html>
+      ))}
+      <Html position={[village.x, surfaceY(hm, village.x, village.z) + 2.4, village.z]} center zIndexRange={LABEL_Z} style={style}>
+        <div className="pointer-events-none rounded-full bg-panel/95 px-2.5 py-0.5 text-[12px] font-bold text-navy shadow">
           {village.name}
         </div>
       </Html>
@@ -471,7 +487,7 @@ function Foundations({ buildings, yaws }: { buildings: PlacedBuilding[]; yaws: M
 function GroundContact({ buildings }: { buildings: PlacedBuilding[] }) {
   const hm = getHeightmap();
   const mesh = useRef<THREE.InstancedMesh>(null);
-  const texture = useMemo(contactTexture, []);
+  const texture = useMemo(() => contactTexture(), []);
   const flat = useMemo(
     () => new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)),
     [],
@@ -1868,6 +1884,8 @@ function Controls() {
   // A glide to something just built or picked: the target eases over and the
   // camera comes along, closing in if it was far out.
   const glide = useMemo(() => ({ goal: new THREE.Vector3(), id: 0, active: false, step: new THREE.Vector3() }), []);
+  // «Übersicht»: rise over the middle of the map until the whole area is in view.
+  const overview = useMemo(() => ({ id: 0, active: false, target: new THREE.Vector3(), eye: new THREE.Vector3() }), []);
 
   useEffect(() => {
     camera.up.set(0, 1, 0);
@@ -1904,6 +1922,22 @@ function Controls() {
       glide.goal.set(focus.x, surfaceY(getHeightmap(), focus.x, focus.z), focus.z);
       glide.active = true;
     }
+    const ov = useGame.getState().overviewAt;
+    if (ov && ov !== overview.id) {
+      overview.id = ov;
+      overview.active = true;
+      glide.active = false;
+      const hm = getHeightmap();
+      overview.target.set(0, surfaceY(hm, 0, 0), 0);
+      overview.eye.set(0, overview.target.y + 205, 82);
+    }
+    if (overview.active) {
+      const k = 1 - Math.exp(-2.6 * d);
+      c.target.lerp(overview.target, k);
+      camera.position.lerp(overview.eye, k);
+      if (camera.position.distanceTo(overview.eye) < 0.8) overview.active = false;
+    }
+    if (focus && glide.active) overview.active = false;
     if (glide.active) {
       const k = 1 - Math.exp(-3.2 * d);
       glide.step.copy(glide.goal).sub(c.target).multiplyScalar(k);
@@ -2071,6 +2105,7 @@ export function SkiScene() {
       <Terrain />
       <Lake />
       <Forest quality={quality} />
+      <VillageHouses />
       <Structures />
       <Lifts />
       <Pistes />

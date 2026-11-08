@@ -239,7 +239,72 @@ export function regionDem(def: RegionDef, data: RegionData): Dem {
     lake: null,
     far: { n: data.far.n, world: data.far.world, elev: Float32Array.from(farReal, (v) => v + offset) },
   };
-  return makeDem(n, world, elev, new Uint8Array(n * n), region);
+  return makeDem(n, world, elev, lakeMask(def, real, n, world), region);
+}
+
+/** Metres either side of a lake's level that still count as its surface. */
+const LAKE_NOISE_M = 3;
+
+/**
+ * The region's lakes as a grid mask. The elevation model holds a lake as one
+ * flat level, so each lake is flooded from its point over the cells at that
+ * level; a flat valley floor elsewhere stays land because nobody named it.
+ */
+export function lakeMask(def: Pick<RegionDef, "lakes" | "center">, real: ArrayLike<number>, n: number, world: number): Uint8Array {
+  const water = new Uint8Array(n * n);
+  const cellOf = (x: number, z: number) => ({
+    ix: Math.round((x / world + 0.5) * (n - 1)),
+    iz: Math.round((z / world + 0.5) * (n - 1)),
+  });
+  const at = (ix: number, iz: number) => real[iz * n + ix]!;
+  const inside = (ix: number, iz: number) => ix > 0 && iz > 0 && ix < n - 1 && iz < n - 1;
+  // How much a cell's 3×3 neighbourhood varies: open water is (nearly) level.
+  const range = (ix: number, iz: number) => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const v = at(ix + dx, iz + dz);
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+    }
+    return hi - lo;
+  };
+  for (const lake of def.lakes ?? []) {
+    const p = regionPoint(def as RegionDef, lake.lat, lake.lon);
+    const c = cellOf(p.x, p.z);
+    // The point may sit on the shore: take the levelest cell within reach.
+    // The model is not perfectly flat on every lake, so a few metres of
+    // noise still count as water.
+    let seed: { ix: number; iz: number } | null = null;
+    let best = LAKE_NOISE_M * 2 + 0.5;
+    for (let dz = -4; dz <= 4; dz++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const ix = c.ix + dx;
+        const iz = c.iz + dz;
+        if (!inside(ix, iz)) continue;
+        const r = range(ix, iz) + (dx * dx + dz * dz) * 0.01;
+        if (r < best) {
+          best = r;
+          seed = { ix, iz };
+        }
+      }
+    }
+    if (!seed) continue;
+    const level = at(seed.ix, seed.iz);
+    const stack = [seed];
+    let cells = 0;
+    while (stack.length > 0 && cells < 600) {
+      const { ix, iz } = stack.pop()!;
+      const i = iz * n + ix;
+      if (water[i] || !inside(ix, iz) || Math.abs(at(ix, iz) - level) > LAKE_NOISE_M) continue;
+      water[i] = 1;
+      cells++;
+      stack.push({ ix: ix + 1, iz }, { ix: ix - 1, iz }, { ix, iz: iz + 1 }, { ix, iz: iz - 1 });
+    }
+  }
+  return water;
 }
 
 /** Region id → its baked data, loaded on demand (one chunk per region in the browser). */

@@ -74,7 +74,8 @@ export type QualityTier = {
 export const QUALITY: Record<"low" | "high", QualityTier> = {
   low: {
     terrain: TERRAIN_DETAIL.low,
-    trees: 280,
+    // Clumped (treesPerClump), so the forest belt reads as forest: ~1'800 on a phone.
+    trees: 600,
     rocks: 80,
     dpr: [1, 1.25],
     shadows: false,
@@ -92,7 +93,7 @@ export const QUALITY: Record<"low" | "high", QualityTier> = {
     cameraAt: [25, 66, 109],
     cameraTarget: [-4, 3, 40],
     fov: 60,
-    treesPerClump: 2,
+    treesPerClump: 3,
     slowFrameMs: 24,
     compactLabels: true,
     pisteRibs: false,
@@ -101,7 +102,7 @@ export const QUALITY: Record<"low" | "high", QualityTier> = {
   },
   high: {
     terrain: TERRAIN_DETAIL.high,
-    trees: 600,
+    trees: 1400,
     rocks: 180,
     dpr: [1, 1.7],
     shadows: true,
@@ -115,7 +116,7 @@ export const QUALITY: Record<"low" | "high", QualityTier> = {
     cameraAt: [30, 88, 110],
     cameraTarget: [-23.1, 10, -8.5],
     fov: 55,
-    treesPerClump: 3,
+    treesPerClump: 4,
     slowFrameMs: 22,
     compactLabels: false,
     pisteRibs: true,

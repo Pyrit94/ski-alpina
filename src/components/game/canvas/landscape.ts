@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { createNoise2D } from "simplex-noise";
-import { metersToWorldY, surfaceY, type Heightmap, type ScatterPoint } from "@/lib/game/alpine";
+import { forestPatch, metersToWorldY, surfaceY, type Heightmap, type ScatterPoint } from "@/lib/game/alpine";
 import { worldToHex } from "@/lib/game/hex";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import type { MapLayer } from "@/lib/game/types";
@@ -29,6 +29,10 @@ interface GroundBase {
   water: Uint8Array;
   x: Float32Array;
   z: Float32Array;
+  /** Forest stands, 0…1 (see forestPatch). */
+  patch: Float32Array;
+  /** Gameplay minus real metres on this map. */
+  offset: number;
 }
 
 const groundCache = new WeakMap<Heightmap, GroundBase>();
@@ -72,7 +76,9 @@ export function groundBase(hm: Heightmap): GroundBase {
   geo.setAttribute("skiAO", new THREE.BufferAttribute(ao.length === count ? ao : new Float32Array(count).fill(1), 1));
   geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
 
-  const base = { geometry: geo, elevM, slope, village, water, x: xs, z: zs };
+  const patch = new Float32Array(count);
+  for (let i = 0; i < count; i++) patch[i] = forestPatch(xs[i]!, zs[i]!);
+  const base = { geometry: geo, elevM, slope, village, water, x: xs, z: zs, patch, offset: hm.region.offset };
   groundCache.set(hm, base);
   return base;
 }
@@ -114,7 +120,7 @@ export function paintGround(
       out[i * 3 + 2] = tmp.b;
       continue;
     }
-    groundAlbedo(m, base.slope[i]!, snowLineM, base.village[i]!, base.water[i] === 1, scratch);
+    groundAlbedo(m, base.slope[i]!, snowLineM, base.village[i]!, base.water[i] === 1, scratch, base.offset, base.patch[i]!);
     out[i * 3] = scratch[0];
     out[i * 3 + 1] = scratch[1];
     out[i * 3 + 2] = scratch[2];
@@ -135,6 +141,7 @@ export function paintGround(
  * height, so the seam is continuous. One mesh, one draw call, no raycasting.
  */
 export function buildFarLand(hm: Heightmap, snowLineM: number, reach = 470): THREE.BufferGeometry {
+  const offset = hm.region.offset;
   const half = hm.world / 2;
   const axis: number[] = [];
   // Fine just outside the seam, coarser toward the horizon.
@@ -257,7 +264,7 @@ export function buildFarLand(hm: Heightmap, snowLineM: number, reach = 470): THR
     const ny = Math.max(0.05, normals.getY(i));
     // World-space tangent back to a real one: vertical is ~2x exaggerated.
     const slope = Math.sqrt(1 - ny * ny) / ny / 1.98;
-    groundAlbedo(y / WORLD_Y_PER_M + BASE_M, slope, snowLineM, 999, false, scratch);
+    groundAlbedo(y / WORLD_Y_PER_M + BASE_M, slope, snowLineM, 999, false, scratch, offset, forestPatch(positions[i * 3]!, positions[i * 3 + 2]!));
     colors[i * 3] = scratch[0];
     colors[i * 3 + 1] = scratch[1];
     colors[i * 3 + 2] = scratch[2];

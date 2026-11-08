@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
+import { Map as MapIcon } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { BY_ID } from "@/lib/game/catalog";
 import { useCardImages } from "@/lib/game/card-images";
@@ -82,14 +83,23 @@ export function LayerTabs() {
     { id: "pistes", label: "Pisten" },
     { id: "heat", label: "Auslastung" },
   ];
+  const showOverview = useGame((s) => s.showOverview);
   return (
-    <div className="grid grid-cols-4 gap-1 rounded-full bg-panel/92 p-1 shadow-[var(--shadow-chip)]">
+    <div className="flex gap-1 rounded-full bg-panel/92 p-1 shadow-[var(--shadow-chip)]">
+      <button
+        type="button"
+        onClick={showOverview}
+        aria-label="Übersicht über das ganze Gebiet"
+        className="flex min-h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-ice px-2.5 text-[11px] font-semibold text-navy hover:bg-snow"
+      >
+        <MapIcon className="size-3.5" /> Übersicht
+      </button>
       {tabs.map((t) => (
         <button
           key={t.id}
           type="button"
           onClick={() => setLayer(t.id)}
-          className={`min-h-9 whitespace-nowrap rounded-full px-2 text-[11px] font-semibold ${layer === t.id ? "bg-accent text-panel" : "text-navy hover:bg-snow"}`}
+          className={`min-h-9 flex-1 whitespace-nowrap rounded-full px-2 text-[11px] font-semibold ${layer === t.id ? "bg-accent text-panel" : "text-navy hover:bg-snow"}`}
         >
           {t.label}
         </button>
