@@ -30,7 +30,7 @@ export function liftEnds(dem: Dem, lift: PlacedLift): { base: Axial; top: Axial 
 /** Car parks, bus stations and hotels: where guests arrive and leave. */
 function doors(state: ResortState): Axial[] {
   return state.buildings
-    .filter((b) => b.itemId === "parking" || b.itemId === "bus" || (BY_ID[b.itemId]?.beds ?? 0) > 0)
+    .filter((b) => b.itemId === "parking" || b.itemId === "bus" || b.itemId === "train" || (BY_ID[b.itemId]?.beds ?? 0) > 0)
     .map((b) => ({ q: b.q, r: b.r }));
 }
 

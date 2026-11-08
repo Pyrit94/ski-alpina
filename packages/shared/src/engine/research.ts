@@ -5,6 +5,7 @@ import {
   RESEARCH_BRANCHES,
   RESEARCH_BY_ID,
   RESEARCH_GATE,
+  RESEARCH_NODES,
   researchCost,
   type ResearchNodeDef,
 } from "../../../config/src/research.ts";
@@ -130,6 +131,25 @@ function researchOf(state: Pick<ResortState, "research">): ResearchState {
  * finished. A match with research switched off has none, even if a saved
  * state carries finished nodes.
  */
+/**
+ * Metres a lift type may climb above its catalogue height, from research.
+ * Without research in the game every step counts as made, so a match without
+ * research is not stuck at the starting heights.
+ */
+export function liftReach(state: Pick<ResortState, "research" | "match">, itemId: ItemId): number {
+  const nodes = researchEnabled(state)
+    ? researchOf(state).done.map((id) => RESEARCH_BY_ID[id]).filter((n) => !!n)
+    : RESEARCH_NODES;
+  return nodes.reduce((n, node) => n + (node!.effect.reach?.[itemId] ?? 0), 0);
+}
+
+/** Whether research could still raise this lift type (for the hint when it is too high). */
+export function reachLeft(state: Pick<ResortState, "research" | "match">, itemId: ItemId): boolean {
+  if (!researchEnabled(state)) return false;
+  const done = researchOf(state).done;
+  return RESEARCH_NODES.some((n) => !done.includes(n.id) && (n.effect.reach?.[itemId] ?? 0) > 0);
+}
+
 export function researchEffects(state: Pick<ResortState, "research" | "match">): ResearchEffects {
   if (!researchEnabled(state)) return NO_RESEARCH_EFFECTS;
   const done = researchOf(state).done;

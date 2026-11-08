@@ -36,6 +36,10 @@ export const ITEM_IDS = [
   "gastro-hall",
   "depot",
   "cablecar-museum",
+  // Rail: a station in the valley for guests without a car, and a cog
+  // railway up the mountain (a lift on rails).
+  "train",
+  "cog",
 ] as const;
 
 export type ItemId = (typeof ITEM_IDS)[number];
@@ -43,7 +47,7 @@ export type ItemId = (typeof ITEM_IDS)[number];
 export const CATEGORY_IDS = ["lifts", "buildings", "pistes", "deco", "services"] as const;
 export type Category = (typeof CATEGORY_IDS)[number];
 
-export const LIFT_IDS: readonly ItemId[] = ["tbar", "chair", "gondola", "tram", "funitel", "glacier"];
+export const LIFT_IDS: readonly ItemId[] = ["tbar", "chair", "gondola", "tram", "funitel", "glacier", "cog"];
 export const PISTE_IDS: readonly ItemId[] = ["piste", "snowpark", "road"];
 export const HOTEL_IDS: readonly ItemId[] = ["hotel1", "hotel3", "hotel5", "hotel-resort"];
 

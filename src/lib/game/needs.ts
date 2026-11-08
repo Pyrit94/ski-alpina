@@ -39,7 +39,7 @@ const CANDIDATES: Record<NeedKey, ItemId[]> = {
   food: ["restaurant", "gastro-hall"],
   shops: ["shop"],
   beds: ["hotel1", "hotel3", "hotel5", "hotel-resort"],
-  access: ["parking", "bus"],
+  access: ["parking", "bus", "train"],
   lifts: ["chair", "gondola", "funitel"],
 };
 
@@ -48,6 +48,7 @@ function sizeOf(itemId: ItemId): number {
   const item = BY_ID[itemId];
   if (itemId === "parking") return ECONOMY.parkingArrivalsPerHour;
   if (itemId === "bus") return ECONOMY.busArrivalsPerHour;
+  if (itemId === "train") return ECONOMY.trainArrivalsPerHour;
   return item.seatsPerHour ?? item.retailPerHour ?? item.beds ?? item.capacity ?? 0;
 }
 

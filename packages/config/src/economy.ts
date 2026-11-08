@@ -109,6 +109,8 @@ export const ECONOMY = {
   openingDemand: 1.6,
   parkingArrivalsPerHour: 320,
   busArrivalsPerHour: 280,
+  /** A station brings a whole train of day guests. */
+  trainArrivalsPerHour: 520,
   /** Arrivals per hour per hotel bed: hotel guests are already here. */
   bedArrivalsPerHour: 1.2,
   /** Ticket revenue uplift per ticket office. */
@@ -377,7 +379,7 @@ export const SITE = {
   /** Per noisy neighbour within one hex (car park, bus, workshop, depot, groomers). */
   noise: -0.06,
   maxNoise: 3,
-  noisy: ["parking", "bus", "workshop", "depot", "groomer"],
+  noisy: ["parking", "bus", "train", "workshop", "depot", "groomer"],
   /** Per stone pine within one hex. */
   quiet: 0.02,
   maxQuiet: 3,

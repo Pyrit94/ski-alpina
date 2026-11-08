@@ -843,9 +843,10 @@ function carrierBudget(liftCount: number): number {
   return Math.max(2, Math.min(8, Math.floor(perDirection)));
 }
 
-type CarrierKind = "cabin" | "chair" | "tbar";
+type CarrierKind = "cabin" | "chair" | "tbar" | "train";
 
 function carrierKindOf(itemId: PlacedLift["itemId"]): CarrierKind {
+  if (itemId === "cog") return "train";
   if (itemId === "tbar") return "tbar";
   if (itemId === "chair") return "chair";
   return "cabin";
@@ -857,7 +858,22 @@ const CARRIER_RIG: Record<CarrierKind, { hang: number; speed: number }> = {
   chair: { hang: 0.72, speed: 0.075 },
   // A bar is dragged along the ground rather than hung from the rope.
   tbar: { hang: 1.9, speed: 0.075 },
+  // A cog train rides on its rails, a little above the ground line.
+  train: { hang: -0.05, speed: 0.035 },
 };
+
+/** A rail line on the ground from station to station, sampled densely so it follows every bump. */
+function trackCurve(line: LiftLine, hm: Heightmap, offset: THREE.Vector3): THREE.CatmullRomCurve3 {
+  const steps = Math.max(8, Math.round(line.span / 1.6));
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = line.a.x + (line.b.x - line.a.x) * t + offset.x;
+    const z = line.a.z + (line.b.z - line.a.z) * t + offset.z;
+    pts.push(new THREE.Vector3(x, surfaceY(hm, x, z) + 0.14, z));
+  }
+  return new THREE.CatmullRomCurve3(pts, false, "centripetal");
+}
 
 interface Rig {
   lift: PlacedLift;
@@ -898,6 +914,24 @@ function Lifts() {
       lifts.map((lift) => {
         const line = liftLine(lift, hm);
         const kind = carrierKindOf(lift.itemId);
+        if (kind === "train") {
+          // Rails, not rope: two tracks on the ground, no towers.
+          const up = trackCurve(line, hm, line.side.clone().multiplyScalar(0.36));
+          const down = trackCurve(line, hm, line.side.clone().multiplyScalar(-0.36));
+          const segments = Math.max(24, Math.round(line.span * 2));
+          return {
+            lift,
+            line: { ...line, towers: [] },
+            up,
+            down,
+            kind,
+            riders: Math.min(2, budget),
+            cables: [
+              new THREE.TubeGeometry(up, segments, 0.07, 4, false),
+              new THREE.TubeGeometry(down, segments, 0.07, 4, false),
+            ],
+          };
+        }
         // Two lines side by side: one going up, one coming back. A single
         // cable is the tell that a lift was drawn rather than modelled.
         const gap = cableGap(lift.itemId);
@@ -1075,7 +1109,7 @@ function offsetGeometry<T extends THREE.BufferGeometry>(geo: T, y: number, rotat
  */
 function CarrierField({ rigs }: { rigs: Rig[] }) {
   const byKind = useMemo(() => {
-    const out: Record<CarrierKind, Rider[]> = { cabin: [], chair: [], tbar: [] };
+    const out: Record<CarrierKind, Rider[]> = { cabin: [], chair: [], tbar: [], train: [] };
     for (const rig of rigs) {
       const { hang, speed } = CARRIER_RIG[rig.kind];
       for (let i = 0; i < rig.riders; i++) {
@@ -1089,7 +1123,7 @@ function CarrierField({ rigs }: { rigs: Rig[] }) {
 
   return (
     <group>
-      {(["cabin", "chair", "tbar"] as const).map((kind) => (
+      {(["cabin", "chair", "tbar", "train"] as const).map((kind) => (
         <CarrierInstances key={kind} kind={kind} riders={byKind[kind]} />
       ))}
     </group>
@@ -1186,6 +1220,20 @@ function CarrierInstances({ kind, riders }: { kind: CarrierKind; riders: Rider[]
 /** Geometry and colours for one kind of carrier, built once. */
 function carrierParts(kind: CarrierKind) {
   const hang = CARRIER_RIG[kind].hang;
+  if (kind === "train") {
+    // A red railcar standing on its track: body, then a band of windows.
+    const body = new THREE.BoxGeometry(0.52, 0.42, 1.25);
+    body.translate(0, 0.25, 0);
+    const windows = new THREE.BoxGeometry(0.54, 0.14, 1.05);
+    windows.translate(0, 0.33, 0);
+    return {
+      rope: new THREE.BoxGeometry(0.001, 0.001, 0.001),
+      body,
+      detail: windows,
+      bodyMaterial: { color: "#b3262d", metalness: 0.2, roughness: 0.45 },
+      detailMaterial: { color: "#c9e7f7", emissive: "#c9e7f7", emissiveIntensity: 0.2 },
+    };
+  }
   const rope = offsetGeometry(new THREE.CylinderGeometry(0.025, 0.025, hang, 5), hang / 2);
   if (kind === "cabin") {
     const detail = new THREE.BoxGeometry(0.3, 0.2, 0.03);
@@ -1425,7 +1473,7 @@ function Skiers() {
  */
 function Traffic() {
   const hm = getHeightmap();
-  const parking = useGame((s) => s.buildings.filter((b) => b.itemId === "parking" || b.itemId === "bus").length);
+  const parking = useGame((s) => s.buildings.filter((b) => b.itemId === "parking" || b.itemId === "bus" || b.itemId === "train").length);
   const n = Math.min(14, 4 + parking * 2);
   const ref = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);

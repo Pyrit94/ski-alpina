@@ -14,6 +14,7 @@ export function levelGain(itemId: string): string {
   const parts: string[] = [];
   if (itemId === "parking") parts.push(`+${Math.round(ECONOMY.parkingArrivalsPerHour * cap)} Ankünfte/h`);
   if (itemId === "bus") parts.push(`+${Math.round(ECONOMY.busArrivalsPerHour * cap)} Ankünfte/h`);
+  if (itemId === "train") parts.push(`+${Math.round(ECONOMY.trainArrivalsPerHour * cap)} Ankünfte/h`);
   if (item.beds) parts.push(`+${Math.round(item.beds * BUILDING_LEVELS.bedsPerLevel)} Betten`);
   if (item.seatsPerHour) parts.push(`+${Math.round(item.seatsPerHour * cap)} Plätze/h`);
   if (item.retailPerHour) parts.push(`+${Math.round(item.retailPerHour * cap)} Kunden/h`);

@@ -1,4 +1,4 @@
-import { Bus, Cable, Hammer, Hotel, Mountain, Store, Trees, Utensils } from "lucide-react";
+import { Bus, Cable, Hammer, Hotel, Mountain, Store, TrainFront, Trees, Utensils } from "lucide-react";
 import { ECONOMY } from "@/lib/game/catalog";
 import { fmt } from "@/lib/game/format";
 import { useGame } from "@/lib/game/store";
@@ -50,6 +50,8 @@ export const ITEM_ICON: Partial<Record<ItemId, typeof Cable>> = {
   parking: Bus,
   groomer: Hammer,
   viewpoint: Mountain,
+  train: TrainFront,
+  cog: TrainFront,
 };
 
 /** Below this share of its capacity a lift reads as nearly empty. */

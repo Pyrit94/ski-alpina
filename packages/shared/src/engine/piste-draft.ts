@@ -98,7 +98,7 @@ export function pisteAnchors(state: ResortState, dem: Dem): Anchor[] {
   out.push({ hex: dem.region.villageHex, kind: "village" });
   for (const b of state.buildings) {
     const item = BY_ID[b.itemId];
-    if (b.itemId === "parking" || b.itemId === "bus" || (item?.beds ?? 0) > 0) {
+    if (b.itemId === "parking" || b.itemId === "bus" || b.itemId === "train" || (item?.beds ?? 0) > 0) {
       out.push({ hex: { q: b.q, r: b.r }, kind: "exit", id: b.id });
     }
   }

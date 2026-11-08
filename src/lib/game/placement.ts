@@ -49,7 +49,7 @@ export function bestSpot(state: GameState, itemId: ItemId): Axial | null {
   const runs = new Set<string>();
   for (const p of state.pistes) for (const h of p.hexes) runs.add(hexKey(h.q, h.r));
   const kind = siteKind(itemId);
-  const door = itemId === "parking" || itemId === "bus";
+  const door = itemId === "parking" || itemId === "bus" || itemId === "train";
   let best: Axial | null = null;
   let bestScore = -Infinity;
   for (const h of candidates(ctx, itemId)) {

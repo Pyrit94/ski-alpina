@@ -155,6 +155,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     let perHour = 0;
     if (b.itemId === "parking") perHour = ECONOMY.parkingArrivalsPerHour * capacityFactor(b);
     else if (b.itemId === "bus") perHour = ECONOMY.busArrivalsPerHour * capacityFactor(b);
+    else if (b.itemId === "train") perHour = ECONOMY.trainArrivalsPerHour * capacityFactor(b);
     else if (item.beds) perHour = item.beds * bedsFactor(b) * ECONOMY.bedArrivalsPerHour;
     if (perHour <= 0) continue;
     arrivals.push({ hex, perHour, id: b.id });
