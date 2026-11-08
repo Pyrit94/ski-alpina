@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { PISTE_PLANNER } from "../../../config/src/economy.ts";
 import type { Axial } from "../hex.ts";
 import type { ResortState } from "../types.ts";
 import { generateDem } from "../terrain/dem.ts";
@@ -67,4 +68,23 @@ test("only the chosen lifts are planned for", () => {
   const state = bareLift();
   const { plans } = planAutoPistes(state, dem, { liftIds: [], mix: "mixed", budget: state.coins });
   assert.equal(plans.length, 0);
+});
+
+test("runs beyond the descents are only proposed when they pay for themselves", () => {
+  let state = bareLift();
+  // Plenty of doors, so the runs and not the car parks are the limit.
+  for (const hex of [col(-2), col(-3), { q: VILLAGE_HEX.q + 2, r: VILLAGE_HEX.r }, { q: VILLAGE_HEX.q - 2, r: VILLAGE_HEX.r }]) {
+    const intent = { type: "place_building" as const, itemId: "parking" as const, q: hex.q, r: hex.r };
+    if (validateIntent(state, dem, intent, "builder", NOW).ok) state = applyIntent(state, intent, BUILT).state;
+  }
+  const result = planAutoPistes(state, dem, { mix: "mixed", budget: state.coins });
+  for (const p of result.plans.filter((x) => x.why !== "descent")) {
+    assert.ok(p.gainIncome > 0);
+    assert.ok(p.gainIncome * PISTE_PLANNER.paybackDays >= p.cost);
+  }
+  if (result.plans.length > 0) assert.ok(result.after.incomePerHour >= result.before.incomePerHour);
+  // Planning again on the built result proposes nothing new that does not pay.
+  const after = build(state, result.plans.map((p) => p.hexes));
+  const again = planAutoPistes(after, dem, { mix: "mixed", budget: after.coins });
+  assert.ok(again.plans.every((p) => p.why !== "descent"));
 });

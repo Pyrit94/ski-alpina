@@ -297,3 +297,18 @@ export const PISTE_LEVELS = {
   labels: ["Präpariert", "Beschneit", "Gepflegt", "Rennpiste"],
   effects: ["", "Länger Schnee, auch unter der Schneegrenze", "+25 % Gäste/h, +10 % Anziehung", "+40 % Gäste/h, +25 % Anziehung"],
 } as const;
+
+/**
+ * How picky «Pisten automatisch» is about runs beyond the missing descents.
+ * It builds an extra run only if the simulation says it pays for itself
+ * within `paybackDays` of good winter days, at most `maxExtraRuns` per plan,
+ * considering up to `candidateLimit` lines per round. Not balancing: these
+ * shape what the planner proposes, never what anything costs or earns.
+ */
+export const PISTE_PLANNER = {
+  paybackDays: 30,
+  maxExtraRuns: 6,
+  candidateLimit: 36,
+  /** A new run may share at most this much of its line with existing ones. */
+  maxOverlap: 0.4,
+} as const;
