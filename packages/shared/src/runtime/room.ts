@@ -1,5 +1,6 @@
 import { ECONOMY } from "../../../config/src/economy.ts";
 import { applyIntent } from "../engine/apply.ts";
+import { scorePiste } from "../engine/piste-score.ts";
 import { tickResort } from "../engine/tick.ts";
 import { validateIntent } from "../engine/validate.ts";
 import { emptyResort, migrateResort } from "../engine/state.ts";
@@ -63,6 +64,15 @@ export class GameRoom {
     // Every snapshot enters the engine through here, so this is the one place
     // an older save shape has to be reconciled.
     this.state = snapshot ? migrateResort(snapshot, roomId) : emptyResort(roomId);
+    // Runs built before the rating existed get theirs now, from the ground they lie on.
+    if (this.state.pistes.some((p) => p.score === undefined && p.difficulty !== "road")) {
+      this.state = {
+        ...this.state,
+        pistes: this.state.pistes.map((p) =>
+          p.score === undefined && p.difficulty !== "road" && p.hexes.length > 1 ? { ...p, score: scorePiste(p.hexes, this.dem).points } : p,
+        ),
+      };
+    }
   }
 
   /**

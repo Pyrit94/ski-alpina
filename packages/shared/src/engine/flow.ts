@@ -1,4 +1,4 @@
-import { ECONOMY, FLOW, PISTE_LEVELS } from "../../../config/src/economy.ts";
+import { ECONOMY, FLOW, PISTE_LEVELS, PISTE_SCORE } from "../../../config/src/economy.ts";
 import { RESEARCH } from "../../../config/src/research.ts";
 import { isLift } from "../../../config/src/ids.ts";
 import { BY_ID } from "../../../config/src/items.ts";
@@ -12,6 +12,7 @@ import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
 import { liftResearchFactor, researchEffects, withResearchMods } from "./research.ts";
 import { bedsFactor, bonusFactor, capacityFactor, cutFactor, pisteLevel, pisteUpkeepFactor, upkeepFactor } from "./state.ts";
 import { siteContext, siteFactors } from "./site.ts";
+import { pistePoints } from "./piste-score.ts";
 
 export interface FlowTick {
   stats: SimStats;
@@ -102,7 +103,13 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
         ? ECONOMY.parkKmEquivalent
         : Math.max(1, p.hexes.length - 1) * FLOW.kmPerSegment;
     weightedKm +=
-      km * (ECONOMY.gradeDraw[p.difficulty] ?? 1) * snow * pisteWidthDraw(p) * (PISTE_LEVELS.draw[pisteLevel(p) - 1] ?? 1);
+      km *
+      (ECONOMY.gradeDraw[p.difficulty] ?? 1) *
+      snow *
+      pisteWidthDraw(p) *
+      (PISTE_LEVELS.draw[pisteLevel(p) - 1] ?? 1) *
+      // A run that is good to ski draws a few more (see PISTE_SCORE).
+      (1 + PISTE_SCORE.drawPerPoint * pistePoints(p));
     gradesOpen.add(p.difficulty);
   }
   const varietyDraw = 1 + ECONOMY.varietyDemandStep * Math.max(0, gradesOpen.size - 1);

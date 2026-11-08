@@ -11,7 +11,9 @@ import {
   type Heightmap,
 } from "@/lib/game/alpine";
 import { ECONOMY, isLift } from "@/lib/game/catalog";
-import { HEX_SIZE, hexLine, hexToWorld, worldToHex } from "@/lib/game/hex";
+import { HEX_SIZE, hexDistance, hexLine, hexToWorld, worldToHex } from "@/lib/game/hex";
+import { FLOW } from "@ski/config";
+import { relaxLine } from "@ski/shared";
 import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
@@ -26,7 +28,7 @@ import { VillagePreview } from "./VillagePreview";
 import { ribbonGeometry } from "./geometry";
 import { makeTreeMaterial } from "./snow-shaders";
 import { STATION_CABLE_Y, cableGap, stationYaw } from "./station";
-import { drapedRibbon, makePisteMaterial, markerPoles, mergeRibbons, smoothPath, type Pole } from "./piste-mesh";
+import { drapedRibbon, joinRun, makePisteMaterial, markerPoles, mergeRibbons, smoothPath, snowPlaza, type Pole, type RunLine } from "./piste-mesh";
 import {
   buildFarLand,
   clumpTrees,
@@ -1228,6 +1230,7 @@ const ROAD_WIDTH = 1.3;
  */
 function Pistes() {
   const pistes = useStableGame((s) => s.pistes);
+  const lifts = useStableGame((s) => s.lifts);
   const draft = useGame((s) => s.pisteDraft);
   const layer = useGame((s) => s.layer);
   const quality = useGame((s) => s.quality);
@@ -1245,20 +1248,48 @@ function Pistes() {
     const ground = (x: number, z: number) => surfaceY(hm, x, z);
     const strips: THREE.BufferGeometry[] = [];
     const poles: Pole[] = [];
+    // Every run's line, relaxed off the hex zigzag into the curve a skier
+    // would carve; roads keep their own line.
+    const lines = new Map<string, RunLine>();
     for (const p of pistes) {
       if (p.hexes.length < 2) continue;
+      const centres = p.hexes.map((h) => hexToWorld(h.q, h.r));
+      lines.set(p.id, { hexes: p.hexes, points: p.difficulty === "road" ? centres : relaxLine(centres, 2) });
+    }
+    const runLines = pistes.filter((p) => p.difficulty !== "road" && lines.has(p.id)).map((p) => lines.get(p.id)!);
+    const near = (a: { q: number; r: number }, b: { q: number; r: number }) => hexDistance(a, b) <= 1;
+    for (const p of pistes) {
+      const line = lines.get(p.id);
+      if (!line) continue;
       const road = p.difficulty === "road";
       const width =
         p.difficulty === "park" ? PARK_WIDTH : road ? ROAD_WIDTH : RUN_WIDTH * RIBBON_SCALE[p.width ?? 2];
       const color = new THREE.Color(PISTE_COLOR[p.difficulty] ?? "#2b7de9");
-      const path = smoothPath(
-        p.hexes.map((h) => hexToWorld(h.q, h.r)),
-        4,
-      );
+      // Where it branches off or flows into another run, it meets it
+      // tangentially and melts into it.
+      const joined = road ? { points: line.points, fadeIn: 0, fadeOut: 0 } : joinRun(line, runLines, near);
+      const path = smoothPath(joined.points, 4);
       // Roads ride above the snow, so a run meeting a road stops at its edge
       // instead of painting over it.
-      strips.push(drapedRibbon(path, { width, color, road, lift: road ? 0.2 : 0.12 }, ground));
-      if (!road) poles.push(...markerPoles(path, width, color, ground, tier.poleSpacing));
+      strips.push(
+        drapedRibbon(path, { width, color, road, lift: road ? 0.2 : 0.12, fadeIn: joined.fadeIn, fadeOut: joined.fadeOut }, ground),
+      );
+      if (!road) poles.push(...markerPoles(smoothPath(line.points, 4), width, color, ground, tier.poleSpacing));
+    }
+    // A groomed round at every lift station a run starts or ends at, so the
+    // runs there merge into one patch of snow.
+    for (const l of lifts) {
+      for (const st of [l.a, l.b]) {
+        const served = pistes.some(
+          (p) =>
+            p.difficulty !== "road" &&
+            p.hexes.length > 1 &&
+            (hexDistance(p.hexes[0]!, st) <= FLOW.linkRadius || hexDistance(p.hexes[p.hexes.length - 1]!, st) <= FLOW.linkRadius),
+        );
+        if (!served) continue;
+        const w = hexToWorld(st.q, st.r);
+        strips.push(snowPlaza(w.x, w.z, HEX_SIZE * 1.15, ground));
+      }
     }
     // The road into the valley rides in the same mesh: asphalt, no extra draw call.
     const road = cachedValleyRoad(hm);
@@ -1266,7 +1297,7 @@ function Pistes() {
       strips.push(drapedRibbon(road, { width: ROAD_WIDTH * 1.15, color: new THREE.Color(PISTE_COLOR.road), road: true, lift: 0.22 }, ground));
     }
     return { geo: mergeRibbons(strips), poles: poles.slice(0, tier.poles) };
-  }, [pistes, hm, tier.poleSpacing, tier.poles]);
+  }, [pistes, lifts, hm, tier.poleSpacing, tier.poles]);
   useEffect(() => () => built.geo?.dispose(), [built]);
 
   // The draft ribbon is as wide as the run will be and coloured per segment

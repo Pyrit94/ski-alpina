@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as THREE from "three";
-import { drapedRibbon, markerPoles, mergeRibbons, smoothPath } from "./piste-mesh.ts";
+import { drapedRibbon, joinRun, markerPoles, mergeRibbons, smoothPath, snowPlaza } from "./piste-mesh.ts";
 
 const zigzag = [
   { x: 0, z: 0 },
@@ -65,4 +65,25 @@ test("the strip faces the sky, so it is not culled as a back face", () => {
     const n = geo.attributes.normal!;
     for (let i = 0; i < n.count; i++) assert.ok(n.getY(i) > 0.9, "normal points up");
   }
+});
+
+test("a run flowing into another borrows its line below the junction and fades there", () => {
+  const main = { hexes: [0, 1, 2, 3, 4, 5].map((r) => ({ q: 0, r })), points: [0, 1, 2, 3, 4, 5].map((r) => ({ x: 0, z: r * 4 })) };
+  const side = { hexes: [{ q: 3, r: -2 }, { q: 2, r: 0 }, { q: 1, r: 2 }], points: [{ x: 9, z: -4 }, { x: 6, z: 2 }, { x: 3, z: 8 }] };
+  const near = (a: { q: number; r: number }, b: { q: number; r: number }) => Math.abs(a.q - b.q) + Math.abs(a.r - b.r) <= 1;
+  const joined = joinRun(side, [main, side], near);
+  // Ends next to main's hex 2, so main's points 3 and 4 follow.
+  assert.deepEqual(joined.points.slice(-2), [main.points[3], main.points[4]]);
+  assert.ok(joined.fadeOut > 0);
+  assert.equal(joined.fadeIn, 0);
+  const geo = drapedRibbon(smoothPath(joined.points, 4), { width: 2, color: new THREE.Color("#fff"), fadeOut: joined.fadeOut }, () => 0);
+  const fade = geo.attributes.pisteFade!;
+  assert.equal(fade.getX(fade.count - 1), 0);
+  assert.equal(fade.getX(0), 1);
+});
+
+test("a plaza is a disc in the run material", () => {
+  const geo = snowPlaza(0, 0, 3, () => 0);
+  for (const a of ["position", "color", "pisteUv", "pisteW", "pisteFade"]) assert.ok(geo.attributes[a], a);
+  assert.equal(geo.attributes.pisteUv!.getX(0), 0.5);
 });

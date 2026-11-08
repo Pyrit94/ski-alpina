@@ -62,6 +62,8 @@ export interface PlacedPiste {
   name?: string;
   /** Expansion level, see PISTE_LEVELS. Absent = 1. */
   level?: number;
+  /** How good it is to ski, 0 … 100 (see PISTE_SCORE). Set when built. */
+  score?: number;
 }
 
 export interface QuestState {

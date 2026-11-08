@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from "react";
 import { Sparkles, X } from "lucide-react";
 import { BY_ID, FLOW } from "@ski/config";
-import { getDem, planAutoPistes, type AutoMix, type AutoPlan } from "@ski/shared";
+import { getDem, planAutoPistes, starsFor, type AutoMix, type AutoPlan } from "@ski/shared";
+import { RatingChip } from "./PisteRating";
 import { GRADE_COLOR } from "@/lib/game/piste-editor";
 import { fmt } from "@/lib/game/format";
 import { play } from "@/lib/game/sound";
@@ -126,7 +127,7 @@ export function AutoPistesPanel() {
             <Sparkles className="size-4 text-accent" /> Pisten automatisch
           </div>
           <p className="mt-0.5 text-[11px] leading-snug text-muted">
-            Rechnet jede mögliche Piste durch: zuerst fehlende Abfahrten, dann was am meisten Gäste pro Franken bringt.
+            Rechnet jede mögliche Piste durch, auch geschwungene Linien: zuerst fehlende Abfahrten, dann was am meisten Gäste pro Franken bringt. Schöne Pisten geben Punkte.
           </p>
         </div>
         <button type="button" onClick={close} aria-label="Schliessen" className="grid size-11 shrink-0 place-items-center rounded-full bg-ice text-muted">
@@ -175,7 +176,10 @@ export function AutoPistesPanel() {
                 <li key={i} className="flex items-center gap-2 rounded-[12px] bg-ice px-2.5 py-1.5 text-[12px] text-navy">
                   <span className="size-2.5 shrink-0 rounded-full" style={{ background: GRADE_COLOR[p.grade as keyof typeof GRADE_COLOR] ?? "#888" }} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-semibold">{planTitle(p, names.get(p.liftId) ?? "")}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="min-w-0 truncate font-semibold">{planTitle(p, names.get(p.liftId) ?? "")}</span>
+                      <RatingChip points={p.points} stars={starsFor(p.points)} />
+                    </span>
                     <span className="block truncate text-[10px] text-muted">
                       {((p.hexes.length - 1) * FLOW.kmPerSegment).toFixed(1)} km
                       {p.gainGuests > 0 ? ` · +${fmt(p.gainGuests)} Gäste/h` : ""}

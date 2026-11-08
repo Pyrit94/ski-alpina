@@ -12,6 +12,7 @@ import {
   pisteUpkeep,
   segmentGrades,
   surveyPiste,
+  scorePiste,
   widthChangePrice,
   widthOf,
   type Anchor,
@@ -34,6 +35,7 @@ import {
 import { useResortLinks } from "@/lib/game/links";
 import { realMetres } from "@/lib/game/real-height";
 import { useGame } from "@/lib/game/store";
+import { RatingChip, RatingParts } from "./PisteRating";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
 
 const elevAt = (h: Axial) => {
@@ -184,6 +186,8 @@ function useDraftStats(draft: readonly Axial[], itemId: string | null, width: Pi
       capacity: pisteCapacity(piste),
       price: discounted(useGame.getState(), pisteCost(dem, id, draft, w)),
       upkeep: survey ? survey.upkeep : pisteUpkeep(piste),
+      // How good it is to ski: the points it will earn (see PISTE_SCORE).
+      rating: itemId === "road" ? null : scorePiste(draft, dem),
     };
   }, [draft, itemId, width]);
 }
@@ -366,6 +370,7 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
             ) : (
               <span className="shrink-0 text-[11px] font-semibold text-navy">{item.name}</span>
             )}
+            {stats.rating && <RatingChip points={stats.rating.points} stars={stats.rating.stars} />}
             {compact ? (
               // One line on a phone, so the tray stays below the reticle.
               <span className="value min-w-0 truncate text-[11px] text-muted">
@@ -384,6 +389,11 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
               <MiniStat label="Kapazität" value={`${fmt(stats.capacity)}/h`} />
               <MiniStat label="Preis" value={fmt(stats.price)} tone={coins < stats.price ? "bad" : undefined} />
               <MiniStat label="Unterhalt/Tag" value={`−${fmt(stats.upkeep)}`} />
+            </div>
+          )}
+          {!compact && stats.rating && (
+            <div className="mt-1.5">
+              <RatingParts score={stats.rating} />
             </div>
           )}
           {draft.length >= 2 && (
