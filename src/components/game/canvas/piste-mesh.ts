@@ -53,6 +53,9 @@ export interface RibbonStyle {
   road?: boolean;
   /** Metres-equivalent the strip floats above the ground, against z-fighting. */
   lift?: number;
+  /** Fade in over this much of the start, and out over this much of the end (world units). */
+  fadeIn?: number;
+  fadeOut?: number;
 }
 
 /**
@@ -70,6 +73,11 @@ export function drapedRibbon(path: readonly PathPoint[], style: RibbonStyle, gro
   const col: number[] = [];
   const uv: number[] = [];
   const w: number[] = [];
+  const fade: number[] = [];
+  let total = 0;
+  for (let i = 1; i < path.length; i++) total += Math.hypot(path[i]!.x - path[i - 1]!.x, path[i]!.z - path[i - 1]!.z);
+  const fadeIn = style.fadeIn ?? 0;
+  const fadeOut = style.fadeOut ?? 0;
   let along = 0;
   for (let i = 0; i < path.length; i++) {
     const p = path[i]!;
@@ -98,6 +106,10 @@ export function drapedRibbon(path: readonly PathPoint[], style: RibbonStyle, gro
       col.push(style.color.r, style.color.g, style.color.b);
       uv.push(k, along);
       w.push(style.road ? -style.width : style.width);
+      // Where a run joins another, it melts into it instead of ending square.
+      const a = fadeIn > 0 ? Math.min(1, along / fadeIn) : 1;
+      const b = fadeOut > 0 ? Math.min(1, (total - along) / fadeOut) : 1;
+      fade.push(Math.max(0, Math.min(a, b)));
     }
   }
   const idx: number[] = [];
@@ -110,9 +122,102 @@ export function drapedRibbon(path: readonly PathPoint[], style: RibbonStyle, gro
   geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   geo.setAttribute("pisteUv", new THREE.Float32BufferAttribute(uv, 2));
   geo.setAttribute("pisteW", new THREE.Float32BufferAttribute(w, 1));
+  geo.setAttribute("pisteFade", new THREE.Float32BufferAttribute(fade, 1));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return geo;
+}
+
+/**
+ * A groomed round where runs and a lift station meet: one draped disc in the
+ * run material, white to the rim and soft at the edge, so the ends of runs
+ * arriving and leaving merge into one patch of snow instead of crossing.
+ */
+export function snowPlaza(cx: number, cz: number, radius: number, ground: GroundAt, segments = 18): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const col: number[] = [];
+  const uv: number[] = [];
+  const w: number[] = [];
+  const fade: number[] = [];
+  const snow = [0.965, 0.978, 1];
+  const push = (x: number, z: number, u: number) => {
+    pos.push(x, ground(x, z) + 0.1, z);
+    col.push(snow[0]!, snow[1]!, snow[2]!);
+    uv.push(u, 0);
+    w.push(radius * 2);
+    fade.push(1);
+  };
+  push(cx, cz, 0.5);
+  for (let i = 0; i <= segments; i++) {
+    const t = (i / segments) * Math.PI * 2;
+    push(cx + Math.cos(t) * radius, cz + Math.sin(t) * radius, 0);
+  }
+  const idx: number[] = [];
+  // Counter-clockwise seen from above, so the disc faces the sky.
+  for (let i = 1; i <= segments; i++) idx.push(0, i + 1, i);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute("pisteUv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute("pisteW", new THREE.Float32BufferAttribute(w, 1));
+  geo.setAttribute("pisteFade", new THREE.Float32BufferAttribute(fade, 1));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+export interface RunLine {
+  /** Relaxed world points along the run, top first. */
+  points: PathPoint[];
+  hexes: readonly { q: number; r: number }[];
+}
+
+/**
+ * Where a run branches off another or flows into one, borrow a little of the
+ * other run's line so the two meet tangentially: the points above the branch
+ * on the other run go in front, the points below the junction go behind.
+ * Returns the extended points and how much at each end is borrowed, to fade.
+ */
+export function joinRun(
+  run: RunLine,
+  others: readonly RunLine[],
+  near: (a: { q: number; r: number }, b: { q: number; r: number }) => boolean,
+): { points: PathPoint[]; fadeIn: number; fadeOut: number } {
+  const first = run.hexes[0]!;
+  const last = run.hexes[run.hexes.length - 1]!;
+  let before: PathPoint[] = [];
+  let after: PathPoint[] = [];
+  for (const o of others) {
+    if (o === run) continue;
+    if (before.length === 0) {
+      const k = o.hexes.findIndex((h, i) => i > 0 && i < o.hexes.length - 1 && near(h, first));
+      if (k > 0) before = o.points.slice(Math.max(0, k - 2), k);
+    }
+    if (after.length === 0) {
+      const k = o.hexes.findIndex((h, i) => i < o.hexes.length - 1 && near(h, last));
+      if (k >= 0) after = o.points.slice(k + 1, k + 3);
+    }
+  }
+  const length = (pts: PathPoint[], from: PathPoint | undefined) => {
+    let n = 0;
+    let prev = from;
+    for (const p of pts) {
+      if (prev) n += Math.hypot(p.x - prev.x, p.z - prev.z);
+      prev = p;
+    }
+    return n;
+  };
+  // The run's own end point sits beside the other line, not on it; leaving it
+  // out lets the curve swing into the other line instead of kinking at it.
+  let own = run.points;
+  if (after.length && own.length > 3) own = own.slice(0, -1);
+  if (before.length && own.length > 3) own = own.slice(1);
+  const points = [...before, ...own, ...after];
+  return {
+    points,
+    fadeIn: before.length ? length([...before, own[0]!], undefined) : 0,
+    fadeOut: after.length ? length(after, own[own.length - 1]) : 0,
+  };
 }
 
 /** Merge strips into one geometry, disposing the parts. Null when empty. */
@@ -192,15 +297,16 @@ export function makePisteMaterial(fine: boolean, opacity = 1): THREE.MeshStandar
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nattribute vec2 pisteUv;\nattribute float pisteW;\nvarying vec2 vPisteUv;\nvarying float vPisteW;",
+        "#include <common>\nattribute vec2 pisteUv;\nattribute float pisteW;\nattribute float pisteFade;\nvarying vec2 vPisteUv;\nvarying float vPisteW;\nvarying float vPisteFade;",
       )
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvPisteUv = pisteUv;\nvPisteW = pisteW;");
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvPisteUv = pisteUv;\nvPisteW = pisteW;\nvPisteFade = pisteFade;");
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
 varying vec2 vPisteUv;
 varying float vPisteW;
+varying float vPisteFade;
 uniform float uOpacity;`,
       )
       .replace(
@@ -233,7 +339,7 @@ uniform float uOpacity;`,
   vec3 roadColor = mix(vColor.rgb * 0.85, vec3(0.92), dash * 0.8);
   diffuseColor.rgb = mix(runColor, roadColor, road);
   // A soft outer border so the run melts into the open snow beside it.
-  diffuseColor.a *= uOpacity * smoothstep(0.0, mix(0.22, 0.05, road), fromEdge);
+  diffuseColor.a *= uOpacity * smoothstep(0.0, mix(0.22, 0.05, road), fromEdge) * smoothstep(0.0, 1.0, vPisteFade);
 `,
       );
   };

@@ -4,7 +4,8 @@ import { peerColor } from "@/lib/game/players";
 import { BY_ID, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, liftThroughput, seasonPhase } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
 import { BUILDING_LEVELS, PISTE_LEVELS, TERRAIN } from "@ski/config";
-import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, siteAt, siteContext, siteKind, widthDef } from "@ski/shared";
+import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, scorePiste, siteAt, siteContext, siteKind, widthDef } from "@ski/shared";
+import { RatingChip, RatingParts } from "./PisteRating";
 import { pct, siteTone } from "@/lib/game/placement";
 import { useStableGame } from "../canvas/use-stable-game";
 import { buildingLevelLabel, levelGain, pisteLevelLabel } from "@/lib/game/expansion";
@@ -334,6 +335,7 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
   const closed = Boolean(edge && edge.capacity <= 0);
   const grade = piste.difficulty === "blue" || piste.difficulty === "red" || piste.difficulty === "black" ? piste.difficulty : null;
   const widthLabel = piste.itemId === "piste" ? widthDef(piste.width).label : null;
+  const rating = useMemo(() => (piste.difficulty === "road" ? null : scorePiste(piste.hexes, getDem())), [piste.hexes, piste.difficulty]);
   return (
     <Panel className="p-3">
       <div className="truncate text-[13px] font-semibold uppercase tracking-wide text-navy">{piste.name || item.name}</div>
@@ -349,6 +351,15 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
         {widthLabel && <span>{widthLabel} ·</span>}
         {segments} Segmente · {(segments * FLOW.kmPerSegment).toFixed(1)} km
       </div>
+      {rating && (
+        <div className="mt-2">
+          <div className="mb-1 flex items-center justify-between text-[11px]">
+            <span className="font-semibold text-navy">Pistenwertung</span>
+            <RatingChip points={rating.points} stars={rating.stars} />
+          </div>
+          <RatingParts score={rating} />
+        </div>
+      )}
       <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
         <Stat label="Kapazität" value={edge ? `${fmt(edge.capacity)}/h` : "—"} />
         <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />

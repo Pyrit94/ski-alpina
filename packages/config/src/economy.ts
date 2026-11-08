@@ -320,7 +320,7 @@ export const PISTE_LEVELS = {
 export const PISTE_PLANNER = {
   paybackDays: 30,
   maxExtraRuns: 6,
-  candidateLimit: 36,
+  candidateLimit: 72,
   /** A new run may share at most this much of its line with existing ones. */
   maxOverlap: 0.4,
 } as const;
@@ -412,4 +412,31 @@ export const TEAMPLAY = {
   maxProposalIntents: 16,
   /** Away at least this long, coming back shows a summary. */
   awayMinutes: 10,
+} as const;
+
+/**
+ * How good a run is to ski: up to 100 points from its drop, its length, its
+ * turns and how its pitch changes. Points give XP when it is built and draw
+ * a few more guests — a flowing, varied run is worth more than a straight
+ * chute of the same length, but not so much that the map is about points.
+ */
+export const PISTE_SCORE = {
+  /** Shares of the 100 points. */
+  weights: { drop: 25, length: 20, turns: 30, variety: 25 },
+  /** Full marks at this many metres of drop… */
+  fullDrop: 650,
+  /** …this many hexes… */
+  fullLength: 26,
+  /** …this many swings (left-right changes of direction)… */
+  fullTurns: 4,
+  /** …and this many changes of pitch along the way. */
+  fullChanges: 3,
+  /** A swing counts once the line has turned this far, in radians. */
+  swingAngle: 0.35,
+  /** XP per point when built. */
+  xpPerPoint: 0.6,
+  /** Extra draw per point: 100 points = +15 % for that run. */
+  drawPerPoint: 0.0015,
+  /** The auto planner values a point this much against its money gain (share of the gain per 100 points). */
+  plannerWeight: 0.3,
 } as const;

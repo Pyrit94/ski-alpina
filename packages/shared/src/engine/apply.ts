@@ -1,5 +1,5 @@
 import { BY_ID } from "../../../config/src/items.ts";
-import { BUILDING_LEVELS, ECONOMY, PISTE_LEVELS, UPGRADES } from "../../../config/src/economy.ts";
+import { BUILDING_LEVELS, ECONOMY, PISTE_LEVELS, PISTE_SCORE, UPGRADES } from "../../../config/src/economy.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
@@ -15,6 +15,7 @@ import { applyEventWeights, recordVote, settleActorCoins, walletKey } from "./ru
 import { MATCH } from "../../../config/src/match.ts";
 import { applyResearch, buildCost, discounted, isResearchIntent } from "./research.ts";
 import { applyProposalIntent } from "./proposals.ts";
+import { scorePiste } from "./piste-score.ts";
 
 export interface Applied {
   state: ResortState;
@@ -206,6 +207,8 @@ function applyOne(
     // run keeps its rating even if the terrain model is ever retuned.
     const survey = dem ? surveyPiste(dem, intent.itemId, intent.hexes, intent.width) : null;
     const name = intent.name?.trim();
+    // How good it is to ski: stored, and worth XP (see PISTE_SCORE).
+    const rating = dem && survey && item.id !== "road" ? scorePiste(intent.hexes, dem) : null;
     const piste = {
       id: createId("p"),
       itemId: intent.itemId,
@@ -217,6 +220,7 @@ function applyOne(
       // Only stored when chosen, so older and default runs stay identical.
       ...(intent.width && intent.width !== 2 ? { width: intent.width } : {}),
       ...(name ? { name } : {}),
+      ...(rating ? { score: rating.points } : {}),
     };
     const cost = discounted(state, survey ? survey.cost : item.cost * segs);
     return {
@@ -224,11 +228,11 @@ function applyOne(
         ...state,
         pistes: [...state.pistes, piste],
         coins: state.coins - cost,
-        xp: state.xp + item.xp * segs,
+        xp: state.xp + item.xp * segs + (rating ? Math.round(rating.points * PISTE_SCORE.xpPerPoint) : 0),
       },
       title: item.id === "road" ? "Strasse gebaut" : "Piste angelegt",
       body: survey
-        ? `${name ? `«${name}»: ` : ""}${GRADE_LABEL[survey.grade]} Piste, ${segs} Segmente.`
+        ? `${name ? `«${name}»: ` : ""}${GRADE_LABEL[survey.grade]} Piste, ${segs} Segmente${rating ? `, ${rating.points} Punkte ${"★".repeat(rating.stars)}` : ""}.`
         : `${item.name} ist bereit.`,
       kind: "ok",
     };
