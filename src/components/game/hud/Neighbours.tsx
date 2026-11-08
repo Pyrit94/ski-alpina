@@ -1,4 +1,4 @@
-import { CableCar, Handshake, Mountain, Users, X } from "lucide-react";
+import { CableCar, Handshake, Mountain, Users } from "lucide-react";
 import { FLOW, NEIGHBOURS } from "@ski/config";
 import {
   absDay,
@@ -16,6 +16,7 @@ import { fmt, fmtCompact } from "@/lib/game/format";
 import { useGame } from "@/lib/game/store";
 import { useMyMoney } from "@/lib/game/team";
 import { useStableGame } from "../canvas/use-stable-game";
+import { HelperButton, HelperCard, HelperFigure } from "./HelperCard";
 
 const km = (n: Neighbour) => n.pistes.reduce((sum, p) => sum + Math.max(1, p.hexes.length - 1) * FLOW.kmPerSegment, 0);
 const pct = (v: number) => `${Math.round(v * 100)} %`;
@@ -27,37 +28,29 @@ const OFFER_LABELS = ["−20 %", "Schätzwert", "+10 %"];
  * them out. Opens on a tap on their lifts, stations or name.
  */
 export function NeighbourCard() {
-  const open = useGame((s) => s.neighbourOpen);
+  const open = useGame((s) => (s.helper?.id === "neighbour" ? s.helper.neighbourId : null));
+  const openHelper = useGame((s) => s.openHelper);
   const list = useStableGame((s) => neighboursOn(s));
   const mode = useGame((s) => s.neighbours?.mode ?? "off");
   const cut = useGame((s) => s.stats.neighbourCut ?? 0);
   const today = useGame((s) => absDay(s));
   const n = list.find((x) => x.id === open);
   if (!n) return null;
-  const close = () => useGame.setState({ neighbourOpen: null });
+  const close = () => openHelper(null);
   const share = neighbourCutOf({ neighbours: { mode, list } }, cut, n);
   return (
-    <div className="toast-in pointer-events-auto w-[min(94vw,360px)] rounded-[20px] bg-panel/95 p-3 shadow-[var(--shadow-panel)] backdrop-blur-md">
-      <div className="flex items-start gap-2">
-        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-ice text-muted">
-          <Mountain className="size-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-bold text-navy">{n.name}</div>
-          <div className="text-[11px] text-muted">
-            {n.pact ? "Partner im Tarifverbund" : mode === "wettbewerb" ? "Konkurrenz im Tal" : "Nachbar-Skigebiet"}
-          </div>
-        </div>
-        <button type="button" onClick={close} aria-label="Schliessen" className="grid size-11 shrink-0 place-items-center rounded-full bg-ice text-muted">
-          <X className="size-4" />
-        </button>
+    <HelperCard
+      icon={Mountain}
+      title={n.name}
+      subtitle={n.pact ? "Partner im Tarifverbund" : mode === "wettbewerb" ? "Konkurrenz im Tal" : "Nachbar-Skigebiet"}
+      onClose={close}
+    >
+      <div className="grid grid-cols-3 gap-1.5">
+        <HelperFigure label="Bahnen">{String(n.lifts.length)}</HelperFigure>
+        <HelperFigure label="Pisten">{`${km(n).toFixed(1)} km`}</HelperFigure>
+        <HelperFigure label="Gäste/Tag">{n.guestsYesterday > 0 ? fmtCompact(n.guestsYesterday) : "neu"}</HelperFigure>
       </div>
-      <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
-        <Figure label="Bahnen" value={String(n.lifts.length)} />
-        <Figure label="Pisten" value={`${km(n).toFixed(1)} km`} />
-        <Figure label="Gäste/Tag" value={n.guestsYesterday > 0 ? fmtCompact(n.guestsYesterday) : "neu"} />
-      </div>
-      <p className="mt-2 rounded-[12px] bg-ice px-2.5 py-1.5 text-[11px] leading-snug text-navy">
+      <p className="rounded-[12px] bg-ice px-3 py-2 text-[11px] leading-snug text-navy">
         {n.pact ? (
           <>Ein Pass für beide Gebiete: Sie nehmen euch keine Gäste, ihre Pisten locken zusätzliche an.</>
         ) : (
@@ -71,7 +64,7 @@ export function NeighbourCard() {
       </p>
       <PactRow n={n} />
       <BuyRow n={n} today={today} />
-    </div>
+    </HelperCard>
   );
 }
 
@@ -81,20 +74,19 @@ function PactRow({ n }: { n: Neighbour }) {
   const fee = pactFee(n);
   const blocked = !n.pact && money < fee;
   return (
-    <div className="mt-2 flex items-center gap-2 rounded-[12px] bg-snow px-2.5 py-1 ring-1 ring-line">
+    <div className="flex items-center gap-2 rounded-[12px] bg-snow px-2.5 py-1 ring-1 ring-line">
       <Handshake className={`size-4 shrink-0 ${n.pact ? "text-success" : "text-muted"}`} />
       <div className="min-w-0 flex-1">
         <div className="text-[12px] font-semibold text-navy">Tarifverbund</div>
         <div className="value text-[11px] text-muted">{fmt(fee)} CHF pro Tag</div>
       </div>
-      <button
-        type="button"
+      <HelperButton
+        variant={n.pact ? "secondary" : "primary"}
         disabled={blocked}
         onClick={() => sendIntent({ type: "neighbour_pact", neighbourId: n.id, on: !n.pact })}
-        className={`min-h-11 shrink-0 rounded-full px-3.5 text-[12px] font-semibold disabled:opacity-50 ${n.pact ? "bg-ice text-navy" : "bg-accent text-panel"}`}
       >
         {n.pact ? "Kündigen" : "Abschliessen"}
-      </button>
+      </HelperButton>
     </div>
   );
 }
@@ -109,7 +101,7 @@ function BuyRow({ n, today }: { n: Neighbour; today: number }) {
   const counter = liveCounter({ season, day }, n);
   const title = `${n.name} kaufen`;
   return (
-    <div className="mt-2 rounded-[12px] bg-snow px-2.5 py-2 ring-1 ring-line">
+    <div className="rounded-[12px] bg-snow px-2.5 py-2 ring-1 ring-line">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[12px] font-semibold text-navy">Kaufen</span>
         <span className="text-[11px] text-muted">
@@ -125,22 +117,18 @@ function BuyRow({ n, today }: { n: Neighbour; today: number }) {
               · {counter.until - today + 1 === 1 ? "nur noch heute" : `noch ${counter.until - today + 1} Tage`}
             </span>
           </p>
-          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() => sendIntent({ type: "answer_counter", neighbourId: n.id, accept: false })}
-              className="min-h-11 rounded-full bg-ice text-[12px] font-semibold text-navy"
-            >
+          <div className="mt-1.5 flex gap-1.5">
+            <HelperButton variant="secondary" grow onClick={() => sendIntent({ type: "answer_counter", neighbourId: n.id, accept: false })}>
               Ablehnen
-            </button>
-            <button
-              type="button"
+            </HelperButton>
+            <HelperButton
+              variant="success"
+              grow
               disabled={money < counter.price}
               onClick={() => sendPlan([{ type: "answer_counter", neighbourId: n.id, accept: true }], title)}
-              className="min-h-11 rounded-full bg-success text-[12px] font-semibold text-panel disabled:opacity-50"
             >
               Annehmen
-            </button>
+            </HelperButton>
           </div>
         </>
       ) : (
@@ -171,14 +159,6 @@ function BuyRow({ n, today }: { n: Neighbour; today: number }) {
   );
 }
 
-function Figure({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[12px] bg-ice px-1.5 py-1.5">
-      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted">{label}</div>
-      <div className="value text-[13px] font-bold text-navy">{value}</div>
-    </div>
-  );
-}
 
 /** «Nachbarn» in Betrieb: every neighbour area, one tap to fly there. */
 export function NeighboursPanel() {

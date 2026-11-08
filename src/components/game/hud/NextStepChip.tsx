@@ -1,85 +1,21 @@
-import { ArrowRight, Lightbulb, Wrench, X } from "lucide-react";
-import { useMemo, useState } from "react";
-import { getDem, itemUnlocked, siteContext, siteFactors } from "@ski/shared";
-import { computeNeeds } from "@/lib/game/needs";
-import { useResortLinks } from "@/lib/game/links";
-import { nextStep } from "@/lib/game/next-step";
+import { Lightbulb, Wrench } from "lucide-react";
+import type { NextStep } from "@/lib/game/next-step";
 import { runStepAction } from "@/lib/game/step-actions";
-import { useGame } from "@/lib/game/store";
-import { researchHint } from "@/lib/game/research-ready";
-
-/** Tips dismissed this session, by id: one stays away until the situation changes. */
-const dismissed = new Set<string>();
+import { HintChip } from "./HelperCard";
 
 /**
- * The single most useful next move, as a chip with its button. Hidden while
- * building, while the tutorial is talking, and once dismissed.
+ * The single most useful next move, as a chip with its button. Where it
+ * shows, and when it gives way, is up to the advisor slot (Assistant.tsx).
  */
-export function NextStepChip({ className = "" }: { className?: string }) {
-  const lifts = useGame((s) => s.lifts);
-  const pistes = useGame((s) => s.pistes);
-  const buildings = useGame((s) => s.buildings);
-  const stats = useGame((s) => s.stats);
-  const flow = useGame((s) => s.flow);
-  const coins = useGame((s) => s.coins);
-  const phase = useGame((s) => s.phase);
-  const selectedId = useGame((s) => s.selectedId);
-  // An open proposal from the other player is the next step; the tip waits.
-  const autoOpen = useGame((s) => s.autoPistes !== null || s.villageOpen || (s.proposals ?? []).some((p) => p.by !== s.playerId));
-  const links = useResortLinks();
-  const [, setTick] = useState(0);
-
-  const step = useMemo(
-    () =>
-      nextStep({
-        lifts,
-        pistes,
-        buildings,
-        stats,
-        flow,
-        links,
-        coins,
-        unlocked: (id) => itemUnlocked(useGame.getState(), id),
-        research: researchHint(useGame.getState()),
-        needs: computeNeeds({
-          stats,
-          buildings,
-          coins,
-          unlocked: (id) => itemUnlocked(useGame.getState(), id),
-          site: siteFactors(siteContext({ lifts, pistes, buildings }, getDem())),
-        }),
-      }),
-    [lifts, pistes, buildings, stats, flow, links, coins],
-  );
-  if (!step || phase !== "idle" || selectedId || autoOpen || dismissed.has(step.id)) return null;
-  const Icon = step.tone === "fix" ? Wrench : Lightbulb;
+export function NextStepChip({ step, onDismiss }: { step: NextStep; onDismiss: () => void }) {
   return (
-    <div
-      className={`toast-in pointer-events-auto flex w-[min(94vw,440px)] items-center gap-2 rounded-[18px] bg-panel/95 p-2 pl-3 shadow-[var(--shadow-panel)] backdrop-blur-md ${className}`}
-    >
-      <Icon className={`size-4 shrink-0 ${step.tone === "fix" ? "text-warn" : "text-accent"}`} />
-      <p className="min-w-0 flex-1 text-[12px] leading-snug text-navy">{step.text}</p>
-      {step.action && (
-        <button
-          type="button"
-          onClick={() => runStepAction(step.action!)}
-          className="btn-3d flex h-11 shrink-0 items-center gap-1 rounded-full bg-accent px-3 text-[12px] font-bold text-panel"
-          style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
-        >
-          {step.actionLabel} <ArrowRight className="size-3.5" />
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={() => {
-          dismissed.add(step.id);
-          setTick((n) => n + 1);
-        }}
-        aria-label="Tipp ausblenden"
-        className="grid size-11 shrink-0 place-items-center rounded-full text-muted"
-      >
-        <X className="size-4" />
-      </button>
-    </div>
+    <HintChip
+      icon={step.tone === "fix" ? Wrench : Lightbulb}
+      tone={step.tone === "fix" ? "warn" : "accent"}
+      text={step.text}
+      action={step.action ? { label: step.actionLabel ?? "Los", onClick: () => runStepAction(step.action!) } : undefined}
+      onDismiss={onDismiss}
+      dismissLabel="Tipp ausblenden"
+    />
   );
 }
