@@ -9,6 +9,6 @@
   "dependencies": {
     "@ski/shared": "*",
     "bullmq": "^5.58.5",
-    "ioredis": "^5.8.0"
+    "ioredis": "^6.0.0"
   }
 }
