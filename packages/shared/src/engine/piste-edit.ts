@@ -1,5 +1,5 @@
 import { ECONOMY } from "../../../config/src/economy.ts";
-import { roleAllows, spendable } from "./rules.ts";
+import { mayChange, spendable } from "./rules.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { hexToWorld } from "../hex.ts";
 import type { Intent } from "../protocol/intents.ts";
@@ -60,7 +60,7 @@ export function validateEditPiste(state: ResortState, dem: Dem, intent: EditPist
   if (!renaming && !widening) return { ok: false, code: "invalid", reason: "Nichts zu ändern" };
   if (widening && intent.width !== undefined) {
     const price = widthChangePrice(piste, intent.width, dem);
-    const allowed = roleAllows(state, actorId, piste.itemId);
+    const allowed = mayChange(state, actorId, piste);
     if (!allowed.ok) return { ok: false, code: "rights", reason: allowed.reason };
     if (price > spendable(state, actorId)) return { ok: false, code: "budget", reason: "Zu teuer" };
   }

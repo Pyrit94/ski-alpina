@@ -289,7 +289,9 @@ export function entityCost(entity: ResortEntity): { coins: number; gems: number 
   const segments = entity.kind === "piste" ? Math.max(1, entity.piste.hexes.length - 1) : 1;
   const grown =
     entity.kind === "building" ? expansionSpent(entity.building) : entity.kind === "piste" ? pisteExpansionSpent(entity.piste) : 0;
-  return { coins: item.cost * segments + grown, gems: (item.gemCost ?? 0) * segments };
+  // A lift's middle station was paid on top of the lift.
+  const mid = entity.kind === "lift" && entity.lift.mid ? Math.round(item.cost * ECONOMY.midStationShare) : 0;
+  return { coins: item.cost * segments + grown + mid, gems: (item.gemCost ?? 0) * segments };
 }
 
 /**

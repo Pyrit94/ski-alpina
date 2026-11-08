@@ -59,6 +59,18 @@ export function neighbourHexes(state: Pick<ResortState, "neighbours">): Map<stri
   return map;
 }
 
+/** The same hexes as a set of "q,r" keys, for route searches to go around. */
+const avoidCache = new WeakMap<readonly Neighbour[], Set<string>>();
+export function neighbourAvoid(state: Pick<ResortState, "neighbours">): Set<string> {
+  const list = neighboursOn(state);
+  let set = avoidCache.get(list);
+  if (!set) {
+    set = new Set(neighbourHexes(state).keys());
+    avoidCache.set(list, set);
+  }
+  return set;
+}
+
 /** Hexes the players use, widened by NEIGHBOURS.clearance: no neighbour builds there. */
 function playersFootprint(state: ResortState, dem: Dem): Set<string> {
   const out = new Set<string>();
@@ -266,9 +278,22 @@ export function spawnNeighbours(state: ResortState, dem: Dem, now: number): Neig
 /** Switch the neighbours on or off. Switching on again keeps those already there. */
 export function setNeighbourMode(state: ResortState, dem: Dem, mode: NeighbourMode, now: number): ResortState {
   if (mode === "off") return { ...state, neighbours: { mode, list: state.neighbours?.list ?? [] } };
+  // Back on: the same neighbours, unless the players have since built where
+  // they stood (while off, their ground was free). Then they start afresh.
   const kept = state.neighbours?.list ?? [];
-  const list = kept.length > 0 ? kept : spawnNeighbours({ ...state, neighbours: undefined }, dem, now);
+  const usable = kept.length > 0 && !kept.some((n) => overlapsPlayers(state, n));
+  const list = usable ? kept : spawnNeighbours({ ...state, neighbours: undefined }, dem, now);
   return { ...state, neighbours: { mode, list } };
+}
+
+/** Whether anything of the players' stands on a neighbour's station or run. */
+function overlapsPlayers(state: ResortState, n: Neighbour): boolean {
+  const theirs = new Set<string>();
+  for (const b of n.buildings) theirs.add(key(b));
+  for (const p of n.pistes) for (const h of p.hexes) theirs.add(key(h));
+  if (state.buildings.some((b) => theirs.has(key(b)))) return true;
+  if (state.lifts.some((l) => theirs.has(key(l.a)) || theirs.has(key(l.b)) || (l.mid && theirs.has(key(l.mid))))) return true;
+  return state.pistes.some((p) => p.hexes.some((h) => theirs.has(key(h))));
 }
 
 /** Km of run a neighbour has, weighted like the players' (see ECONOMY.gradeDraw). */

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { discounted, spendable } from "@ski/shared";
+import { discounted, neighbourAvoid, spendable } from "@ski/shared";
 import { BY_ID, type PisteGrade } from "@ski/config";
 import {
   MAX_PISTE_HEXES,
@@ -118,7 +118,8 @@ function startDraft(hex: Axial): boolean {
 function routeAvoid(draft: readonly Axial[]): Set<string> {
   const g = useGame.getState();
   const stations = new Set(g.lifts.flatMap((l) => [l.stationA, l.stationB, ...(l.stationMid ? [l.stationMid] : [])]));
-  const out = new Set<string>();
+  // A neighbour's runs and stations too: the server refuses them.
+  const out = new Set<string>(neighbourAvoid(g));
   for (const b of g.buildings) if (!stations.has(b.id)) out.add(`${b.q},${b.r}`);
   for (const h of draft.slice(0, -1)) out.add(key(h));
   return out;

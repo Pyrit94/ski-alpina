@@ -5,6 +5,7 @@ import { MAX_PISTE_HEXES } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { PisteDifficulty, PlacedPiste, ResortState, SimStats } from "../types.ts";
 import { descentGoals, liftEnds, resortLinks } from "./descent.ts";
+import { neighbourAvoid } from "./neighbours.ts";
 import { tickFlow } from "./flow.ts";
 import { PENDING_READY } from "./match.ts";
 import { routePiste, routeToAny } from "./piste-route.ts";
@@ -100,7 +101,15 @@ export const rated = (value: number, points: number) => {
  * Each piece is routed with the same legal-line rules, so every line returned
  * is one the server would accept.
  */
-export function swingLines(dem: Dem, top: Axial, goals: readonly Axial[], grade: PisteGrade, plain: Axial[] | null): Axial[][] {
+export function swingLines(
+  dem: Dem,
+  top: Axial,
+  goals: readonly Axial[],
+  grade: PisteGrade,
+  plain: Axial[] | null,
+  /** Hexes the lines must go around, e.g. a neighbour's runs. */
+  avoid?: ReadonlySet<string>,
+): Axial[][] {
   if (!plain || plain.length < 6) return [];
   const a = hexToWorld(top.q, top.r);
   const end = plain[plain.length - 1]!;
@@ -126,7 +135,7 @@ export function swingLines(dem: Dem, top: Axial, goals: readonly Axial[], grade:
   for (const points of tries) {
     let line: Axial[] = [top];
     for (const wp of points) {
-      const seg = routePiste(dem, line[line.length - 1]!, wp, grade, { maxHexes: MAX_PISTE_HEXES - line.length + 1 });
+      const seg = routePiste(dem, line[line.length - 1]!, wp, grade, { maxHexes: MAX_PISTE_HEXES - line.length + 1, avoid });
       if (!seg) {
         line = [];
         break;
@@ -134,7 +143,7 @@ export function swingLines(dem: Dem, top: Axial, goals: readonly Axial[], grade:
       line = [...line, ...seg.slice(1)];
     }
     if (line.length < 2) continue;
-    const tail = routeToAny(dem, line[line.length - 1]!, goals, grade, { maxHexes: MAX_PISTE_HEXES - line.length + 1 });
+    const tail = routeToAny(dem, line[line.length - 1]!, goals, grade, { maxHexes: MAX_PISTE_HEXES - line.length + 1, avoid });
     if (!tail) continue;
     line = [...line, ...tail.slice(1)];
     // A line that crosses itself is no run.
@@ -169,7 +178,11 @@ function plan(
   opts: { liftIds?: readonly string[]; mix: AutoMix; budget: number },
   swing: boolean,
 ): AutoResult {
-  const swingingLines = swing ? swingLines : () => [];
+  // A neighbour's runs and stations are not the players' to build on.
+  const avoid = neighbourAvoid(state);
+  const swingingLines = swing
+    ? (d: Dem, t: Axial, goals: readonly Axial[], g: PisteGrade, plain: Axial[] | null) => swingLines(d, t, goals, g, plain, avoid)
+    : () => [];
   const chosen = state.lifts.filter((l) => !opts.liftIds || opts.liftIds.includes(l.id));
   const tops = new Map(chosen.map((l) => [l.id, liftEnds(dem, l).top]));
   const byTop = [...chosen].sort((a, b) => elevOf(dem, tops.get(a.id)!) - elevOf(dem, tops.get(b.id)!));
@@ -231,11 +244,11 @@ function plan(
       if (links.get(lift.id) !== "no-descent") continue;
       const top = tops.get(lift.id)!;
       const goals = descentGoals(sim, dem, top, links);
-      const plain = grades.map((g) => ({ g, line: routeToAny(dem, top, goals, g) }));
+      const plain = grades.map((g) => ({ g, line: routeToAny(dem, top, goals, g, { avoid }) }));
       const options = dedupe(
         [
           ...plain.map((p) => p.line),
-          routeToAny(dem, top, goals, "any"),
+          routeToAny(dem, top, goals, "any", { avoid }),
           ...plain.flatMap((p) => swingingLines(dem, top, goals, p.g, p.line)),
         ]
           .map((h) => assess(lift.id, h))
@@ -277,8 +290,8 @@ function plan(
         .map((p) => p.hexes[p.hexes.length - 1]!);
       const elsewhere = goals.filter((g) => ownEnds.every((e) => hexDistance(e, g) > 2));
       for (const g of grades) {
-        const near = routeToAny(dem, top, goals, g);
-        const far = routeToAny(dem, top, elsewhere, g);
+        const near = routeToAny(dem, top, goals, g, { avoid });
+        const far = routeToAny(dem, top, elsewhere, g, { avoid });
         candidates.push(
           ...[near, far, ...swingingLines(dem, top, goals, g, near), ...swingingLines(dem, top, elsewhere, g, far)]
             .map((h) => assess(lift.id, h))

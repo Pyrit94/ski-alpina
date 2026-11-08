@@ -4,6 +4,7 @@ import { hexDistance, hexesInRange, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { PlacedLift, ResortState } from "../types.ts";
 import { buildResortGraph, type LiftLink, type PisteLink } from "./graph.ts";
+import { neighbourAvoid } from "./neighbours.ts";
 import { routeToAny, type RouteTarget } from "./piste-route.ts";
 
 /**
@@ -68,9 +69,11 @@ export function descentGoals(
 ): Axial[] {
   const seen = new Set<string>();
   const out: Axial[] = [];
+  // A neighbour's runs and stations are no place for the players' run to end.
+  const theirs = neighbourAvoid(state);
   const add = (hex: Axial) => {
     const k = `${hex.q},${hex.r}`;
-    if (seen.has(k) || hexDistance(hex, from) <= FLOW.linkRadius) return;
+    if (seen.has(k) || theirs.has(k) || hexDistance(hex, from) <= FLOW.linkRadius) return;
     seen.add(k);
     out.push(hex);
   };
@@ -100,9 +103,11 @@ export function suggestDescent(
   if (!lift) return null;
   const { top } = liftEnds(dem, lift);
   const goals = descentGoals(state, dem, top);
+  // Around the neighbours' runs and stations: the server would refuse them.
+  const avoid = neighbourAvoid(state);
   // Graded first; if no line holds the grade, any legal line will do.
   return (
-    routeToAny(dem, top, goals, target) ??
-    (target === "any" ? null : routeToAny(dem, top, goals, "any"))
+    routeToAny(dem, top, goals, target, { avoid }) ??
+    (target === "any" ? null : routeToAny(dem, top, goals, "any", { avoid }))
   );
 }

@@ -19,7 +19,7 @@ import { applyProposalIntent } from "./proposals.ts";
 import { scorePiste } from "./piste-score.ts";
 import { applyReshape } from "./piste-reshape.ts";
 import { applyLevel } from "./terraform.ts";
-import { applyMidStation } from "./mid-station.ts";
+import { applyMidStation, midStationCost } from "./mid-station.ts";
 
 export interface Applied {
   state: ResortState;
@@ -322,7 +322,8 @@ function applyOne(
       return {
         state: {
           ...state,
-          coins: state.coins + buildCost(state, lift.itemId),
+          // The middle station too, if it has one: "voller Preis" means all of it.
+          coins: state.coins + buildCost(state, lift.itemId) + (lift.mid ? midStationCost(state, lift.itemId) : 0),
           gems: state.gems + (item.gemCost ?? 0),
           xp: Math.max(0, state.xp - item.xp),
           lifts: state.lifts.filter((l) => l.id !== lift.id),
