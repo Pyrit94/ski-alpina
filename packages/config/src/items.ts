@@ -97,6 +97,8 @@ export const CATALOG: CatalogItem[] = [
   // Rail.
   { id: "train", category: "services", name: "Bahnhof", blurb: "Zuganschluss ins Tal: viele Tagesgäste, ganz ohne Auto.", cost: 36000, xp: 50, unlockLevel: 3, buildSeconds: 14, footprint: 1, maxSlope: 0.12, minElev: 1560, maxElev: 1800, upkeep: 700, color: "#b3262d" },
   { id: "cog", category: "lifts", name: "Zahnradbahn", blurb: "Auf Schienen den Berg hinauf, ohne Seil und Masten. 1'000 Pers./h, fährt auch talwärts.", cost: 58000, xp: 80, unlockLevel: 4, buildSeconds: 16, footprint: 1, maxSlope: 0.6, minElev: 1560, maxElev: 2200, capacity: 1000, downhillShare: 0.3, speed: 3.5, minSpan: 6, maxSpan: 36, upkeep: 1300, color: "#b3262d" },
+  // A tool, not a building: flattens one hex of valley floor (see TERRAFORM).
+  { id: "level", category: "services", name: "Gelände ebnen", blurb: "Macht ein Feld im Talgrund flach, damit dort gebaut werden kann.", cost: 3000, xp: 4, unlockLevel: 1, buildSeconds: 1, footprint: 1, maxSlope: 0.75, minElev: 0, maxElev: 9999, upkeep: 0, color: "#a08a6a" },
 ];
 
 export const BY_ID: Record<ItemId, CatalogItem> = Object.fromEntries(

@@ -473,3 +473,18 @@ export const ACCESS = {
   piste: ["hut", "viewpoint", "snowmaker", "lights"] as string[],
   either: ["restaurant", "apres", "gastro-hall", "groomer", "clinic"] as string[],
 };
+
+/**
+ * «Gelände ebnen»: a hex of valley floor made level, so a slope beside the
+ * village can carry a hotel or a car park. Only low down — nobody bulldozes
+ * a mountainside — and never on water.
+ */
+export const TERRAFORM = {
+  costPerHex: 3000,
+  /** Real metres above the village a hex may lie and still be levelled. */
+  maxAboveVillageM: 450,
+  /** Steeper than this (rise over run), there is too much rock to move. */
+  maxSlope: 0.75,
+  /** Hexes a resort may level in all. */
+  maxEdits: 150,
+} as const;

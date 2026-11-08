@@ -1,4 +1,4 @@
-import { getDem, type RegionGeo } from "@ski/shared";
+import { getDem, withEdits, type RegionGeo, type TerrainEdits } from "@ski/shared";
 import { LANDSCAPE } from "../../../packages/config/src/regions.ts";
 
 export const WORLD_SIZE = 196;
@@ -23,9 +23,17 @@ export function metersToWorldY(m: number) {
 }
 
 const cached = new WeakMap<object, Heightmap>();
-/** The active map's ground, for drawing (see `getDem`). */
+
+/** The levelled hexes of the game being played (see «Gelände ebnen»). */
+let edits: TerrainEdits | undefined;
+/** Set when the snapshot's levelled ground changes; the next getHeightmap() includes it. */
+export function setTerrainEdits(next: TerrainEdits | undefined) {
+  edits = next;
+}
+
+/** The active map's ground, for drawing (see `getDem`), as the players have levelled it. */
 export function getHeightmap(): Heightmap {
-  const dem = getDem();
+  const dem = withEdits(getDem(), edits);
   let hm = cached.get(dem);
   if (!hm) {
     hm = {

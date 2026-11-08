@@ -11,6 +11,7 @@ import type { PlacedBuilding, ResortState } from "../types.ts";
 import { siteContext, siteFactorOf, siteFixed, siteKind, siteNeighbours, villageMovable, type SiteKind } from "./site.ts";
 import { capacityFactor, moveCost } from "./state.ts";
 import { validateGround } from "./validate.ts";
+import { withEdits } from "../terrain/edits.ts";
 
 /**
  * The village optimiser: proposes where the buildings that serve guests
@@ -51,7 +52,9 @@ function weightOf(b: PlacedBuilding): number {
 
 type Layout = Pick<ResortState, "lifts" | "pistes" | "buildings">;
 
-export function planVillage(state: Layout, dem: Dem): VillagePlan {
+export function planVillage(state: Layout & Pick<ResortState, "terrain">, natural: Dem): VillagePlan {
+  // The ground as levelled by the players.
+  const dem = withEdits(natural, state.terrain);
   const ctx = siteContext(state, dem);
   const movable = state.buildings.filter((b) => villageMovable(b.itemId));
   const fixedHexes = new Set<string>();

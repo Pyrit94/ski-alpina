@@ -26,6 +26,7 @@ import { emptyResort, loadRegion, setActiveRegion, TUTORIAL_STEPS } from "@ski/s
 import { CLASSIC_REGION } from "@ski/config";
 import { partners, proposalFor } from "./proposals";
 import { markOf, readMark, summarize, writeMark, type AwaySummary } from "./away";
+import { setTerrainEdits } from "./alpine";
 import type { NotificationItem } from "./types";
 
 type Net = ReturnType<typeof connectGame>;
@@ -85,6 +86,8 @@ export interface GameStore extends ResortState, UiState {
   regionReady: string | null;
   /** Where the camera should glide to next (world x/z), with a serial. */
   cameraFocus: { x: number; z: number; id: number } | null;
+  /** Bumped when the levelled ground changes, so the scene redraws it. */
+  terrainVersion: number;
   /** A request to rise over the whole area, with a serial (0: none yet). */
   overviewAt: number;
   showOverview: () => void;
@@ -165,6 +168,8 @@ export interface GameStore extends ResortState, UiState {
 let net: Net | null = null;
 /** When this device last noted where the game stood (see away.ts). */
 let lastMarkAt = 0;
+/** The levelled ground last handed to the renderer. */
+let lastTerrainSig = "{}";
 
 function flatten(s: ResortState): Partial<ResortState> {
   return {
@@ -199,6 +204,7 @@ function flatten(s: ResortState): Partial<ResortState> {
     speed: s.speed ?? 1,
     daily: s.daily ?? [],
     proposals: s.proposals ?? [],
+    terrain: s.terrain ?? {},
     proposalLimit: s.proposalLimit,
   };
 }
@@ -354,6 +360,13 @@ export const useGame = create<GameStore>((set, get) => ({
           }
         }
         if (first || get().sheet === "chat") set({ chatSeen: chat.length });
+        // Levelled ground: only when it changed, so the scene is not rebuilt every tick.
+        const terrainSig = JSON.stringify(state.terrain ?? {});
+        if (terrainSig !== lastTerrainSig) {
+          lastTerrainSig = terrainSig;
+          setTerrainEdits(state.terrain);
+          set({ terrainVersion: get().terrainVersion + 1 });
+        }
         // A brand-new valley: show the whole area first, then fly into the village.
         if (first && state.lifts.length === 0 && state.buildings.length === 0) {
           set({ overviewAt: Date.now() });
@@ -439,6 +452,7 @@ export const useGame = create<GameStore>((set, get) => ({
   setStarted: (v) => set({ started: v }),
   cameraFocus: null,
   overviewAt: 0,
+  terrainVersion: 0,
   showOverview: () => set({ overviewAt: Date.now(), sheet: "none" }),
   regionReady: null,
   descentOffer: null,
@@ -615,6 +629,17 @@ export const useGame = create<GameStore>((set, get) => ({
       }
       dispatch([{ type: "move_building", entityId: s.movingId, q, r }]);
       set({ movingId: null, buildItem: null, phase: "idle", hover: null, lastStampAt: Date.now(), lastStampHex: { q, r } });
+      return;
+    }
+
+    // «Gelände ebnen» is a tool: each tap levels a hex, and it stays picked.
+    if (s.phase === "place" && s.buildItem === "level") {
+      if (!v.ok) {
+        get().pushNote("Nicht möglich", v.reason, "warn");
+        return;
+      }
+      dispatch([{ type: "level_ground", q, r }]);
+      set({ lastStampAt: Date.now(), lastStampHex: { q, r } });
       return;
     }
 

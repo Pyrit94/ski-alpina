@@ -274,6 +274,8 @@ export interface ResortState {
   proposals?: Proposal[];
   /** Above this cost an action becomes a proposal; 0 = off. Absent: TEAMPLAY.proposalLimit. */
   proposalLimit?: number;
+  /** Levelled valley floor, by "q,r": the gameplay height each hex was flattened to. */
+  terrain?: Record<string, number>;
   /** Free play, or a match of a fixed number of rounds. */
   match: MatchState;
   /** Finished matches in this room, best first. Survives starting a new one. */
