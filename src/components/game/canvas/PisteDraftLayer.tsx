@@ -8,7 +8,7 @@ import { useResortLinks } from "@/lib/game/links";
 import { useGame } from "@/lib/game/store";
 import { getDem, pisteLinks, type Axial, type PlacedPiste } from "@ski/shared";
 import { draftColors } from "./piste-draft";
-import { makeHexGeometry } from "./geometry";
+import { makeHexGeometry, slopeQuaternion } from "./geometry";
 import { useStableGame } from "./use-stable-game";
 
 const COLOR_BLOCKED = new THREE.Color("#E24B4A");
@@ -74,7 +74,8 @@ export function PisteDraftMarks() {
       const { x, z } = hexToWorld(h.q, h.r);
       TMP.position.set(x, surfaceY(hm, x, z) + lift, z);
       TMP.scale.set(scale, 1, scale);
-      TMP.rotation.set(0, 0, 0);
+      // Laid onto the slope, not level over it.
+      slopeQuaternion((px, pz) => surfaceY(hm, px, pz), x, z, TMP.quaternion);
       TMP.updateMatrix();
       inst.setMatrixAt(n, TMP.matrix);
       inst.setColorAt(n, c);

@@ -25,6 +25,107 @@ export function makeHexGeometry(size: number) {
   return g;
 }
 
+/** Ground height at a world point. */
+export type Ground = (x: number, z: number) => number;
+
+const hexCorner = (i: number, t: number) => {
+  // Corner i to corner i+1, at fraction t along the edge (point-up hexes).
+  const a0 = (Math.PI / 180) * (60 * i - 30);
+  const a1 = (Math.PI / 180) * (60 * (i + 1) - 30);
+  return { x: Math.cos(a0) * (1 - t) + Math.cos(a1) * t, z: Math.sin(a0) * (1 - t) + Math.sin(a1) * t };
+};
+
+/**
+ * Hexagons lying on the ground instead of floating flat over it: every vertex
+ * sits at the ground's own height, so a tile on a slope follows the slope
+ * rather than cutting into the hill on one side and hanging in the air on
+ * the other. Each hex is a centre, a ring at half size and the outline, each
+ * edge split `sub` times. Returns the merged geometry and how many vertices
+ * each hex has, for colouring them one hex at a time.
+ */
+export function drapedHexes(
+  centers: readonly { x: number; z: number }[],
+  size: number,
+  ground: Ground,
+  lift: number,
+  sub = 2,
+): { geometry: THREE.BufferGeometry; perHex: number } {
+  const ring = 6 * sub;
+  const perHex = 1 + ring * 2;
+  const pos = new Float32Array(centers.length * perHex * 3);
+  const index: number[] = [];
+  centers.forEach((c, h) => {
+    const base = h * perHex;
+    let o = base * 3;
+    pos[o++] = c.x;
+    pos[o++] = ground(c.x, c.z) + lift;
+    pos[o++] = c.z;
+    for (const scale of [0.5, 1]) {
+      for (let k = 0; k < ring; k++) {
+        const e = hexCorner(Math.floor(k / sub), (k % sub) / sub);
+        const x = c.x + e.x * size * scale;
+        const z = c.z + e.z * size * scale;
+        pos[o++] = x;
+        pos[o++] = ground(x, z) + lift;
+        pos[o++] = z;
+      }
+    }
+    for (let k = 0; k < ring; k++) {
+      const k1 = (k + 1) % ring;
+      const i0 = base + 1 + k;
+      const i1 = base + 1 + k1;
+      const o0 = base + 1 + ring + k;
+      const o1 = base + 1 + ring + k1;
+      // Wound so the face points up.
+      index.push(base, i1, i0, i0, i1, o1, i0, o1, o0);
+    }
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geometry.setIndex(index);
+  return { geometry, perHex };
+}
+
+/** The outlines of `drapedHexes`, as line segments lying on the ground. */
+export function drapedHexEdges(
+  centers: readonly { x: number; z: number }[],
+  size: number,
+  ground: Ground,
+  lift: number,
+  sub = 3,
+): { geometry: THREE.BufferGeometry; perHex: number } {
+  const perHex = 6 * sub * 2;
+  const pos = new Float32Array(centers.length * perHex * 3);
+  let o = 0;
+  for (const c of centers) {
+    for (let k = 0; k < 6 * sub; k++) {
+      for (const kk of [k, k + 1]) {
+        const e = hexCorner(Math.floor(kk / sub) % 6, (kk % sub) / sub);
+        const x = c.x + e.x * size;
+        const z = c.z + e.z * size;
+        pos[o++] = x;
+        pos[o++] = ground(x, z) + lift;
+        pos[o++] = z;
+      }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  return { geometry, perHex };
+}
+
+/**
+ * The rotation that lays something flat onto the ground at (x, z): its up
+ * axis turned to the slope's normal. For markers drawn as instances, where
+ * draping every vertex is not possible.
+ */
+export function slopeQuaternion(ground: Ground, x: number, z: number, out: THREE.Quaternion, d = 0.6): THREE.Quaternion {
+  const nx = ground(x - d, z) - ground(x + d, z);
+  const nz = ground(x, z - d) - ground(x, z + d);
+  const n = new THREE.Vector3(nx, 2 * d, nz).normalize();
+  return out.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
+}
+
 export function useHexGeometry(size: number) {
   return useMemo(() => makeHexGeometry(size), [size]);
 }

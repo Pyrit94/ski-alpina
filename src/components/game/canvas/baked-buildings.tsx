@@ -107,14 +107,17 @@ export function BuildingInstances({
   placements,
   shadows,
   onPick,
+  level = 1,
 }: {
   itemId: ItemId;
+  /** Expansion level: a hotel wing or car park deck changes the model. */
+  level?: number;
   lit: boolean;
   placements: Placement[];
   shadows: boolean;
   onPick: (id: string) => void;
 }) {
-  const key = `${itemId}|${lit ? 1 : 0}`;
+  const key = `${itemId}|${level}|${lit ? 1 : 0}`;
   const [baked, setBaked] = useState<Baked | null>(() => bakedCache.get(key) ?? null);
   const proto = useRef<THREE.Group>(null);
   const solid = useRef<THREE.InstancedMesh>(null);
@@ -155,7 +158,7 @@ export function BuildingInstances({
   if (!baked) {
     return (
       <group ref={proto} visible={false}>
-        <BuildingModel itemId={itemId} lit={lit} />
+        <BuildingModel itemId={itemId} lit={lit} level={level} />
       </group>
     );
   }
