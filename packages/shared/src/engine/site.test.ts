@@ -12,7 +12,7 @@ import { tickFlow } from "./flow.ts";
 import { VILLAGE_HEX } from "./graph.ts";
 import { siteAt, siteContext, siteImpact } from "./site.ts";
 import { emptyResort } from "./state.ts";
-import { validateIntent } from "./validate.ts";
+import { validateGround, validateIntent } from "./validate.ts";
 import { planVillage } from "./village.ts";
 
 const dem = generateDem();
@@ -28,16 +28,28 @@ function build(state: ResortState, itemId: ItemId, hex: Axial): ResortState {
   return applyIntent(state, intent, NOW, me, dem).state;
 }
 
-/** The first legal spot for an item that satisfies `want`, nearest the village first. */
-function spot(state: ResortState, itemId: ItemId, want: (h: Axial) => boolean = () => true): Axial {
+/**
+ * The first legal spot for an item that satisfies `want`, nearest the village
+ * first. With `groundOnly`, the access rules (road, run) are left out: a
+ * restaurant far from everything is exactly what the location factor is
+ * about, even if it may no longer be built there.
+ */
+function spot(state: ResortState, itemId: ItemId, want: (h: Axial) => boolean = () => true, groundOnly = false): Axial {
   for (let radius = 0; radius <= 12; radius++) {
     for (const h of hexesInRange(VILLAGE_HEX, radius)) {
       if (hexDistance(h, VILLAGE_HEX) !== radius || !want(h)) continue;
-      const v = validateIntent(state, dem, { type: "place_building", itemId, q: h.q, r: h.r }, "builder", NOW, { actorId: me.id });
-      if (v.ok) return h;
+      const ok = groundOnly
+        ? validateGround(dem, h.q, h.r, itemId).ok && !state.buildings.some((b) => b.q === h.q && b.r === h.r)
+        : validateIntent(state, dem, { type: "place_building", itemId, q: h.q, r: h.r }, "builder", NOW, { actorId: me.id }).ok;
+      if (ok) return h;
     }
   }
   throw new Error(`no spot for ${itemId}`);
+}
+
+/** Place without the rules, for a spot `spot(…, true)` found. */
+function buildAnyway(state: ResortState, itemId: ItemId, hex: Axial): ResortState {
+  return applyIntent(state, { type: "place_building", itemId, q: hex.q, r: hex.r }, NOW, me, dem).state;
 }
 
 /** A chairlift up from the village with a run back down its line. */
@@ -60,7 +72,7 @@ test("a restaurant on the run does better than one far from it", () => {
   const ctx = siteContext(s, dem);
   const run = s.pistes[0]!.hexes;
   const onRun = spot(s, "restaurant", (h) => run.some((r) => hexDistance(r, h) === 1));
-  const remote = spot(s, "restaurant", (h) => run.every((r) => hexDistance(r, h) > SITE.foodFar) && hexDistance(h, VILLAGE_HEX) > SITE.foodFar);
+  const remote = spot(s, "restaurant", (h) => run.every((r) => hexDistance(r, h) > SITE.foodFar) && hexDistance(h, VILLAGE_HEX) > SITE.foodFar, true);
   const good = siteAt(ctx, "restaurant", onRun);
   const poor = siteAt(ctx, "restaurant", remote);
   assert.ok(good.factor > 1, `on the run: ${good.factor}`);
@@ -74,12 +86,12 @@ test("the location scales what a restaurant serves", () => {
   const s = withRun();
   const run = s.pistes[0]!.hexes;
   const onRun = spot(s, "restaurant", (h) => run.some((r) => hexDistance(r, h) === 1));
-  const remote = spot(s, "restaurant", (h) => run.every((r) => hexDistance(r, h) > SITE.foodFar) && hexDistance(h, VILLAGE_HEX) > SITE.foodFar);
+  const remote = spot(s, "restaurant", (h) => run.every((r) => hexDistance(r, h) > SITE.foodFar) && hexDistance(h, VILLAGE_HEX) > SITE.foodFar, true);
   const seats = (state: ResortState) => {
     const id = state.buildings.at(-1)!.id;
     return tickFlow(state, dem, 0, LATER).flow.find((e) => e.id === id)!.capacity;
   };
-  assert.ok(seats(build(s, "restaurant", onRun)) > seats(build(s, "restaurant", remote)));
+  assert.ok(seats(build(s, "restaurant", onRun)) > seats(buildAnyway(s, "restaurant", remote)));
 });
 
 test("a car park next to a hotel costs the hotel a little, and the preview says so", () => {
