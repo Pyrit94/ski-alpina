@@ -19,14 +19,8 @@ import pg from "pg";
 import { GameRoom, PERSIST_MS, TICK_MS } from "../packages/shared/src/runtime/room.ts";
 import { emptyResort } from "../packages/shared/src/engine/state.ts";
 import { loadAllRegions } from "../packages/shared/src/terrain/dem.ts";
-import {
-  canSee,
-  handleLobby,
-  isLobbyMessage,
-  MemorySaveStore,
-  SqlSaveStore,
-} from "../packages/shared/src/runtime/saves.ts";
-import { ClientMessageSchema } from "../packages/shared/src/protocol/intents.ts";
+import { MemorySaveStore, SqlSaveStore } from "../packages/shared/src/runtime/saves.ts";
+import { broadcastTo, connect, snapshotOf } from "../packages/shared/src/runtime/connection.ts";
 import { NOT_ALLOWED_MESSAGE, rosterAdmits, rosterGate } from "../src/lib/auth/allowlist.ts";
 import { createNotifier } from "./notify.mjs";
 
@@ -177,20 +171,34 @@ function refuse(socket, status, reason) {
   socket.destroy();
 }
 
-const send = (socket, msg) => {
-  try {
-    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
-  } catch {
-    /* closed */
-  }
+/**
+ * The message handling is shared with the development socket
+ * (packages/shared/src/runtime/connection.ts). What stays here: accepting
+ * and authenticating sockets, Postgres, quarantine, push notifications and
+ * the timers.
+ */
+const hub = {
+  rooms,
+  bindings,
+  getRoom,
+  createRoom,
+  store: saveStore,
+  isBlocked: (id) => quarantined.has(id),
+  onChat: (room, entry) => void notifier.chat(room, entry),
+  beforeIntent: (room) => {
+    if (!reportedRounds.has(room)) reportedRounds.set(room, room.state.match?.history?.length ?? 0);
+  },
+  onIntent: (room, playerId, intent) => {
+    if (intent.type === "end_round" && intent.ready) {
+      void notifier.readyWaiting(room, room.players.get(playerId)?.name ?? "Jemand");
+    }
+    notifyRoundIfPlayed(room);
+  },
+  log: (label, err) => console.warn(`[ws] ${label}`, err),
 };
 
 function broadcast(roomId, msg) {
-  for (const b of bindings) if (b.roomId === roomId) send(b.socket, msg);
-}
-
-function snapshotOf(room) {
-  return { type: "snapshot", seq: room.seq, state: room.snapshot(), players: room.presence() };
+  broadcastTo(hub, roomId, msg);
 }
 
 await hydrate();
@@ -227,126 +235,11 @@ http.on("upgrade", (req, socket, head) => {
 });
 
 wss.on("connection", (ws, _req, identity) => {
-  let bound = null;
-
-  ws.on("message", (raw) => {
-    let parsed;
-    try {
-      parsed = ClientMessageSchema.safeParse(JSON.parse(raw.toString()));
-    } catch {
-      send(ws, { type: "error", reason: "Ungueltiges JSON", code: "invalid" });
-      return;
-    }
-    if (!parsed.success) {
-      send(ws, { type: "error", reason: "Nachricht abgelehnt", code: "invalid" });
-      return;
-    }
-    const msg = parsed.data;
-
-    if (msg.type === "ping") {
-      if (bound) getRoom(bound.roomId).touch(bound.playerId);
-      send(ws, { type: "pong", at: msg.at });
-      return;
-    }
-
-    if (msg.type === "focus") {
-      // Carried by the next tick's snapshot, so a moving pointer cannot flood.
-      if (bound) getRoom(bound.roomId).setFocus(bound.playerId, msg.hex);
-      return;
-    }
-
-    if (isLobbyMessage(msg)) {
-      const player = bound ? rooms.get(bound.roomId)?.players.get(bound.playerId) : undefined;
-      void handleLobby(msg, {
-        store: saveStore,
-        rooms,
-        createRoom,
-        userId: identity?.userId ?? null,
-        userName: identity?.name ?? player?.name ?? "Gast",
-        boundRoomId: bound?.roomId ?? null,
-        send: (m) => send(ws, m),
-        broadcast,
-        snapshotOf,
-        isBlocked: (id) => quarantined.has(id),
-      }).catch((err) => {
-        console.warn("[ws] saves", err);
-        send(ws, { type: "error", reason: "Spielstände gerade nicht erreichbar", code: "invalid", reqId: msg.reqId });
-      });
-      return;
-    }
-
-    if (msg.type === "join") {
-      if (quarantined.has(msg.roomId)) {
-        send(ws, { type: "error", reason: "Dieser Spielstand konnte nicht geladen werden", code: "invalid" });
-        return;
-      }
-      const existing = rooms.get(msg.roomId);
-      if (existing && !canSee(existing.meta, identity?.userId ?? null)) {
-        send(ws, { type: "error", reason: "Dieses Spiel gehört jemand anderem", code: "rights" });
-        return;
-      }
-      const room = getRoom(msg.roomId);
-      // An authenticated socket takes its identity from the account, never
-      // from the name and token the client supplied.
-      const player = room.join(msg.name, msg.token, identity ?? undefined);
-      if (bound) bindings.delete(bound);
-      bound = { socket: ws, playerId: player.id, roomId: room.state.roomId };
-      bindings.add(bound);
-      send(ws, {
-        type: "welcome",
-        playerId: player.id,
-        token: player.token,
-        roomId: room.state.roomId,
-      });
-      broadcast(room.state.roomId, snapshotOf(room));
-      return;
-    }
-
-    if (!bound) {
-      send(ws, { type: "error", reason: "Zuerst beitreten", code: "rights" });
-      return;
-    }
-    const room = getRoom(bound.roomId);
-    room.touch(bound.playerId);
-
-    if (msg.type === "chat") {
-      const entry = room.say(bound.playerId, msg.text);
-      if (entry) {
-        broadcast(bound.roomId, snapshotOf(room));
-        void notifier.chat(room, entry);
-      }
-      return;
-    }
-    if (msg.type === "mark") {
-      room.setMark(bound.playerId, msg.hex, msg.kind);
-      broadcast(bound.roomId, snapshotOf(room));
-      return;
-    }
-
-    if (!reportedRounds.has(room)) reportedRounds.set(room, room.state.match?.history?.length ?? 0);
-    const result = room.submit(bound.playerId, msg.intent);
-    if (!result.ok) {
-      send(ws, { type: "error", intentId: msg.id, reason: result.reason, code: result.code });
-      return;
-    }
-    broadcast(bound.roomId, {
-      type: "event",
-      title: result.event.title,
-      body: result.event.body,
-      kind: result.event.kind,
-      actorId: result.event.actorId,
-      actorName: result.event.actorName,
-    });
-    broadcast(bound.roomId, snapshotOf(room));
-    if (msg.intent.type === "end_round" && msg.intent.ready) {
-      void notifier.readyWaiting(room, room.players.get(bound.playerId)?.name ?? "Jemand");
-    }
-    notifyRoundIfPlayed(room);
-  });
-
-  ws.on("close", () => {
-    if (bound) bindings.delete(bound);
-  });
+  // Only open sockets are written to; the shared handler sends through this.
+  const socket = { send: (data) => ws.readyState === WebSocket.OPEN && ws.send(data) };
+  const conn = connect(hub, socket, identity);
+  ws.on("message", (raw) => conn.onMessage(raw.toString()));
+  ws.on("close", () => conn.close());
 });
 
 setInterval(() => {

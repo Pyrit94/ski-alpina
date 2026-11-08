@@ -86,10 +86,10 @@ docker compose -f docker-compose.coolify.yml --env-file .env up --build
 | Pfad | Rolle |
 | --- | --- |
 | `packages/config` | Balancing (Kosten, Quests, DEM-Fenster) |
-| `packages/shared` | Zod-Protokoll, Validierung, Fluss-Sim |
-| `apps/api` | Fastify HTTP + WS |
-| `apps/sim` | Worker (Redis/BullMQ, sonst In-Process) |
-| `src/` | Mobile-First Client (TanStack Start / Grok-Host) |
+| `packages/shared` | Zod-Protokoll, Validierung, Fluss-Sim, Spielraum und Socket-Logik (`runtime/connection.ts`) |
+| `scripts/ws-server.mjs` | Spiel-Socket in Produktion (Postgres, Anmeldung, Push) |
+| `src/lib/game/server/` | Spiel-Socket in der Entwicklung (gleiche Socket-Logik, PGLite) |
+| `src/` | Mobile-First Client (TanStack Start) |
 
 Client sendet nur Intents. Sichtbare Skifahrer sind Visualisierung, gedeckelt.
 
