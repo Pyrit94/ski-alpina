@@ -1,6 +1,7 @@
 import { getDem, hexToWorld, liftEnds } from "@ski/shared";
 import { proposeDescent } from "./links";
 import type { StepAction } from "./next-step";
+import { buildAtBest } from "./placement";
 import { usePisteEditor } from "./piste-editor";
 import { useGame } from "./store";
 
@@ -20,7 +21,8 @@ export function runStepAction(action: StepAction) {
   } else if (action.kind === "research") {
     useGame.setState({ researchFocus: action.nodeId, sheet: "research", selectedId: null });
   } else if (action.kind === "build") {
-    g.setBuildItem(action.itemId);
+    // Pick it and glide to the best spot for it, ghost already standing there.
+    buildAtBest(action.itemId);
   } else if (action.kind === "select") {
     g.selectEntity(action.id);
     const lift = g.lifts.find((l) => l.id === action.id);

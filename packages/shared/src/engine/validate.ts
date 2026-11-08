@@ -21,6 +21,8 @@ import {
 } from "./research.ts";
 import type { PisteWidth } from "../types.ts";
 import { validateEditPiste } from "./piste-edit.ts";
+import { villageMovable } from "./site.ts";
+import { hexKey } from "../hex.ts";
 
 export function validateHex(
   state: ResortState,
@@ -316,6 +318,20 @@ export function validateIntent(
     return validateHex(without, dem, intent.q, intent.r, b.itemId);
   }
 
+  if (intent.type === "rearrange") {
+    let cost = 0;
+    for (const m of intent.moves) {
+      const b = state.buildings.find((x) => x.id === m.entityId);
+      if (!b) return { ok: false, code: "invalid", reason: "Gebäude nicht gefunden" };
+      const allowed = roleAllows(state, actorId, b.itemId);
+      if (!allowed.ok) return { ok: false, code: "rights", reason: allowed.reason };
+      cost += discounted(state, moveCost(state, b.itemId));
+    }
+    if (money < cost) return { ok: false, code: "budget", reason: purse };
+    const check = checkRearrange(state, dem, intent.moves);
+    return check.ok ? { ok: true } : { ok: false, code: "invalid", reason: check.reason };
+  }
+
   if (intent.type === "set_speed") {
     if (match?.mode === "match") return { ok: false, code: "invalid", reason: "In einer Partie gibt es Runden statt Tempo" };
     return { ok: true };
@@ -352,5 +368,39 @@ export function validateIntent(
     return { ok: true };
   }
 
+  return { ok: true };
+}
+
+/**
+ * Whether a set of moves leaves a valid valley: every target on fitting
+ * ground, off the runs' stations, and no two buildings on one hex.
+ */
+export function checkRearrange(
+  state: Pick<ResortState, "lifts" | "buildings">,
+  dem: Dem,
+  moves: readonly { entityId: string; q: number; r: number }[],
+): { ok: true } | { ok: false; reason: string } {
+  const ids = new Set<string>();
+  for (const m of moves) {
+    if (ids.has(m.entityId)) return { ok: false, reason: "Ein Gebäude doppelt in der Liste" };
+    ids.add(m.entityId);
+    const b = state.buildings.find((x) => x.id === m.entityId);
+    if (!b || !villageMovable(b.itemId)) return { ok: false, reason: "Dieses Gebäude lässt sich nicht neu anordnen" };
+    const ground = validateGround(dem, m.q, m.r, b.itemId);
+    if (!ground.ok) return { ok: false, reason: `${BY_ID[b.itemId].name}: ${ground.reason}` };
+  }
+  const taken = new Set<string>();
+  for (const l of state.lifts) {
+    taken.add(hexKey(l.a.q, l.a.r));
+    taken.add(hexKey(l.b.q, l.b.r));
+  }
+  const target = new Map(moves.map((m) => [m.entityId, m]));
+  for (const b of state.buildings) {
+    if (isLift(b.itemId)) continue;
+    const m = target.get(b.id);
+    const k = m ? hexKey(m.q, m.r) : hexKey(b.q, b.r);
+    if (taken.has(k)) return { ok: false, reason: "Zwei Gebäude auf demselben Feld" };
+    taken.add(k);
+  }
   return { ok: true };
 }

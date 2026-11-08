@@ -6,7 +6,7 @@ import { getHeightmap, surfaceY } from "@/lib/game/alpine";
 import { HEX_SIZE, hexDistance, hexToWorld, hexesInRange, worldToHex } from "@/lib/game/hex";
 import { useGame } from "@/lib/game/store";
 import { isPiste } from "@ski/config";
-import { getDem, validateHex } from "@ski/shared";
+import { getDem, siteAt, siteContext, siteImpact, siteKind, validateHex } from "@ski/shared";
 import { BuildingModel } from "./models";
 import { PisteDraftMarks } from "./PisteDraftLayer";
 import { drapedHexEdges, drapedHexes, makeHexGeometry, slopeQuaternion } from "./geometry";
@@ -21,6 +21,10 @@ const COLOR_OK = new THREE.Color("#34A853");
 const COLOR_BAD = new THREE.Color("#E24B4A");
 const COLOR_NEAR_OK = new THREE.Color("#8fd49a");
 const COLOR_NEAR_BAD = new THREE.Color("#cfd6de");
+// The location map while placing a building that cares where it stands.
+const COLOR_SITE_GOOD = new THREE.Color("#3fb75a");
+const COLOR_SITE_FAIR = new THREE.Color("#bfe6c6");
+const COLOR_SITE_POOR = new THREE.Color("#f0b44c");
 const TMP_COLOR = new THREE.Color();
 
 function sampleRayHex(origin: THREE.Vector3, dir: THREE.Vector3) {
@@ -95,6 +99,25 @@ export function HexRaster() {
     return s;
   }, [pistes]);
 
+  // How good each free cell would be for the item: the location map. Worked
+  // out when the raster or the layout changes, not on every hover move.
+  const movingId = useGame((s) => s.movingId);
+  const siteMap = useMemo(() => {
+    if (!building || !buildItem || !siteKind(buildItem)) return null;
+    const dem = getDem();
+    const state = useGame.getState();
+    const layout = movingId ? { ...state, buildings: buildings.filter((b) => b.id !== movingId) } : { ...state, buildings };
+    const ctx = siteContext({ lifts, pistes, buildings: layout.buildings }, dem);
+    const map = new Map<string, number>();
+    for (const c of cells) {
+      const key = `${c.q},${c.r}`;
+      if (pisteSet.has(key)) continue;
+      if (!validateHex({ ...layout, lifts, pistes }, dem, c.q, c.r, buildItem).ok) continue;
+      map.set(key, siteAt(ctx, buildItem, c).factor);
+    }
+    return map;
+  }, [building, buildItem, cells, buildings, lifts, pistes, pisteSet, movingId]);
+
   // Built only when the raster moves: the shape follows the ground.
   const draped = useMemo(() => {
     if (!building) return null;
@@ -130,6 +153,11 @@ export function HexRaster() {
         alpha = 0.55;
       } else if (occ.has(key)) TMP_COLOR.copy(COLOR_OCC);
       else if (pisteSet.has(key)) TMP_COLOR.copy(COLOR_PISTE);
+      else if (siteMap?.has(key)) {
+        const f = siteMap.get(key)!;
+        TMP_COLOR.copy(f >= 1.03 ? COLOR_SITE_GOOD : f <= 0.97 ? COLOR_SITE_POOR : COLOR_SITE_FAIR);
+        alpha = 0.4;
+      } else if (siteMap) TMP_COLOR.copy(COLOR_NEAR_BAD);
       else if (hover && buildItem && hexDistance(cell, hover) <= 2) {
         const v = validateHex(state, getDem(), cell.q, cell.r, buildItem);
         TMP_COLOR.copy(v.ok ? COLOR_NEAR_OK : COLOR_NEAR_BAD);
@@ -145,7 +173,7 @@ export function HexRaster() {
     });
     fillColor.needsUpdate = true;
     edgeColor.needsUpdate = true;
-  }, [draped, cells, hover, occ, pisteSet, buildItem]);
+  }, [draped, cells, hover, occ, pisteSet, buildItem, siteMap]);
 
   if (!building || !draped) return null;
 
@@ -213,6 +241,16 @@ export function HexCursor() {
     rings.push({ q: sel.a.q, r: sel.a.r, color: "#2F6FED", opacity: 0.32 });
     rings.push({ q: sel.b.q, r: sel.b.r, color: "#2F6FED", opacity: 0.32 });
   }
+
+  // Neighbours the new building would help or hurt: a green or amber ring each.
+  const movingId = useGame((s) => s.movingId);
+  const pistes = useStableGame((s) => s.pistes);
+  const impactRings = useMemo(() => {
+    if (!hover || !hover.valid || phase !== "place" || !buildItem) return [];
+    const ctx = siteContext({ lifts, pistes, buildings: movingId ? buildings.filter((b) => b.id !== movingId) : buildings }, getDem());
+    return siteImpact(ctx, buildItem, hover).map((i) => ({ q: i.q, r: i.r, color: i.after > i.before ? "#34A853" : "#F0A030", opacity: 0.55 }));
+  }, [hover, phase, buildItem, lifts, pistes, buildings, movingId]);
+  rings.push(...impactRings);
 
   const showGhost = !!(hover && phase !== "idle" && buildItem && !isPiste(buildItem));
   const liftGhost =

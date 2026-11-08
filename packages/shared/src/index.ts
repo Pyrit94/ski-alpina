@@ -87,6 +87,7 @@ export {
   validateIntent,
   validatePistePath,
   validateGround,
+  checkRearrange,
   surveyPiste,
   pisteCost,
 } from "./engine/validate.ts";
@@ -104,6 +105,10 @@ export { buildResortGraph, clusterPorts, junctionsOn, pisteUse, villageReaches, 
 export type { LiftLink, PisteLink } from "./engine/graph.ts";
 export { descentGoals, liftEnds, resortLinks, suggestDescent } from "./engine/descent.ts";
 export { planAutoPistes } from "./engine/auto-pistes.ts";
+export { siteAt, siteContext, siteFactors, siteImpact, siteKind, villageMovable } from "./engine/site.ts";
+export type { SiteContext, SiteEffect, SiteImpact, SiteKind, SiteReport } from "./engine/site.ts";
+export { planVillage } from "./engine/village.ts";
+export type { VillageMove, VillagePlan } from "./engine/village.ts";
 export type { AutoMix, AutoOutlook, AutoPlan, AutoResult } from "./engine/auto-pistes.ts";
 export type { EdgeLink } from "./engine/descent.ts";
 export type { DemandSource, GraphInput, LiftEdge, PisteEdge, ResortGraph } from "./engine/graph.ts";

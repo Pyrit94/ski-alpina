@@ -75,6 +75,14 @@ export const IntentSchema = z.discriminatedUnion("type", [
     q: z.number().int(),
     r: z.number().int(),
   }),
+  // The village optimiser's proposal, applied at once so buildings can swap places.
+  z.object({
+    type: z.literal("rearrange"),
+    moves: z
+      .array(z.object({ entityId: z.string().min(2).max(48), q: z.number().int(), r: z.number().int() }))
+      .min(1)
+      .max(40),
+  }),
   z.object({
     type: z.literal("set_speed"),
     speed: z.union([z.literal(0), z.literal(1), z.literal(3)]),

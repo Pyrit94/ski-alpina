@@ -1,6 +1,7 @@
 import { ArrowRight, Lightbulb, Wrench, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { itemUnlocked } from "@ski/shared";
+import { getDem, itemUnlocked, siteContext, siteFactors } from "@ski/shared";
+import { computeNeeds } from "@/lib/game/needs";
 import { useResortLinks } from "@/lib/game/links";
 import { nextStep } from "@/lib/game/next-step";
 import { runStepAction } from "@/lib/game/step-actions";
@@ -23,7 +24,7 @@ export function NextStepChip({ className = "" }: { className?: string }) {
   const coins = useGame((s) => s.coins);
   const phase = useGame((s) => s.phase);
   const selectedId = useGame((s) => s.selectedId);
-  const autoOpen = useGame((s) => s.autoPistes !== null);
+  const autoOpen = useGame((s) => s.autoPistes !== null || s.villageOpen);
   const links = useResortLinks();
   const [, setTick] = useState(0);
 
@@ -39,6 +40,13 @@ export function NextStepChip({ className = "" }: { className?: string }) {
         coins,
         unlocked: (id) => itemUnlocked(useGame.getState(), id),
         research: researchHint(useGame.getState()),
+        needs: computeNeeds({
+          stats,
+          buildings,
+          coins,
+          unlocked: (id) => itemUnlocked(useGame.getState(), id),
+          site: siteFactors(siteContext({ lifts, pistes, buildings }, getDem())),
+        }),
       }),
     [lifts, pistes, buildings, stats, flow, links, coins],
   );
