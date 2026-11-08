@@ -35,8 +35,9 @@ import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
 import { BY_ID, CATALOG, CATEGORIES, ECONOMY, FLOW, GRADE_LABEL, SEASON_LABEL, UPGRADES, isLift, levelFromXp, liftThroughput, seasonPhase, xpForLevel } from "@/lib/game/catalog";
 import type { CatalogItem } from "@/lib/game/catalog";
-import { DOOR_EXPANSION, TERRAIN } from "@ski/config";
-import { expandable, expansionCost, expansionSpent, PENDING_READY, widthDef, type PlacedBuilding } from "@ski/shared";
+import { BUILDING_LEVELS, PISTE_LEVELS, TERRAIN } from "@ski/config";
+import { buildingLevel, expandable, expansionCost, expansionSpent, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, widthDef } from "@ski/shared";
+import { buildingLevelLabel, levelGain, pisteLevelLabel } from "@/lib/game/expansion";
 import { GRADE_COLOR, usePisteEditor } from "@/lib/game/piste-editor";
 import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
@@ -859,56 +860,72 @@ function InfoPanel() {
           </p>
         </div>
       )}
-      {b && expandable(b.itemId) && <ExpandSection building={b} constructing={constructing} />}
+      {b && expandable(b.itemId) && (
+        <LevelSection
+          id={b.id}
+          level={buildingLevel(b)}
+          max={BUILDING_LEVELS.maxLevel}
+          label={(l) => buildingLevelLabel(b.itemId, l)}
+          gain={() => levelGain(b.itemId)}
+          cost={expansionCost(b)}
+          disabled={constructing}
+        />
+      )}
       <DemolishButton id={entity.id} refund={refundFor(item.cost + (b ? expansionSpent(b) : 0))} label={item.name} />
     </Panel>
   );
 }
 
 /**
- * Car park and bus station: one more deck, one more line. Each level takes as
- * many guests again as the first, so a single building on the valley floor
- * does the work of several.
+ * Expansion: one more deck, one more wing, snow guns along a run. Each level
+ * makes the one building do more, so the valley is not paved with copies.
  */
-function ExpandSection({ building, constructing }: { building: PlacedBuilding; constructing: boolean }) {
-  const expand = useGame((s) => s.expandBuilding);
+function LevelSection({
+  id,
+  level,
+  max,
+  label,
+  gain,
+  cost: list,
+  disabled,
+}: {
+  id: string;
+  level: number;
+  max: number;
+  label: (level: number) => string;
+  gain: (next: number) => string;
+  cost: number | null;
+  disabled?: boolean;
+}) {
+  const expand = useGame((s) => s.expand);
   const terms = useBuildTerms();
   const coins = useMyMoney().mine;
-  const list = expansionCost(building);
   const cost = list === null ? null : terms.discount(list);
-  const labels = DOOR_EXPANSION.labels[building.itemId] ?? [];
-  const level = building.level;
-  const perLevel = building.itemId === "bus" ? ECONOMY.busArrivalsPerHour : ECONOMY.parkingArrivalsPerHour;
   return (
     <div className="mt-3">
-      <div className="mb-1.5 flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wide text-muted">
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted">
         <span>Ausbau</span>
-        <span className="normal-case tracking-normal">
-          Stufe {level} von {DOOR_EXPANSION.maxLevel}
-          {labels[level - 1] ? ` · ${labels[level - 1]}` : ""}
+        <span className="truncate normal-case tracking-normal">
+          Stufe {level} von {max} · {label(level)}
         </span>
       </div>
       <div className="flex gap-1">
-        {Array.from({ length: DOOR_EXPANSION.maxLevel }, (_, i) => (
+        {Array.from({ length: max }, (_, i) => (
           <span key={i} className={`h-1.5 flex-1 rounded-full ${i < level ? "bg-accent" : "bg-ice"}`} />
         ))}
       </div>
       {cost === null ? (
-        <p className="mt-2 text-[11px] leading-snug text-muted">Voll ausgebaut. Für noch mehr Gäste: ein zweites an einem anderen Lift.</p>
+        <p className="mt-2 text-[11px] leading-snug text-muted">Voll ausgebaut.</p>
       ) : (
         <button
           type="button"
-          disabled={constructing || coins < cost}
-          onClick={() => expand(building.id)}
-          className="mt-2 flex min-h-11 w-full items-center justify-between gap-2 rounded-[12px] bg-ice px-3 text-left disabled:opacity-50"
+          disabled={disabled || coins < cost}
+          onClick={() => expand(id)}
+          className="mt-2 flex min-h-11 w-full items-center justify-between gap-2 rounded-[12px] bg-ice px-3 py-1.5 text-left disabled:opacity-50"
         >
           <span className="min-w-0">
-            <span className="block text-[12px] font-semibold text-navy">
-              {labels[level] ?? `Stufe ${level + 1}`}
-            </span>
-            <span className="block text-[10px] text-muted">
-              +{fmt(perLevel)} Ankünfte/h, mehr Unterhalt
-            </span>
+            <span className="block text-[12px] font-semibold text-navy">{label(level + 1)}</span>
+            <span className="block text-[10px] leading-snug text-muted">{gain(level + 1) || "mehr Wirkung"}, mehr Unterhalt</span>
           </span>
           <span className="shrink-0 text-[12px] font-semibold text-coin">{fmt(cost)}</span>
         </button>
@@ -1006,8 +1023,18 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
       )}
       {!closed && piste.difficulty !== "road" && <LinkStatus id={piste.id} kind="piste" />}
       <BuiltByLine builtBy={piste.builtBy} />
+      {pisteExpandable(piste) && (
+        <LevelSection
+          id={piste.id}
+          level={pisteLevel(piste)}
+          max={PISTE_LEVELS.maxLevel}
+          label={(l) => pisteLevelLabel(l).label}
+          gain={(l) => pisteLevelLabel(l).gain}
+          cost={pisteExpansionCost(piste)}
+        />
+      )}
       <PisteEditPanel key={piste.id} piste={piste} />
-      <DemolishButton id={piste.id} refund={refundFor(item.cost * segments)} label={piste.name || item.name} />
+      <DemolishButton id={piste.id} refund={refundFor(item.cost * segments + pisteExpansionSpent(piste))} label={piste.name || item.name} />
     </Panel>
   );
 }

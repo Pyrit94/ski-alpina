@@ -233,23 +233,67 @@ export const UPGRADES = [
 export type UpgradeKey = (typeof UPGRADES)[number]["key"];
 
 /**
- * Car parks and bus stations grow instead of multiplying: another deck,
- * another bus line. One building on the valley floor does the work of
- * several, so the space by the lifts is not paved over.
+ * Every building grows instead of multiplying: another deck, another bus
+ * line, another wing, more seats. One building does the work of several, so
+ * the valley floor is not paved over with copies.
  *
- * A building starts at level 1. Each level adds the base arrivals again and
- * `upkeepPerLevel` of the base upkeep. Going from level n to n + 1 costs
- * `costShare[n - 1]` of the building's price — a little less than a second
- * building at first, a little more at the top, since the land is free.
+ * A building starts at level 1 and goes up to `maxLevel`. Going from level n
+ * to n + 1 costs `costShare[n - 1]` of the building's price — a little less
+ * than a second building at first, a little more at the top, since the land is
+ * free. Each level adds `upkeepPerLevel` of the base upkeep and, by effect:
+ * - capacity (arrivals, seats, shop customers): `capacityPerLevel` of level 1;
+ * - hotel beds: `bedsPerLevel` (beds stay the reason to build a better hotel);
+ * - bonuses (comfort, summer draw, ticket office, snowmaking, ski school,
+ *   rescue, lights, grooming): `bonusPerLevel`;
+ * - a workshop's upkeep cut: `cutPerLevel` (the depot stays the bigger one).
+ * Decoration that only stands there (trees, rocks) does not grow, and lift
+ * stations grow with their lift (see UPGRADES).
  */
-export const DOOR_EXPANSION = {
-  items: ["parking", "bus"] as readonly string[],
+export const BUILDING_LEVELS = {
   maxLevel: 4,
   costShare: [0.8, 1.0, 1.2],
   upkeepPerLevel: 0.8,
-  /** What a level is called, by item and level. */
+  capacityPerLevel: 1,
+  bedsPerLevel: 0.5,
+  bonusPerLevel: 0.5,
+  cutPerLevel: 0.25,
+  fixed: ["tree", "rock"] as readonly string[],
+  /** What a level is called, for items with their own words. Others: "Stufe n". */
   labels: {
     parking: ["Ein Deck", "Zwei Decks", "Drei Decks", "Vier Decks"],
     bus: ["Eine Linie", "Zwei Linien", "Dichter Takt", "Drehkreuz"],
+    hotel1: ["Stammhaus", "Anbau", "Neuer Flügel", "Ganzes Quartier"],
+    hotel3: ["Stammhaus", "Anbau", "Neuer Flügel", "Ganzes Quartier"],
+    hotel5: ["Stammhaus", "Anbau", "Neuer Flügel", "Ganzes Quartier"],
+    "hotel-resort": ["Stammhaus", "Anbau", "Neuer Flügel", "Ganzes Quartier"],
+    restaurant: ["Gaststube", "Terrasse", "Zweiter Saal", "Grossrestaurant"],
+    hut: ["Stube", "Terrasse", "Anbau", "Berghaus"],
+    apres: ["Bar", "Zelt", "Dancefloor", "Kultlokal"],
+    "gastro-hall": ["Halle", "Zweite Ausgabe", "Galerie", "Food Court"],
+    shop: ["Laden", "Verleih", "Testcenter", "Flagship"],
+    ticket: ["Schalter", "Automaten", "Drive-in", "Online-Kasse"],
+    snowmaker: ["Lanzen", "Kanonen", "Speichersee", "Vollautomatik"],
+    groomer: ["Eine Raupe", "Zwei Raupen", "Winden-Raupe", "Flotte"],
   } as Record<string, string[]>,
+} as const;
+
+/**
+ * Runs grow too: snow guns along them, a better grooming plan, a race
+ * course. Level 1 is a plain groomed run; levels 2–4 add in order:
+ * - Beschneit: the run counts `snowmakingMetres` higher against the snow
+ *   line, so it opens earlier and stays open longer in the thaw;
+ * - Gepflegt and Rennpiste: more guests per hour (`capacity`) and more
+ *   reason to come (`draw`), both as factors of a level-1 run.
+ * Each step costs `costPerSegment[n - 1]` per segment; upkeep rises by
+ * `upkeepPerLevel` of the base per level. Roads stay roads.
+ */
+export const PISTE_LEVELS = {
+  maxLevel: 4,
+  costPerSegment: [900, 700, 1100],
+  upkeepPerLevel: 0.5,
+  snowmakingMetres: 300,
+  capacity: [1, 1, 1.25, 1.4],
+  draw: [1, 1, 1.1, 1.25],
+  labels: ["Präpariert", "Beschneit", "Gepflegt", "Rennpiste"],
+  effects: ["", "Länger Schnee, auch unter der Schneegrenze", "+25 % Gäste/h, +10 % Anziehung", "+40 % Gäste/h, +25 % Anziehung"],
 } as const;

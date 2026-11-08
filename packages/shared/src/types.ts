@@ -57,6 +57,8 @@ export interface PlacedPiste {
   width?: PisteWidth;
   /** A name the players gave the run, e.g. "Matterhorn-Abfahrt". */
   name?: string;
+  /** Expansion level, see PISTE_LEVELS. Absent = 1. */
+  level?: number;
 }
 
 export interface QuestState {

@@ -1,12 +1,12 @@
 import { BY_ID } from "../../../config/src/items.ts";
-import { DOOR_EXPANSION, ECONOMY, UPGRADES } from "../../../config/src/economy.ts";
+import { BUILDING_LEVELS, ECONOMY, PISTE_LEVELS, UPGRADES } from "../../../config/src/economy.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
 import { createId } from "../ids.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { QuestState, ResortState } from "../types.ts";
 import { GRADE_LABEL, pisteDifficulty } from "./level.ts";
-import { entityCost, expansionCost, findEntity, TUTORIAL_STEPS } from "./state.ts";
+import { buildingLevel, entityCost, expansionCost, findEntity, pisteExpansionCost, pisteLevel, TUTORIAL_STEPS } from "./state.ts";
 import { followTutorial } from "./tutorial.ts";
 import { surveyPiste } from "./validate.ts";
 import { applyEditPiste } from "./piste-edit.ts";
@@ -256,13 +256,30 @@ function applyOne(
     };
   }
 
-  if (intent.type === "expand_building") {
+  if (intent.type === "expand") {
     const entity = findEntity(state, intent.entityId);
+    if (entity?.kind === "piste") {
+      const p = entity.piste;
+      const list = pisteExpansionCost(p);
+      if (list === null) return { state, title: "Ausbau", body: "Nichts auszubauen.", kind: "warn" };
+      const level = pisteLevel(p) + 1;
+      return {
+        state: {
+          ...state,
+          coins: state.coins - discounted(state, list),
+          xp: state.xp + 8,
+          pistes: state.pistes.map((x) => (x.id === p.id ? { ...x, level } : x)),
+        },
+        title: "Ausgebaut",
+        body: `${p.name ?? "Piste"}: ${PISTE_LEVELS.labels[level - 1] ?? `Stufe ${level}`}.`,
+        kind: "ok",
+      };
+    }
     const b = entity?.kind === "building" ? entity.building : null;
     const list = b ? expansionCost(b) : null;
     if (!b || list === null) return { state, title: "Ausbau", body: "Nichts auszubauen.", kind: "warn" };
-    const level = b.level + 1;
-    const label = DOOR_EXPANSION.labels[b.itemId]?.[level - 1];
+    const level = buildingLevel(b) + 1;
+    const label = BUILDING_LEVELS.labels[b.itemId]?.[level - 1];
     return {
       state: {
         ...state,

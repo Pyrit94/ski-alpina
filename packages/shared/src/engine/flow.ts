@@ -1,4 +1,4 @@
-import { ECONOMY, FLOW } from "../../../config/src/economy.ts";
+import { ECONOMY, FLOW, PISTE_LEVELS } from "../../../config/src/economy.ts";
 import { RESEARCH } from "../../../config/src/research.ts";
 import { isLift } from "../../../config/src/ids.ts";
 import { BY_ID } from "../../../config/src/items.ts";
@@ -10,7 +10,7 @@ import { pisteUpkeep } from "./level.ts";
 import { pisteWidthDraw } from "./piste-width.ts";
 import { pisteSnowScale, seasonDemandShare, snowLine } from "./season.ts";
 import { liftResearchFactor, researchEffects, withResearchMods } from "./research.ts";
-import { doorLevelFactor, doorUpkeepFactor } from "./state.ts";
+import { bedsFactor, bonusFactor, capacityFactor, cutFactor, pisteLevel, pisteUpkeepFactor, upkeepFactor } from "./state.ts";
 
 export interface FlowTick {
   stats: SimStats;
@@ -39,18 +39,26 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const readyPistes = state.pistes.filter((p) => p.readyAt <= now);
   const buildings = state.buildings.filter((b) => b.readyAt <= now);
 
-  const count = (id: string) => buildings.filter((b) => b.itemId === id).length;
-  const beds = buildings.reduce((n, b) => n + (BY_ID[b.itemId].beds ?? 0), 0);
-  const hasSchool = count("skischool") > 0;
-  const hasClinic = count("clinic") > 0;
-  const hasLights = count("lights") > 0;
+  // An expanded building counts as more of itself: a level-3 ticket office
+  // is two ticket offices' worth (see BUILDING_LEVELS).
+  const count = (id: string) => buildings.filter((b) => b.itemId === id).reduce((n, b) => n + bonusFactor(b), 0);
+  // For services where one is enough, the best one on site sets the effect.
+  const best = (id: string) => buildings.filter((b) => b.itemId === id).reduce((n, b) => Math.max(n, bonusFactor(b)), 0);
+  const beds = buildings.reduce((n, b) => n + (BY_ID[b.itemId].beds ?? 0) * bedsFactor(b), 0);
+  const school = best("skischool");
+  const clinic = best("clinic");
+  const lights = best("lights");
   const snowmakers = count("snowmaker");
-  const groomers = count("groomer");
+  const groomers = best("groomer");
   const tickets = count("ticket");
   // Read off the items rather than off their type, so a bigger restaurant is
   // simply a bigger number and not another branch here.
   const sum = (field: "seatsPerHour" | "retailPerHour" | "satisfactionBonus" | "summerDraw") =>
-    buildings.reduce((n, b) => n + (BY_ID[b.itemId][field] ?? 0), 0);
+    buildings.reduce(
+      (n, b) =>
+        n + (BY_ID[b.itemId][field] ?? 0) * (field === "seatsPerHour" || field === "retailPerHour" ? capacityFactor(b) : bonusFactor(b)),
+      0,
+    );
   const seats = sum("seatsPerHour");
   const retailCapacity = sum("retailPerHour");
   const comfort = sum("satisfactionBonus");
@@ -62,11 +70,14 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
 
   // Where the snow actually ends today, snowmaking included.
   const line = snowLine(state.day, snowQuality, snowmakers, fx.snowmakerDrop);
+  // Snow guns along a run let it count higher against the snow line.
+  const snowLift = (piste: Pick<PlacedPiste, "difficulty" | "level">) =>
+    pisteLevel(piste) >= 2 ? PISTE_LEVELS.snowmakingMetres : 0;
   const snowAt = (piste: PlacedPiste) => {
     if (mods.closed.includes(piste.difficulty)) return 0;
     const ends = [piste.hexes[0]!, piste.hexes[piste.hexes.length - 1]!];
     const bottom = Math.min(...ends.map((h) => worldElev(dem, h.q, h.r)));
-    return pisteSnowScale(bottom, line);
+    return pisteSnowScale(bottom + snowLift(piste), line);
   };
 
   // What the mountain is worth to a skier: open kilometres, weighted by how
@@ -81,7 +92,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
       p.difficulty === "park"
         ? ECONOMY.parkKmEquivalent
         : Math.max(1, p.hexes.length - 1) * FLOW.kmPerSegment;
-    weightedKm += km * (ECONOMY.gradeDraw[p.difficulty] ?? 1) * snow * pisteWidthDraw(p);
+    weightedKm +=
+      km * (ECONOMY.gradeDraw[p.difficulty] ?? 1) * snow * pisteWidthDraw(p) * (PISTE_LEVELS.draw[pisteLevel(p) - 1] ?? 1);
     gradesOpen.add(p.difficulty);
   }
   const varietyDraw = 1 + ECONOMY.varietyDemandStep * Math.max(0, gradesOpen.size - 1);
@@ -89,9 +101,9 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const prestige = 1 + Math.min(ECONOMY.prestigeCap, state.stars * ECONOMY.prestigePerStar);
 
   // When it is worth coming at all: time of day, weather, and the price.
-  const nightLights = hasLights && (state.timeOfDay < 0.3 || state.timeOfDay > 0.7);
+  const nightLights = lights > 0 && (state.timeOfDay < 0.3 || state.timeOfDay > 0.7);
   let appetite =
-    hourFactor(state.timeOfDay) * (nightLights ? 1 + ECONOMY.lightsDayExtension * fx.lightsFactor : 1);
+    hourFactor(state.timeOfDay) * (nightLights ? 1 + ECONOMY.lightsDayExtension * lights * fx.lightsFactor : 1);
   appetite *= 0.72 + snowQuality * 0.4;
   // Willingness to pay: 1 at the reference price, falling away either side of
   // it steeply enough that revenue peaks at an interior price.
@@ -125,9 +137,9 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     const item = BY_ID[b.itemId];
     const hex = { q: b.q, r: b.r };
     let perHour = 0;
-    if (b.itemId === "parking") perHour = ECONOMY.parkingArrivalsPerHour * doorLevelFactor(b);
-    else if (b.itemId === "bus") perHour = ECONOMY.busArrivalsPerHour * doorLevelFactor(b);
-    else if (item.beds) perHour = item.beds * ECONOMY.bedArrivalsPerHour;
+    if (b.itemId === "parking") perHour = ECONOMY.parkingArrivalsPerHour * capacityFactor(b);
+    else if (b.itemId === "bus") perHour = ECONOMY.busArrivalsPerHour * capacityFactor(b);
+    else if (item.beds) perHour = item.beds * bedsFactor(b) * ECONOMY.bedArrivalsPerHour;
     if (perHour <= 0) continue;
     arrivals.push({ hex, perHour, id: b.id });
     exits.push(hex);
@@ -158,11 +170,11 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
       // Snow first: a run standing on bare ground carries nobody, whatever
       // else is built next to it.
       if (mods.closed.includes(piste.difficulty)) return 0;
-      let scale = pisteSnowScale(worldElev(dem, ends.bottom.q, ends.bottom.r), line);
+      let scale = pisteSnowScale(worldElev(dem, ends.bottom.q, ends.bottom.r) + snowLift(piste), line);
       if (scale <= 0) return 0;
-      if (piste.difficulty === "blue" && hasSchool) scale *= 1 + ECONOMY.schoolBonus + fx.schoolBonus;
-      if (piste.difficulty === "black" && hasClinic) scale *= 1 + ECONOMY.clinicBlackBonus + fx.clinicBonus;
-      return scale * fx.pisteCapacity;
+      if (piste.difficulty === "blue" && school > 0) scale *= 1 + ECONOMY.schoolBonus * school + fx.schoolBonus;
+      if (piste.difficulty === "black" && clinic > 0) scale *= 1 + ECONOMY.clinicBlackBonus * clinic + fx.clinicBonus;
+      return scale * fx.pisteCapacity * (PISTE_LEVELS.capacity[pisteLevel(piste) - 1] ?? 1);
     },
     liftCapacityScale: (lift) => liftResearchFactor(fx, lift.itemId),
   });
@@ -238,7 +250,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const wait = Math.min(
     FLOW.maxWaitMinutes,
     (FLOW.baseWaitMinutes + congestion * FLOW.saturationWaitMinutes) *
-      (groomers > 0 ? 1 - ECONOMY.groomerWaitCut : 1) *
+      (groomers > 0 ? 1 - Math.min(0.5, ECONOMY.groomerWaitCut * groomers) : 1) *
       mods.wait,
   );
 
@@ -289,17 +301,17 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   // not halve the bill twice over.
   const bestCut = Math.min(
     RESEARCH.maxUpkeepCut,
-    buildings.reduce((n, b) => Math.max(n, BY_ID[b.itemId].upkeepCut ?? 0), 0) + fx.upkeepCut,
+    buildings.reduce((n, b) => Math.max(n, (BY_ID[b.itemId].upkeepCut ?? 0) * cutFactor(b)), 0) + fx.upkeepCut,
   );
   const liftUpkeep = readyLifts.reduce((n, l) => n + (BY_ID[l.itemId].upkeep ?? 0), 0) * (1 - bestCut);
   // Placing a lift also records its two stations in `buildings`, so charging
   // every building would bill each cableway three times over.
   const buildingUpkeep = buildings
     .filter((b) => !isLift(b.itemId))
-    .reduce((n, b) => n + (BY_ID[b.itemId].upkeep ?? 0) * doorUpkeepFactor(b), 0);
+    .reduce((n, b) => n + (BY_ID[b.itemId].upkeep ?? 0) * upkeepFactor(b), 0);
   // Grooming a steep run costs more than a gentle one, so upkeep follows the
   // grade the ground gave it rather than one catalogue number.
-  const runUpkeep = readyPistes.reduce((n, p) => n + pisteUpkeep(p), 0);
+  const runUpkeep = readyPistes.reduce((n, p) => n + pisteUpkeep(p) * pisteUpkeepFactor(p), 0);
   const upkeepPerHour = (liftUpkeep + buildingUpkeep + runUpkeep) * mods.upkeep;
   const incomePerHour = revenue - upkeepPerHour;
 
@@ -340,7 +352,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     buildings
       .filter((b) => (BY_ID[b.itemId][field] ?? 0) > 0)
       .map((b) => {
-        const cap = BY_ID[b.itemId][field] ?? 0;
+        const cap = (BY_ID[b.itemId][field] ?? 0) * capacityFactor(b);
         return {
           id: b.id,
           kind: "building" as const,
@@ -373,7 +385,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
         unit: "chf" as const,
         from: { q: b.q, r: b.r },
         to: { q: b.q, r: b.r },
-        flow: Math.round(guests * state.ticketPrice * ECONOMY.ticketOfficeIncomeBonus * mods.ticket),
+        flow: Math.round(guests * state.ticketPrice * ECONOMY.ticketOfficeIncomeBonus * bonusFactor(b) * mods.ticket),
         capacity: 0,
       })),
   );

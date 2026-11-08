@@ -5,7 +5,7 @@ import { hexDistance, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { IntentResult, PlayerRole, ResortState } from "../types.ts";
-import { expandable, expansionCost, findEntity, occupiedSet } from "./state.ts";
+import { expandable, expansionCost, findEntity, occupiedSet, pisteExpandable, pisteExpansionCost } from "./state.ts";
 import { measurePiste } from "./level.ts";
 import { eventDef } from "./match.ts";
 import { roleAllows, spendable, walletKey, walletMode } from "./rules.ts";
@@ -267,18 +267,22 @@ export function validateIntent(
     return { ok: true };
   }
 
-  if (intent.type === "expand_building") {
+  if (intent.type === "expand") {
     const entity = findEntity(state, intent.entityId);
-    if (!entity || entity.kind !== "building" || !expandable(entity.building.itemId)) {
-      return { ok: false, code: "invalid", reason: "Nur Parkhaus und Busbahnhof lassen sich ausbauen" };
+    const target =
+      entity?.kind === "building" && expandable(entity.building.itemId)
+        ? { itemId: entity.building.itemId, readyAt: entity.building.readyAt, cost: expansionCost(entity.building) }
+        : entity?.kind === "piste" && pisteExpandable(entity.piste)
+          ? { itemId: entity.piste.itemId, readyAt: entity.piste.readyAt, cost: pisteExpansionCost(entity.piste) }
+          : null;
+    if (!target) {
+      return { ok: false, code: "invalid", reason: entity?.kind === "lift" ? "Bahnen werden über Upgrades verbessert" : "Lässt sich nicht ausbauen" };
     }
-    const b = entity.building;
-    if (now < b.readyAt) return { ok: false, code: "locked", reason: "Noch im Bau" };
-    const cost = expansionCost(b);
-    if (cost === null) return { ok: false, code: "locked", reason: "Maximalstufe" };
-    const allowedX = roleAllows(state, actorId, b.itemId);
+    if (now < target.readyAt) return { ok: false, code: "locked", reason: "Noch im Bau" };
+    if (target.cost === null) return { ok: false, code: "locked", reason: "Maximalstufe" };
+    const allowedX = roleAllows(state, actorId, target.itemId);
     if (!allowedX.ok) return { ok: false, code: "rights", reason: allowedX.reason };
-    if (money < discounted(state, cost)) return { ok: false, code: "budget", reason: purse };
+    if (money < discounted(state, target.cost)) return { ok: false, code: "budget", reason: purse };
     return { ok: true };
   }
 
