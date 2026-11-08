@@ -1787,7 +1787,6 @@ function keepCameraInWorld(camera: THREE.Camera, target: THREE.Vector3) {
 function Controls() {
   const quality = useGame((s) => s.quality);
   const home = openingView(getHeightmap(), QUALITY[quality]).target;
-  const tool = useGame((s) => s.tool);
   const phase = useGame((s) => s.phase);
   const stampMode = useGame((s) => s.stampMode);
   const raster = stampMode && phase !== "idle";
@@ -1824,18 +1823,14 @@ function Controls() {
     const c = ref.current;
     if (!c) return;
     const d = Math.min(dt, 0.1);
-    if (raster || tool === "pan") {
-      if (c.mouseButtons) c.mouseButtons.LEFT = THREE.MOUSE.PAN;
-      if (c.touches) {
-        c.touches.ONE = THREE.TOUCH.PAN;
-        c.touches.TWO = THREE.TOUCH.DOLLY_PAN;
-      }
-    } else {
-      if (c.mouseButtons) c.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
-      if (c.touches) {
-        c.touches.ONE = THREE.TOUCH.ROTATE;
-        c.touches.TWO = THREE.TOUCH.DOLLY_PAN;
-      }
+    // Like a map app: one finger or the left button pans, two fingers pinch
+    // and turn, the right button turns. No mode to switch, and the view can
+    // always be turned to line up a lift. Drawing a run takes the one-finger
+    // drag itself (see piste-draft.ts) before the controls see it.
+    if (c.mouseButtons) c.mouseButtons.LEFT = THREE.MOUSE.PAN;
+    if (c.touches) {
+      c.touches.ONE = THREE.TOUCH.PAN;
+      c.touches.TWO = raster ? THREE.TOUCH.DOLLY_PAN : THREE.TOUCH.DOLLY_ROTATE;
     }
     const focus = useGame.getState().cameraFocus;
     if (focus && focus.id !== glide.id) {
@@ -1875,7 +1870,7 @@ function Controls() {
       maxDistance={raster ? 64 : 230}
       maxPolarAngle={raster ? 0.58 : Math.PI / 2.12}
       minPolarAngle={raster ? 0.34 : stampMode ? 0.36 : 0.28}
-      enableRotate={!raster && tool !== "pan"}
+      enableRotate={!raster}
       screenSpacePanning
       target={home}
     />
