@@ -1,10 +1,12 @@
-import { ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { ChevronRight, Pencil } from "lucide-react";
+import { useState, useSyncExternalStore } from "react";
 import { TERRAIN } from "@ski/config";
 import { authEnabled, signIn, signOut } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { loadName } from "@/lib/game/net";
-import { GamePicker } from "./GamePicker";
+import { loadName, saveName } from "@/lib/game/net";
+import { GamePicker, type StartStep } from "./GamePicker";
+
+const noSubscribe = () => () => {};
 
 /** Better Auth sends refused sign-ins back with `?error=…`. */
 function signInError(): string | null {
@@ -15,7 +17,12 @@ function signInError(): string | null {
 }
 
 export function StartScreen() {
-  const [name, setName] = useState(() => (typeof window === "undefined" ? "Gast" : loadName()));
+  // The name saved on this device. Read as an external store, so the server's
+  // render («Gast») and the browser's first render agree.
+  const stored = useSyncExternalStore(noSubscribe, loadName, () => "Gast");
+  const [typed, setTyped] = useState<string | null>(null);
+  const name = typed ?? stored;
+  const setName = (v: string) => setTyped(v);
   const { user, isPending } = useCurrentUserState();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(signInError);
@@ -23,6 +30,11 @@ export function StartScreen() {
   // for local play without a server roster.
   const needsSignIn = authEnabled && !user;
   const playerName = user && !user.isDevFallback ? (user.displayName ?? name) : name;
+  const [step, setStep] = useState<StartStep>("home");
+  // A name chosen before only needs a quiet way to change it; someone new is asked.
+  const [editing, setEditName] = useState(false);
+  const editName = editing || typed !== null || stored === "Gast";
+  const home = step === "home";
   return (
     <main className="relative isolate min-h-dvh w-full overflow-hidden bg-navy" style={{ color: "#F5FAFE" }}>
       <img
@@ -53,12 +65,16 @@ export function StartScreen() {
         </div>
 
         <div className="w-full max-w-xl">
-          <h1 className="text-[clamp(1.85rem,8vw,3.15rem)] font-semibold leading-[1.12] tracking-tight text-snow drop-shadow">
-            Gemeinsam ein Skigebiet bauen
-          </h1>
-          <p className="mt-3 max-w-md text-[15px] leading-relaxed text-ice lg:mt-4">
-            Lifte spannen, Pisten ziehen – zu zweit, von Zermatt bis St. Anton.
-          </p>
+          {home && (
+            <>
+              <h1 className="text-[clamp(1.85rem,8vw,3.15rem)] font-semibold leading-[1.12] tracking-tight text-snow drop-shadow">
+                Dein eigenes Skigebiet in den Alpen
+              </h1>
+              <p className="mt-3 max-w-md text-[15px] leading-relaxed text-ice lg:mt-4">
+                Lifte spannen, Pisten ziehen, Gäste glücklich machen – allein oder zu zweit.
+              </p>
+            </>
+          )}
           {needsSignIn ? (
             <div className="mt-6 flex w-full flex-col gap-3 sm:max-w-md">
               <button
@@ -81,29 +97,45 @@ export function StartScreen() {
             </div>
           ) : (
             <>
-              {user && !user.isDevFallback ? (
+              {!home ? null : user && !user.isDevFallback ? (
                 <p className="mt-6 text-[13px] text-ice">
                   Angemeldet als <span className="font-semibold text-snow">{playerName}</span> ·{" "}
                   <button type="button" className="underline underline-offset-2" onClick={() => void signOut()}>
                     Abmelden
                   </button>
                 </p>
-              ) : (
+              ) : editName ? (
                 <label className="mt-6 block text-[11px] font-semibold uppercase tracking-wide text-ice">
-                  Dein Name
+                  Wie heisst du?
                   <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    value={name === "Gast" ? "" : name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      saveName(e.target.value.trim() || "Gast");
+                    }}
                     maxLength={24}
-                    className="mt-1.5 flex h-12 min-h-12 w-full max-w-md items-center rounded-full bg-panel/15 px-4 text-[15px] text-snow outline-none ring-1 ring-snow/25"
-                    placeholder="Name"
+                    autoComplete="nickname"
+                    className="mt-1.5 flex h-12 min-h-12 w-full max-w-md items-center rounded-full bg-panel/15 px-4 text-[15px] normal-case tracking-normal text-snow outline-none ring-1 ring-snow/25 placeholder:text-ice/60"
+                    placeholder="Dein Name, so sehen dich die anderen"
                   />
                 </label>
+              ) : (
+                <p className="mt-6 flex items-center gap-1 text-[14px] text-ice">
+                  Hoi <span className="font-semibold text-snow">{playerName}</span>
+                  <button
+                    type="button"
+                    onClick={() => setEditName(true)}
+                    aria-label="Namen ändern"
+                    className="grid size-11 place-items-center rounded-full text-ice"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
+                </p>
               )}
-              <GamePicker playerName={playerName} />
+              <GamePicker playerName={playerName.trim() || "Gast"} step={step} onStep={setStep} />
             </>
           )}
-          <p className="mt-4 text-[11px] leading-snug text-ice/80">{TERRAIN.attribution}</p>
+          {home && <p className="mt-4 text-[11px] leading-snug text-ice/80">{TERRAIN.attribution}</p>}
         </div>
       </div>
     </main>
