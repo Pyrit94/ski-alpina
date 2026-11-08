@@ -133,9 +133,15 @@ export function InfoPanel() {
         <ItemThumb id={item.id} className="size-12 shrink-0 rounded-[12px]" iconClass="size-5" />
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
-          <div className="mt-0.5 inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
-            Level {entity.level}
-          </div>
+          {lift ? (
+            <div className="mt-0.5 inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
+              Ausbau {UPGRADES.reduce((n, u) => n + lift.upgrades[u.key], 0)}/{UPGRADES.reduce((n, u) => n + u.max, 0)}
+            </div>
+          ) : b && expandable(b.itemId) ? (
+            <div className="mt-0.5 inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
+              Stufe {buildingLevel(b)}
+            </div>
+          ) : null}
         </div>
       </div>
       {constructing && (
@@ -163,7 +169,7 @@ export function InfoPanel() {
         <p className="mt-3 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">{item.blurb}</p>
       )}
       {lift && <LinkStatus id={lift.id} kind="lift" />}
-      {lift && <AutoPistesButton liftId={lift.id} className="mt-2 w-full" />}
+      {lift && <AutoPistesButton liftId={lift.id} variant="link" className="mt-1" />}
       {lift && edge && edge.link === "ok" && load < LOW_USE && <LowUseHint />}
       {isLift(item.id) && (
         <div className="mt-3">
@@ -182,7 +188,9 @@ export function InfoPanel() {
                   className="min-h-14 rounded-[12px] bg-ice px-1 py-2 text-center disabled:opacity-50"
                 >
                   <div className="text-[9px] font-medium text-muted">{u.label}</div>
-                  <div className="text-[11px] font-semibold text-navy">Lv. {lv}</div>
+                  <div className="text-[11px] font-semibold text-navy">
+                    Stufe {lv}/{u.max}
+                  </div>
                   <div className="text-[9px] text-coin">{maxed ? "Max" : fmt(cost)}</div>
                 </button>
               );

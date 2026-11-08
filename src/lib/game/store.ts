@@ -569,7 +569,18 @@ export const useGame = create<GameStore>((set, get) => ({
         return;
       }
       net?.sendIntent({ type: "place_lift", itemId: s.buildItem, a: s.liftStart, b: { q, r } });
-      set({ selectedId: null, phase: "lift-a", liftStart: null, lastStampAt: Date.now(), lastStampHex: { q, r } });
+      // A lift is done in one go: leave building, so the camera can glide to
+      // it and the advisor can offer its run straight away.
+      set({
+        selectedId: null,
+        buildItem: null,
+        phase: "idle",
+        liftStart: null,
+        hover: null,
+        lastStampAt: Date.now(),
+        lastStampHex: { q, r },
+        tool: get().stampMode ? "pan" : "select",
+      });
       return;
     }
 

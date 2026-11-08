@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Cloud, CloudFog, CloudLightning, Sun, Check, Gem, Snowflake, Star, X, Settings, Smile, Users } from "lucide-react";
+import { Cloud, CloudFog, CloudLightning, Sun, Check, Gem, Snowflake, Star, X, Settings, Smile, Users, LayoutGrid } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
 import { BY_ID, levelFromXp, xpForLevel } from "@/lib/game/catalog";
@@ -21,7 +21,7 @@ import { toggleSheet } from "./hud-shared";
 import { Coin, ItemThumb, LayerTabs, RoundButton } from "./HudBits";
 import { ActivityPanel, InfoPanel, OperationsPanel, TicketPricePanel, RenamePanel, Quests } from "./InfoPanels";
 import { MobileMenuBody } from "./MenuBody";
-import { BuildDrawer, StampTray, BigBuildButton } from "./BuildDrawer";
+import { BuildDrawer, BigBuildButton } from "./BuildDrawer";
 import { ActionRail, DesktopCorners, TeamMarks, DesktopPanel } from "./Rail";
 
 export function GameHUD() {
@@ -263,22 +263,18 @@ function BuildHint() {
   const msg =
     phase === "lift-a"
       ? stampMode
-        ? "Karte unter das Raster schieben — erste Station"
+        ? "Raster auf die Talstation"
         : "Talstation tippen"
       : phase === "lift-b"
         ? stampMode
-          ? "Gegenstation unter das Raster schieben"
+          ? "Raster auf die Bergstation"
           : "Bergstation tippen"
-        : hover?.reason || (stampMode ? "Karte schieben, Raster zielen, Setzen" : "Feld tippen zum Bauen");
+        : hover?.reason || (stampMode ? "Raster zielen, dann Setzen" : "Feld tippen");
   return (
-    <div className="pointer-events-none z-10 w-[min(92%,300px)] rounded-[16px] bg-panel/95 p-3 text-center shadow-[var(--shadow-panel)] max-lg:absolute max-lg:left-1/2 max-lg:top-2 max-lg:-translate-x-1/2">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-navy">{item.name}</div>
-      <div className="mt-1 text-[12px] text-muted">{msg}</div>
-      {item.capacity ? (
-        <div className="value mt-1 text-[13px] font-bold text-success">
-          Kapazität {fmt(item.capacity)} Pers./h
-        </div>
-      ) : null}
+    <div className="pointer-events-none z-10 flex max-w-[min(92%,360px)] items-center gap-2 rounded-full bg-panel/95 px-3.5 py-2 text-[12px] shadow-[var(--shadow-panel)] max-lg:absolute max-lg:left-1/2 max-lg:top-2 max-lg:-translate-x-1/2">
+      <span className="shrink-0 font-bold text-navy">{item.name}</span>
+      <span className="min-w-0 truncate text-muted">{msg}</span>
+      {item.capacity ? <span className="value shrink-0 font-bold text-success">{fmtCompact(item.capacity)}/h</span> : null}
     </div>
   );
 }
@@ -470,7 +466,7 @@ function MobileDock() {
           <MobilePresence />
         </div>
       </div>
-      {building && (phase === "piste" ? <PisteEditor compact /> : <StampTray />)}
+      {building && phase === "piste" && <PisteEditor compact />}
       {!building && <MobileCorners />}
       <div className={`flex items-center gap-1.5 rounded-[22px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md ${building ? "" : "hidden"}`}>
         {building ? (
@@ -499,6 +495,20 @@ function MobileDock() {
                 className="flex h-11 items-center gap-1 rounded-full bg-accent px-3.5 text-[12px] font-semibold text-panel disabled:opacity-45"
               >
                 <Check className="size-4" /> Bauen
+              </button>
+            )}
+            {phase !== "piste" && (
+              <button
+                type="button"
+                onClick={() => {
+                  // Back to the build menu, on the same category.
+                  cancel();
+                  useGame.getState().setSheet("build");
+                }}
+                aria-label="Anderes Objekt"
+                className="grid size-11 place-items-center rounded-full bg-ice text-navy"
+              >
+                <LayoutGrid className="size-5" />
               </button>
             )}
             <button
