@@ -15,7 +15,8 @@ export type StepAction =
   | { kind: "descent"; liftId: string }
   | { kind: "build"; itemId: ItemId }
   | { kind: "select"; id: string }
-  | { kind: "piste-from"; liftId: string };
+  | { kind: "piste-from"; liftId: string }
+  | { kind: "research"; nodeId: string };
 
 export interface NextStep {
   /** Stable per situation, so a dismissed tip stays away until it changes. */
@@ -36,6 +37,11 @@ export interface StepInput {
   /** Items the players may build now. */
   unlocked: (itemId: ItemId) => boolean;
   coins: number;
+  /**
+   * Research: whether something is in work, and a node worth starting now
+   * (affordable, prerequisites met), with its name. Absent when research is off.
+   */
+  research?: { busy: boolean; next: { id: string; name: string } | null };
 }
 
 const has = (buildings: readonly PlacedBuilding[], ids: readonly string[]) =>
@@ -157,6 +163,17 @@ export function nextStep(input: StepInput): NextStep | null {
       text: "Die Lifte sind kaum ausgelastet: es fehlen Gäste, nicht Kapazität. Mehr Pisten-Kilometer ziehen mehr Gäste an.",
       action: { kind: "piste-from", liftId: top.id },
       actionLabel: "Neue Abfahrt",
+      tone: "grow",
+    };
+  }
+  // Research is where new lifts and buildings come from: never let it idle.
+  if (input.research && !input.research.busy && input.research.next && lifts.length > 0) {
+    const n = input.research.next;
+    return {
+      id: `research-${n.id}`,
+      text: `Die Forschung steht still. «${n.name}» bringt neue Bahnen oder Gebäude.`,
+      action: { kind: "research", nodeId: n.id },
+      actionLabel: "Erforschen",
       tone: "grow",
     };
   }

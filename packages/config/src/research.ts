@@ -9,7 +9,7 @@ import type { ItemId } from "./ids.ts";
  * so a new node is a new entry in this file and nothing else.
  */
 
-export type ResearchBranchId = "bahnen" | "pisten" | "gaeste" | "betrieb" | "allianz";
+export type ResearchBranchId = "bahnen" | "dorf" | "pisten" | "gaeste" | "betrieb" | "allianz";
 
 export interface ResearchBranchDef {
   id: ResearchBranchId;
@@ -64,7 +64,11 @@ export interface ResearchEffect {
   reputationFloor?: number;
   /** Grades an event can no longer close. */
   keepOpen?: ("blue" | "red" | "black" | "park")[];
-  /** Items buildable before their level. */
+  /**
+   * Items this node makes buildable. An item named here can be built only
+   * once the node is researched, whatever the level: new lift types and
+   * buildings come from research, not from playing long enough.
+   */
   unlocks?: ItemId[];
 }
 
@@ -94,13 +98,13 @@ export const RESEARCH = {
    * first node takes a round; a resort earning medals makes 25–60. Guests and
    * vertical metres both count, so a busy village and a big mountain each pay.
    */
-  basePerDay: 3,
+  basePerDay: 6,
   /** Guests per day for one FP per day. */
   guestsPerPoint: 10,
   /** Vertical metres per day for one FP per day. */
   verticalPerPoint: 15000,
   /** Default price of a node by tier (index = tier). */
-  tierCost: [0, 40, 90, 180, 320],
+  tierCost: [0, 30, 80, 160, 300],
   /** Nodes that can wait in line behind the running one. */
   queueMax: 3,
   /** "Mit Geld beschleunigen": this many FP for this many CHF. */
@@ -112,7 +116,8 @@ export const RESEARCH = {
 } as const;
 
 export const RESEARCH_BRANCHES: ResearchBranchDef[] = [
-  { id: "bahnen", label: "Bahnen", hint: "Mehr Leute den Berg hinauf", color: "#2F6FED" },
+  { id: "bahnen", label: "Bahnen", hint: "Neue Bahntypen und mehr Leute den Berg hinauf", color: "#2F6FED" },
+  { id: "dorf", label: "Dorf & Hotels", hint: "Neue Hotels und Gebäude", color: "#C2703D" },
   { id: "pisten", label: "Pisten & Schnee", hint: "Länger offen, mehr Platz", color: "#4aa3c7" },
   { id: "gaeste", label: "Gäste & Marketing", hint: "Mehr Gäste, mehr Umsatz", color: "#F4B942" },
   { id: "betrieb", label: "Betrieb", hint: "Günstiger und ruhiger laufen", color: "#7C8DA6" },
@@ -121,6 +126,28 @@ export const RESEARCH_BRANCHES: ResearchBranchDef[] = [
 
 export const RESEARCH_NODES: ResearchNodeDef[] = [
   // Bahnen
+  {
+    id: "gondelbau",
+    branch: "bahnen",
+    tier: 1,
+    name: "Gondelbau",
+    effectText: "Gondelbahn baubar",
+    blurb: "Geschlossene Kabinen, die auch talwärts fahren – der erste Schritt zur grossen Bahn.",
+    icon: "Cable",
+    requires: [],
+    effect: { unlocks: ["gondola"] },
+  },
+  {
+    id: "pendelbahn",
+    branch: "bahnen",
+    tier: 2,
+    name: "Pendelbahn-Technik",
+    effectText: "Pendelbahn baubar",
+    blurb: "Zwei grosse Kabinen an dicken Tragseilen, über Felswände hinweg.",
+    icon: "CableCar",
+    requires: ["gondelbau"],
+    effect: { unlocks: ["tram"] },
+  },
   {
     id: "kuppelbar",
     branch: "bahnen",
@@ -159,10 +186,10 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
     branch: "bahnen",
     tier: 3,
     name: "Funitel-Lizenz",
-    effectText: "Funitel vor Level 9 baubar",
+    effectText: "Funitel baubar",
     blurb: "Zwei Tragseile, sturmsicher – die Bewilligung kommt schneller, wenn die Pläne schon stehen.",
     icon: "Cable",
-    requires: ["kabinen"],
+    requires: ["kabinen", "pendelbahn"],
     effect: { unlocks: ["funitel"] },
   },
   {
@@ -170,7 +197,7 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
     branch: "bahnen",
     tier: 4,
     name: "Gletschererschliessung",
-    effectText: "Gletscherbahn vor Level 12 baubar",
+    effectText: "Gletscherbahn baubar",
     blurb: "Gutachten, Messungen, Einsprachen – erledigt. Der Gletscher kann kommen.",
     icon: "MountainSnow",
     requires: ["funitel"],
@@ -183,33 +210,44 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
     branch: "pisten",
     tier: 1,
     name: "Pistenpräparierung",
-    effectText: "+10 % Pistenkapazität",
+    effectText: "Pistenraupe baubar, +10 % Pistenkapazität",
     blurb: "Breiter gewalzt, sauberer Cord. Auf derselben Piste haben mehr Leute Platz.",
     icon: "Snowflake",
     requires: [],
-    effect: { pisteCapacity: 1.1 },
+    effect: { pisteCapacity: 1.1, unlocks: ["groomer"] },
   },
   {
     id: "beschneiung2",
     branch: "pisten",
     tier: 2,
     name: "Beschneiung 2.0",
-    effectText: "Schneekanonen +40 % Wirkung",
+    effectText: "Beschneiung baubar, +40 % Wirkung",
     blurb: "Lanzen statt Propeller, Steuerung nach Feuchtkugeltemperatur.",
     icon: "CloudSnow",
     requires: ["praeparierung"],
-    effect: { snowmakerDrop: 1.4 },
+    effect: { snowmakerDrop: 1.4, unlocks: ["snowmaker"] },
   },
   {
     id: "nachtski",
     branch: "pisten",
     tier: 2,
     name: "Nachtski",
-    effectText: "Flutlicht wirkt doppelt",
-    blurb: "Abends unter Flutlicht – nur mit Flutlicht im Gebiet.",
+    effectText: "Flutlicht baubar, wirkt doppelt",
+    blurb: "Abends unter Flutlicht auf der Piste.",
     icon: "Moon",
     requires: ["praeparierung"],
-    effect: { lightsFactor: 2 },
+    effect: { lightsFactor: 2, unlocks: ["lights"] },
+  },
+  {
+    id: "snowpark",
+    branch: "pisten",
+    tier: 2,
+    name: "Snowpark-Bau",
+    effectText: "Snowpark baubar",
+    blurb: "Kicker, Rails, Halfpipe: ein Shaper-Team zieht junge Gäste an.",
+    icon: "Mountain",
+    requires: ["praeparierung"],
+    effect: { unlocks: ["snowpark"] },
   },
   {
     id: "lawinenschutz",
@@ -235,6 +273,17 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
   },
 
   // Gäste & Marketing
+  {
+    id: "oev",
+    branch: "gaeste",
+    tier: 1,
+    name: "ÖV-Partnerschaft",
+    effectText: "Busbahnhof baubar",
+    blurb: "Postauto und Bahn im Takt: Gäste kommen ohne Auto.",
+    icon: "Bus",
+    requires: [],
+    effect: { unlocks: ["bus"] },
+  },
   {
     id: "onlinetickets",
     branch: "gaeste",
@@ -262,11 +311,11 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
     branch: "gaeste",
     tier: 2,
     name: "Skischul-Programm",
-    effectText: "Skischule doppelt so wirksam, +1 Zufriedenheit",
-    blurb: "Kinderland, Gruppenkurse, Tageskarte inklusive. Nur mit Skischule im Gebiet.",
+    effectText: "Skischule baubar und doppelt so wirksam",
+    blurb: "Kinderland, Gruppenkurse, Tageskarte inklusive.",
     icon: "GraduationCap",
     requires: ["onlinetickets"],
-    effect: { schoolBonus: 0.08, satisfaction: 1 },
+    effect: { schoolBonus: 0.08, satisfaction: 1, unlocks: ["skischool"] },
   },
   {
     id: "saisonkarten",
@@ -286,11 +335,11 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
     branch: "betrieb",
     tier: 1,
     name: "Energiemanagement",
-    effectText: "−8 % Unterhalt",
+    effectText: "Werkstatt baubar, −8 % Unterhalt",
     blurb: "Bahnen fahren nach Andrang, nicht nach Fahrplan.",
     icon: "Zap",
     requires: [],
-    effect: { upkeep: 0.92 },
+    effect: { upkeep: 0.92, unlocks: ["workshop"] },
   },
   {
     id: "werkstatt",
@@ -308,22 +357,79 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
     branch: "betrieb",
     tier: 2,
     name: "Rettungsdienst",
-    effectText: "Bergrettung stärker, +2 Zufriedenheit",
+    effectText: "Bergrettung baubar und stärker",
     blurb: "Pistenpatrouille mit Funk und Akja. Wer sich sicher fühlt, fährt auch Schwarz.",
     icon: "Siren",
     requires: ["energie"],
-    effect: { clinicBonus: 0.08, satisfaction: 2 },
+    effect: { clinicBonus: 0.08, satisfaction: 2, unlocks: ["clinic"] },
   },
   {
     id: "leitzentrale",
     branch: "betrieb",
     tier: 3,
     name: "Digitale Leitzentrale",
-    effectText: "−10 % Wartezeit, −5 % Unterhalt",
+    effectText: "Betriebszentrale baubar, −10 % Wartezeit",
     blurb: "Alle Bahnen auf einem Bildschirm. Staus werden gelöst, bevor sie entstehen.",
     icon: "MonitorDot",
     requires: ["werkstatt"],
-    effect: { wait: 0.9, upkeep: 0.95 },
+    effect: { wait: 0.9, upkeep: 0.95, unlocks: ["depot"] },
+  },
+
+  // Dorf & Hotels
+  {
+    id: "gastgewerbe",
+    branch: "dorf",
+    tier: 1,
+    name: "Gastgewerbe",
+    effectText: "Hotel ★ und Après-Ski baubar",
+    blurb: "Betten im Dorf und Musik nach dem letzten Bügel: Gäste bleiben länger.",
+    icon: "BedDouble",
+    requires: [],
+    effect: { unlocks: ["hotel1", "apres"] },
+  },
+  {
+    id: "hotelkette",
+    branch: "dorf",
+    tier: 2,
+    name: "Hotelkette",
+    effectText: "Hotel ★★★ baubar",
+    blurb: "Halbpension, Lift vor der Tür, Wochenpauschale.",
+    icon: "Hotel",
+    requires: ["gastgewerbe"],
+    effect: { unlocks: ["hotel3"] },
+  },
+  {
+    id: "wellness",
+    branch: "dorf",
+    tier: 2,
+    name: "Wellness",
+    effectText: "Berg-Spa baubar",
+    blurb: "Sauna mit Blick auf den Gipfel – auch im Sommer ein Grund zu kommen.",
+    icon: "Bath",
+    requires: ["gastgewerbe"],
+    effect: { unlocks: ["spa"] },
+  },
+  {
+    id: "luxus",
+    branch: "dorf",
+    tier: 3,
+    name: "Luxushotellerie",
+    effectText: "Palace und Bergrestaurant XL baubar",
+    blurb: "Fünf Sterne und ein Restaurant für 1'400 Gäste pro Stunde.",
+    icon: "Crown",
+    requires: ["hotelkette"],
+    effect: { unlocks: ["hotel5", "gastro-hall"] },
+  },
+  {
+    id: "resort",
+    branch: "dorf",
+    tier: 4,
+    name: "Resort-Entwicklung",
+    effectText: "Resort-Hotel und Bahnen-Museum baubar",
+    blurb: "Ein ganzes Quartier und ein Museum, das Gäste auch im Sommer bringt.",
+    icon: "Building2",
+    requires: ["luxus", "wellness"],
+    effect: { unlocks: ["hotel-resort", "cablecar-museum"] },
   },
 
   // Allianz: only together.
@@ -376,6 +482,11 @@ export const RESEARCH_NODES: ResearchNodeDef[] = [
 export const RESEARCH_BY_ID: Record<string, ResearchNodeDef> = Object.fromEntries(
   RESEARCH_NODES.map((n) => [n.id, n]),
 );
+
+/** The research node an item waits for, if any; derived from the nodes' `unlocks`. */
+export const RESEARCH_GATE: Partial<Record<ItemId, string>> = Object.fromEntries(
+  RESEARCH_NODES.flatMap((n) => (n.effect.unlocks ?? []).map((item) => [item, n.id])),
+) as Partial<Record<ItemId, string>>;
 
 /** What a node costs in FP. */
 export function researchCost(node: ResearchNodeDef): number {

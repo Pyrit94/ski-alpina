@@ -15,6 +15,7 @@ import {
   discounted,
   isResearchIntent,
   itemUnlocked,
+  lockReason,
   validateResearch,
   type ResearchContext,
 } from "./research.ts";
@@ -202,7 +203,7 @@ export function validateIntent(
       return { ok: false, code: "invalid", reason: "Kein Gebäude" };
     }
     if (!itemUnlocked(state, intent.itemId)) {
-      return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
+      return { ok: false, code: "locked", reason: lockReason(state, intent.itemId)?.text ?? `Level ${item.unlockLevel} nötig` };
     }
     const allowedB = roleAllows(state, actorId, intent.itemId);
     if (!allowedB.ok) return { ok: false, code: "rights", reason: allowedB.reason };
@@ -215,7 +216,7 @@ export function validateIntent(
     const item = BY_ID[intent.itemId];
     if (!item || !isLift(intent.itemId)) return { ok: false, code: "invalid", reason: "Kein Lift" };
     if (!itemUnlocked(state, intent.itemId)) {
-      return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
+      return { ok: false, code: "locked", reason: lockReason(state, intent.itemId)?.text ?? `Level ${item.unlockLevel} nötig` };
     }
     const allowedL = roleAllows(state, actorId, intent.itemId);
     if (!allowedL.ok) return { ok: false, code: "rights", reason: allowedL.reason };
@@ -235,7 +236,7 @@ export function validateIntent(
     const item = BY_ID[intent.itemId];
     if (!item || !isPiste(intent.itemId)) return { ok: false, code: "invalid", reason: "Keine Piste" };
     if (!itemUnlocked(state, intent.itemId)) {
-      return { ok: false, code: "locked", reason: `Level ${item.unlockLevel} nötig` };
+      return { ok: false, code: "locked", reason: lockReason(state, intent.itemId)?.text ?? `Level ${item.unlockLevel} nötig` };
     }
     const path = validatePistePath(state, dem, intent.itemId, intent.hexes);
     if (!path.ok) return path;

@@ -4,6 +4,7 @@ import {
   RESEARCH,
   RESEARCH_BRANCHES,
   RESEARCH_BY_ID,
+  RESEARCH_GATE,
   researchCost,
   type ResearchNodeDef,
 } from "../../../config/src/research.ts";
@@ -192,11 +193,32 @@ export function buildCost(state: Pick<ResortState, "research" | "match">, itemId
 }
 
 /** Whether this resort may build the item: its level, or research, opens it. */
+/**
+ * Whether an item may be built. New lift types and buildings come from
+ * research: an item a node unlocks (RESEARCH_GATE) needs that node, whatever
+ * the level. Everything else — the basics — needs only its level. With
+ * research switched off for a match, the level rule applies to everything.
+ */
 export function itemUnlocked(state: Pick<ResortState, "research" | "match" | "xp">, itemId: ItemId): boolean {
   const item = BY_ID[itemId];
   if (!item) return false;
-  if (levelFromXp(state.xp) >= item.unlockLevel) return true;
-  return researchEffects(state).unlocks.includes(itemId);
+  const gate = RESEARCH_GATE[itemId];
+  if (gate && researchEnabled(state)) return (state.research?.done ?? []).includes(gate);
+  return levelFromXp(state.xp) >= item.unlockLevel;
+}
+
+/** Why an item cannot be built yet, in words; null when it can. */
+export function lockReason(
+  state: Pick<ResortState, "research" | "match" | "xp">,
+  itemId: ItemId,
+): { kind: "research"; nodeId: string; text: string } | { kind: "level"; level: number; text: string } | null {
+  if (itemUnlocked(state, itemId)) return null;
+  const gate = RESEARCH_GATE[itemId];
+  if (gate && researchEnabled(state)) {
+    return { kind: "research", nodeId: gate, text: `Forschung «${RESEARCH_BY_ID[gate]?.name ?? gate}» nötig` };
+  }
+  const level = BY_ID[itemId]?.unlockLevel ?? 1;
+  return { kind: "level", level, text: `Level ${level} nötig` };
 }
 
 /** Research points per in-game day at these stats. */

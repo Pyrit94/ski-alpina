@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { ECONOMY } from "../../../config/src/economy.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { MATCH } from "../../../config/src/match.ts";
-import { RESEARCH, RESEARCH_BY_ID, RESEARCH_NODES, researchCost } from "../../../config/src/research.ts";
+import { RESEARCH, RESEARCH_BY_ID, RESEARCH_GATE, RESEARCH_NODES, researchCost } from "../../../config/src/research.ts";
 import { generateDem } from "../terrain/dem.ts";
 import { GameRoom } from "../runtime/room.ts";
 import type { Axial } from "../hex.ts";
@@ -17,6 +17,7 @@ import {
   accrueResearch,
   buildCost,
   itemUnlocked,
+  lockReason,
   nodeStatus,
   researchEffects,
   researchRate,
@@ -68,7 +69,8 @@ test("the tree is well formed: known prerequisites, no cycles, rising prices", (
     }
     assert.ok(researchCost(node) > 0);
   }
-  assert.ok(RESEARCH_NODES.length >= 16 && RESEARCH_NODES.length <= 22);
+  // Grew with the Dorf branch and the nodes that unlock lift types and buildings.
+  assert.ok(RESEARCH_NODES.length >= 16 && RESEARCH_NODES.length <= 32);
   const costs = RESEARCH.tierCost.slice(1);
   for (let i = 1; i < costs.length; i++) assert.ok(costs[i]! > costs[i - 1]!);
 });
@@ -322,4 +324,30 @@ test("old saves gain an empty research state, and a partial one is completed", (
   assert.deepEqual(partial.research.queue, []);
   assert.deepEqual(partial.research.done, ["energie"]);
   assert.equal(partial.research.points, 12);
+});
+
+test("new lift types and buildings come from research, not from the level", () => {
+  const veteran = { ...emptyResort(), xp: 999_999 };
+  // Every gated item stays locked at any level until its node is done.
+  for (const [itemId, nodeId] of Object.entries(RESEARCH_GATE)) {
+    assert.equal(itemUnlocked(veteran, itemId as never), false, `${itemId} should wait for ${nodeId}`);
+    assert.equal(lockReason(veteran, itemId as never)?.kind, "research");
+    assert.equal(itemUnlocked(withDone(veteran, nodeId!), itemId as never), true);
+  }
+  // The basics still follow the level alone.
+  assert.equal(itemUnlocked(emptyResort(), "chair"), true);
+  assert.equal(itemUnlocked(emptyResort(), "parking"), true);
+  // Gondola, hotels and the rest are gated.
+  for (const id of ["gondola", "tram", "funitel", "glacier", "hotel1", "hotel3", "hotel5", "bus", "snowmaker"]) {
+    assert.ok(RESEARCH_GATE[id as keyof typeof RESEARCH_GATE], `${id} should be gated`);
+  }
+  // The server refuses a gated build and says which research is missing.
+  const v = validateIntent({ ...veteran, coins: 1e7 }, dem, { type: "place_lift", itemId: "gondola", a: VILLAGE_HEX, b: col(1) }, "builder", NOW);
+  assert.equal(v.ok, false);
+  if (!v.ok) assert.match(v.reason, /Forschung/);
+});
+
+test("with research switched off for a match, the level unlocks everything again", () => {
+  const s = { ...startMatch(emptyResort(), "kurz", NOW, dem, { research: false }), xp: 999_999 };
+  assert.equal(itemUnlocked(s, "gondola"), true);
 });

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { buildCost, discounted, itemUnlocked } from "@ski/shared";
+import { buildCost, discounted, itemUnlocked, lockReason } from "@ski/shared";
 import type { ItemId } from "@ski/config";
 import { useGame } from "./store";
 
@@ -18,6 +18,8 @@ export function useBuildTerms() {
     const state = { xp, research, match };
     return {
       locked: (id: ItemId) => !itemUnlocked(state, id),
+      /** Why it is locked: the research node, or the level. */
+      lock: (id: ItemId) => lockReason(state, id),
       cost: (id: ItemId) => buildCost(state, id),
       discount: (chf: number) => discounted(state, chf),
     };

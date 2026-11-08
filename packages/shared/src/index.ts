@@ -160,6 +160,7 @@ export {
   buildCost,
   discounted,
   itemUnlocked,
+  lockReason,
   isAllianceNode,
   missingPledges,
   nodeStatus,

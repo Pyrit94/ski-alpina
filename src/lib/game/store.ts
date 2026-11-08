@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import { BY_ID, CATALOG, RESEARCH_BY_ID, isLift, isPiste } from "@ski/config";
+import { BY_ID, CATALOG, RESEARCH_BY_ID, RESEARCH_GATE, isLift, isPiste } from "@ski/config";
 import {
   hexDistance,
   validateHex,
   getDem,
   itemUnlocked,
+  lockReason,
   levelFromXp,
   worldToHex,
   type BuildPhase,
@@ -86,6 +87,8 @@ export interface GameStore extends ResortState, UiState {
   descentOffer: string | null;
   /** «Pisten automatisch» while open: which lifts (null = all) and which grades. */
   autoPistes: { liftIds: string[] | null; mix: "mixed" | "blue" | "red" | "black" } | null;
+  /** Research node to open the research panel on, when a locked card asks. */
+  researchFocus: string | null;
   /** The runs it would build, for the map. */
   autoPreview: { hexes: { q: number; r: number }[]; grade: string }[];
   focusOn: (x: number, z: number) => void;
@@ -342,7 +345,8 @@ export const useGame = create<GameStore>((set, get) => ({
         }
         if (!first && after > before) {
           play("levelup");
-          const unlocked = CATALOG.filter((i) => i.unlockLevel === after).map((i) => i.name);
+          // Only what the level itself unlocks; the rest comes from research.
+          const unlocked = CATALOG.filter((i) => i.unlockLevel === after && !RESEARCH_GATE[i.id]).map((i) => i.name);
           set({
             celebrate: {
               id: Date.now(),
@@ -372,6 +376,7 @@ export const useGame = create<GameStore>((set, get) => ({
   regionReady: null,
   descentOffer: null,
   autoPistes: null,
+  researchFocus: null,
   autoPreview: [],
   focusOn: (x, z) => set({ cameraFocus: { x, z, id: Date.now() } }),
   games: [],
@@ -448,6 +453,13 @@ export const useGame = create<GameStore>((set, get) => ({
     }
     const item = BY_ID[id];
     if (!itemUnlocked(get(), id)) {
+      const why = lockReason(get(), id);
+      if (why?.kind === "research") {
+        // Straight to the node that unlocks it.
+        set({ researchFocus: why.nodeId, sheet: "research" });
+        get().pushNote("Erst erforschen", `${item.name}: ${why.text}.`, "info");
+        return;
+      }
       get().pushNote("Noch gesperrt", `Erreiche Level ${item.unlockLevel}, um ${item.name} zu bauen.`, "warn");
       return;
     }

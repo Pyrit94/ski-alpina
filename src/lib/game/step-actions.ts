@@ -17,6 +17,8 @@ export function runStepAction(action: StepAction) {
   if (action.kind === "descent") {
     focusLift(action.liftId);
     proposeDescent(action.liftId);
+  } else if (action.kind === "research") {
+    useGame.setState({ researchFocus: action.nodeId, sheet: "research", selectedId: null });
   } else if (action.kind === "build") {
     g.setBuildItem(action.itemId);
   } else if (action.kind === "select") {

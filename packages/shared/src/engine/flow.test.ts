@@ -68,7 +68,8 @@ test("too expensive is rejected", () => {
   const v = validateIntent(
     state,
     dem,
-    { type: "place_building", itemId: "hotel5", q: -4, r: 7 },
+    // An item without a research gate, so the money is what fails.
+    { type: "place_building", itemId: "restaurant", q: -4, r: 7 },
     "builder",
     Date.now(),
   );
