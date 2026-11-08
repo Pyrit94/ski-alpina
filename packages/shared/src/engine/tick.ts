@@ -7,6 +7,8 @@ import { syncQuestProgress } from "./quests.ts";
 import { weatherForDay } from "./weather.ts";
 import { accrueResearch } from "./research.ts";
 import { followTutorial } from "./tutorial.ts";
+import { advanceProgress, marketShare, type ProgressTick } from "./progression.ts";
+import type { DailyRecord } from "../types.ts";
 
 export function tickResort(state: ResortState, dem: Dem, realSeconds: number, now: number): ResortState {
   // Free play can be paused or sped up; a match has no clock of its own.
@@ -21,6 +23,8 @@ export function tickResort(state: ResortState, dem: Dem, realSeconds: number, no
   let todayIncome = state.todayIncome ?? 0;
   let neighbours = state.neighbours;
   let fees = 0;
+  let ended: DailyRecord | null = null;
+  let closedProfit = 0;
   if (timeOfDay < state.timeOfDay) {
     // The neighbours close their day too: takings, and now and then a new
     // lift; and a «Tarifverbund» costs its fee.
@@ -28,16 +32,15 @@ export function tickResort(state: ResortState, dem: Dem, realSeconds: number, no
     neighbours = closed.neighbours;
     fees = state.coins - closed.coins;
     // The day just ended: keep one line of it for the charts.
-    daily = [
-      ...(state.daily ?? []),
-      {
-        season: state.season,
-        day: state.day,
-        guests: Math.round(state.stats.visitorsToday),
-        income: Math.round(todayIncome),
-        satisfaction: state.stats.satisfaction,
-      },
-    ].slice(-ECONOMY.historyDays);
+    ended = {
+      season: state.season,
+      day: state.day,
+      guests: Math.round(state.stats.visitorsToday),
+      income: Math.round(todayIncome),
+      satisfaction: state.stats.satisfaction,
+    };
+    closedProfit = todayIncome - fees;
+    daily = [...(state.daily ?? []), ended].slice(-ECONOMY.historyDays);
     todayIncome = 0;
     day += 1;
     visitorsToday = 0;
@@ -72,5 +75,13 @@ export function tickResort(state: ResortState, dem: Dem, realSeconds: number, no
     todayIncome: todayIncome + flowed.coinsDelta,
     ...(neighbours ? { neighbours } : {}),
   };
-  return followTutorial(syncQuestProgress(accrueResearch(next, flowed.stats, dtHours, now)));
+  // Free-play progression: the season's tally, its report, rank and goals.
+  const progress: ProgressTick = {
+    closed: ended,
+    closedProfit,
+    closedShare: marketShare(state),
+    revenue: flowed.stats.revenuePerHour * dtHours,
+  };
+  const progressed = advanceProgress(next, dem, progress, state.season, now);
+  return followTutorial(syncQuestProgress(accrueResearch(progressed, flowed.stats, dtHours, now)));
 }

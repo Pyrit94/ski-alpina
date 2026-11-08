@@ -43,6 +43,10 @@ export type {
   NeighbourMode,
   NeighbourState,
   NeighbourCounter,
+  ProgressState,
+  SeasonRecordKey,
+  SeasonSummary,
+  SeasonTally,
 } from "./types.ts";
 export { MAX_PISTE_HEXES, IntentSchema, ClientMessageSchema, ServerMessageSchema, ItemIdSchema, AxialSchema } from "./protocol/intents.ts";
 export type { Intent, ClientMessage, ServerMessage } from "./protocol/intents.ts";
@@ -193,3 +197,26 @@ export {
   NO_RESEARCH_EFFECTS,
 } from "./engine/research.ts";
 export type { NodeStatus, ResearchContext, ResearchEffects } from "./engine/research.ts";
+export {
+  advanceProgress,
+  baselineProgress,
+  builtPisteKm,
+  emptyTally,
+  fromAbsDay,
+  gradeVariety,
+  longGoals,
+  marketShare,
+  meanPistePoints,
+  progressDemand,
+  raceDay,
+  rankOf,
+  recordLabel,
+  rewardText,
+  seasonGuests,
+  settledSatisfaction,
+  summarizeSeason,
+  tierFor,
+  topStationMetres,
+  weltcupToday,
+} from "./engine/progression.ts";
+export type { LongGoalView, NeedView, ProgressTick, RankFactorView, RankView } from "./engine/progression.ts";

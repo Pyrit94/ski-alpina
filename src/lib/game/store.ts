@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { BY_ID, CATALOG, RESEARCH_BY_ID, RESEARCH_GATE, isLift, isPiste } from "@ski/config";
+import { BY_ID, CATALOG, LONG_GOALS, RANK, RESEARCH_BY_ID, RESEARCH_GATE, WELTCUP, isLift, isPiste } from "@ski/config";
 import {
   hexDistance,
   validateHex,
@@ -7,6 +7,7 @@ import {
   itemUnlocked,
   lockReason,
   levelFromXp,
+  rewardText,
   worldToHex,
   type BuildPhase,
   type GameInfo,
@@ -28,6 +29,8 @@ import { CLASSIC_REGION } from "@ski/config";
 import { partners, proposalFor } from "./proposals";
 import { markOf, readMark, summarize, writeMark, type AwaySummary } from "./away";
 import { setTerrainEdits } from "./alpine";
+import { fmt } from "./format";
+import { readSeenSeason, writeSeenSeason } from "./season-seen";
 import type { NotificationItem } from "./types";
 
 type Net = ReturnType<typeof connectGame>;
@@ -70,6 +73,8 @@ export interface UiState {
   markMode: "look" | "build" | "warn" | null;
   /** Bumped when something deserves a celebration; the value says what. */
   celebrate: { id: number; title: string; body: string; kicker?: string } | null;
+  /** The season whose «Saisonbilanz» card is open, or null. */
+  bilanzSeason: number | null;
 }
 
 export interface GameStore extends ResortState, UiState {
@@ -163,6 +168,8 @@ export interface GameStore extends ResortState, UiState {
   setMarkMode: (kind: "look" | "build" | "warn" | null) => void;
   markReportSeen: (round: number) => void;
   clearCelebration: () => void;
+  /** Open a season's «Saisonbilanz» card; null closes it and counts it as seen. */
+  showBilanz: (season: number | null) => void;
   startResearch: (nodeId: string) => void;
   /** Without a node: stop the running one. With one: take it out of the queue. */
   cancelResearch: (nodeId?: string) => void;
@@ -212,6 +219,7 @@ function flatten(s: ResortState): Partial<ResortState> {
     terrain: s.terrain ?? {},
     proposalLimit: s.proposalLimit,
     neighbours: s.neighbours,
+    progress: s.progress,
   };
 }
 
@@ -304,6 +312,7 @@ export const useGame = create<GameStore>((set, get) => ({
   albumRequest: null,
   matchSetupOpen: false,
   celebrate: null,
+  bilanzSeason: null,
 
   occupied: () => {
     const s = get();
@@ -433,6 +442,51 @@ export const useGame = create<GameStore>((set, get) => ({
             },
           });
         }
+        // Free-play progression. A progression set up just now (old save,
+        // import, new game) only sets the baseline: nothing in it is news.
+        const was = prev.progress;
+        const now = state.progress;
+        if (!first && was && now) {
+          if (now.rank > was.rank) {
+            const tier = RANK.tiers[now.rank];
+            if (tier) {
+              play("medal");
+              set({
+                celebrate: {
+                  id: Date.now(),
+                  kicker: "Gebietsrang",
+                  title: `${"★".repeat(now.rank + 1)} ${tier.name}`,
+                  body: rewardText(tier.reward) ? `Belohnung: ${rewardText(tier.reward)}` : "Weiter so!",
+                },
+              });
+            }
+          }
+          const reached = now.goals.filter((id) => !was.goals.includes(id));
+          const goal = LONG_GOALS.find((g) => g.id === reached[0]);
+          if (goal) {
+            play("medal");
+            set({
+              celebrate: { id: Date.now(), kicker: "Fernziel erreicht", title: goal.title, body: `Belohnung: ${rewardText(goal.reward)}` },
+            });
+          }
+          if (was.weltcup && !was.weltcup.held && now.weltcup?.held) {
+            play("medal");
+            set({
+              celebrate: {
+                id: Date.now(),
+                kicker: "Weltcup",
+                title: "Das Rennen war ein Erfolg",
+                body: `+${WELTCUP.stars} Sterne Prestige und ${fmt(WELTCUP.coins)} CHF aus TV-Rechten und Sponsoring.`,
+              },
+            });
+          }
+        }
+        // «Saisonbilanz»: once per finished season and player, also after coming back.
+        const meId = get().playerId;
+        const latest = now?.seasons[now.seasons.length - 1];
+        if (meId && latest && get().bilanzSeason === null && latest.season > readSeenSeason(state.roomId, meId)) {
+          set({ bilanzSeason: latest.season });
+        }
         // The tutorial closed itself because everything in it got done.
         if (!first && prev.tutorialOpen && !state.tutorialOpen && state.lifts.length > 0) {
           play("medal");
@@ -523,6 +577,15 @@ export const useGame = create<GameStore>((set, get) => ({
   setPhotoTextures: (on) => {
     writeFlag("ski-alpina-photo-textures", on);
     set({ photoTextures: on });
+  },
+  showBilanz: (season) => {
+    const s = get();
+    if (season === null && s.bilanzSeason !== null && s.playerId) {
+      // Seen: this one, and every season before it.
+      const latest = s.progress?.seasons[s.progress.seasons.length - 1]?.season ?? s.bilanzSeason;
+      writeSeenSeason(s.roomId, s.playerId, Math.max(latest, s.bilanzSeason));
+    }
+    set({ bilanzSeason: season, ...(season !== null ? { sheet: "none" as const } : {}) });
   },
   markReportSeen: (round) => set({ seenReportRound: round }),
   clearCelebration: () => set({ celebrate: null }),
