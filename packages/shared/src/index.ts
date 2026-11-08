@@ -48,7 +48,7 @@ export type {
   SeasonSummary,
   SeasonTally,
 } from "./types.ts";
-export { MAX_PISTE_HEXES, IntentSchema, ClientMessageSchema, ServerMessageSchema, ItemIdSchema, AxialSchema } from "./protocol/intents.ts";
+export { MAX_PISTE_HEXES, IntentSchema, ClientMessageSchema, ServerMessageSchema, ItemIdSchema, AxialSchema, GameIdSchema } from "./protocol/intents.ts";
 export type { Intent, ClientMessage, ServerMessage } from "./protocol/intents.ts";
 export { generateDem, getDem, encodeTerrainRgb, decodeTerrainRgbSample, knownRegion, loadAllRegions, loadRegion, regionPoint, setActiveRegion } from "./terrain/dem.ts";
 export type { Dem, RegionGeo } from "./terrain/dem.ts";
@@ -180,6 +180,8 @@ export { GameRoom, TICK_MS, PERSIST_MS, MARK_TTL_MS, CHAT_LIMIT } from "./runtim
 export type { RoomPlayer, RoomEvent } from "./runtime/room.ts";
 export { defaultSaveName, SAVE_NAME_MAX, GAME_NAME_MAX } from "./runtime/saves.ts";
 export type { GameInfo, GameKind, SaveInfo, SaveSummary } from "./runtime/saves.ts";
+export { applyPatch, FULL_EVERY, StreamReceiver } from "./runtime/stream.ts";
+export { OPEN_ROOM } from "./runtime/connection.ts";
 export {
   researchEffects,
   researchEnabled,

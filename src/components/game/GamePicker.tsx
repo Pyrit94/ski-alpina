@@ -1,12 +1,13 @@
 import { ArrowLeft, ChevronDown, ChevronRight, CableCar, History, Mountain, Play, Plus, Route, Trash2, Upload, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { GAME_NAME_MAX, type GameInfo, type GameKind, type NeighbourMode, type SaveInfo } from "@ski/shared";
+import { GAME_NAME_MAX, OPEN_ROOM, type GameInfo, type GameKind, type NeighbourMode, type SaveInfo } from "@ski/shared";
 import { summaryLine, when } from "@/lib/game/saves-format";
 import { lobbyRequest } from "@/lib/game/net";
 import { ECONOMY, REGION_BY_ID, REGIONS } from "@ski/config";
 import { fmt } from "@/lib/game/format";
 import { RegionPicker } from "./RegionPicker";
 import { useGame } from "@/lib/game/store";
+import { forgetInvite } from "@/lib/game/invite";
 
 type Confirm = { kind: "load" | "delete"; save: SaveInfo } | null;
 
@@ -25,10 +26,13 @@ export function GamePicker({
   playerName,
   step,
   onStep,
+  invite = null,
 }: {
   playerName: string;
   step: StartStep;
   onStep: (step: StartStep) => void;
+  /** A game an invitation link asked for: opened as soon as the list says it may be. */
+  invite?: string | null;
 }) {
   const start = useGame((s) => s.startGame);
   const [games, setGames] = useState<GameInfo[] | null>(null);
@@ -64,6 +68,18 @@ export function GamePicker({
   };
 
   const play = (gameId: string) => start(false, playerName, gameId);
+
+  // «Komm in mein Gebiet»: straight into the invited game, once the server's
+  // list confirms this account may see it. A game missing from the list is
+  // either gone or someone's own — said the same way, so a link reveals nothing.
+  const [inviteDismissed, setInviteDismissed] = useState(false);
+  const inviteOk = !!invite && !!games && (invite === OPEN_ROOM || games.some((g) => g.id === invite));
+  const inviteMissing = !!invite && !!games && !inviteOk && !inviteDismissed;
+  useEffect(() => {
+    if (!invite || !games) return;
+    forgetInvite();
+    if (inviteOk) start(false, playerName, invite);
+  }, [invite, inviteOk, games, playerName, start]);
   const load = (save: SaveInfo) =>
     run(async () => {
       await lobbyRequest({ type: "load_save", saveId: save.id });
@@ -92,7 +108,10 @@ export function GamePicker({
   const create = () =>
     run(async () => {
       const r = await lobbyRequest({ type: "create_game", kind, region, neighbours, name: newName.trim() || suggested });
-      if (r.created) play(r.created);
+      if (!r.created) return;
+      play(r.created);
+      // Together: offer the invitation link right away.
+      if (kind === "shared") useGame.setState({ inviteHint: true });
     });
 
   if (!games) {
@@ -123,7 +142,27 @@ export function GamePicker({
   const own = games.filter((g) => g.kind === "own");
   // The game last played, one tap away: what most visits are for.
   const last = [...games].sort((a, b) => b.updatedAt - a.updatedAt)[0];
-  const errorLine = error && <p className="text-[13px] font-medium text-[#ffd18a]">{error}</p>;
+  const errorLine = (
+    <>
+      {error && <p className="text-[13px] font-medium text-[#ffd18a]">{error}</p>}
+      {inviteMissing && (
+        <div role="alert" className="rounded-[18px] bg-[#ffd18a]/15 p-3 ring-1 ring-[#ffd18a]/40">
+          <p className="text-[13px] font-semibold text-[#ffd18a]">Diese Einladung führt zu keinem Spiel</p>
+          <p className="mt-0.5 text-[12px] leading-snug text-ice">
+            Das Gebiet gibt es nicht mehr, oder es ist ein privates Spiel («Allein»). Bitte die Person, die dich eingeladen hat, es
+            im Spiel freizugeben und dir den Link nochmals zu schicken.
+          </p>
+          <button
+            type="button"
+            onClick={() => setInviteDismissed(true)}
+            className="mt-1 min-h-11 text-[12px] font-semibold text-snow underline underline-offset-2"
+          >
+            Verstanden
+          </button>
+        </div>
+      )}
+    </>
+  );
 
   // 1 of 2: where.
   if (step === "where") {

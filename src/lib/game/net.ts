@@ -1,4 +1,4 @@
-import type { ClientMessage, GameInfo, Intent, PlayerPresence, ResortState, ServerMessage } from "@ski/shared";
+import { StreamReceiver, type ClientMessage, type GameInfo, type Intent, type PlayerPresence, type ResortState, type ServerMessage } from "@ski/shared";
 
 const TOKEN_KEY = "ski-builder-token";
 const NAME_KEY = "ski-builder-name";
@@ -53,7 +53,7 @@ export interface NetHandlers {
 
 type LobbyRequest = Extract<
   ClientMessage,
-  { type: "list_games" | "create_game" | "import_game" | "save_game" | "load_save" | "delete_save" }
+  { type: "list_games" | "create_game" | "import_game" | "save_game" | "load_save" | "delete_save" | "share_game" }
 >;
 /** A lobby request as the caller writes it; `reqId` is added on sending. */
 export type LobbyAsk = LobbyRequest extends infer T ? (T extends unknown ? Omit<T, "reqId"> : never) : never;
@@ -120,6 +120,10 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
   let closed = false;
   let retry = 0;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  // The server sends the whole resort once, then only what changed
+  // (packages/shared/src/runtime/stream.ts). This puts it back together, so
+  // `onSnapshot` sees a whole state every time, exactly as before.
+  const stream = new StreamReceiver();
 
   const send = (msg: ClientMessage) => {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -131,6 +135,8 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
     ws.onopen = () => {
       retry = 0;
       handlers.onStatus(true);
+      // A new socket starts from the snapshot its join brings.
+      stream.reset();
       send({ type: "join", roomId, name, token });
       if (heartbeat) clearInterval(heartbeat);
       heartbeat = setInterval(() => send({ type: "ping", at: Date.now() }), HEARTBEAT_MS);
@@ -164,8 +170,11 @@ export function connectGame(roomId: string, name: string, handlers: NetHandlers)
           /* ignore */
         }
         handlers.onWelcome(msg.playerId, msg.token, msg.roomId);
-      } else if (msg.type === "snapshot") {
-        handlers.onSnapshot(msg.state as ResortState, msg.players, msg.seq);
+      } else if (msg.type === "snapshot" || msg.type === "patch") {
+        const got = stream.receive(msg);
+        // Lost the thread (a patch missing): ask for the whole state again.
+        if (got === "resync") send({ type: "resync" });
+        else if (got) handlers.onSnapshot(got.state, msg.players, got.seq);
       } else if (msg.type === "event") {
         handlers.onEvent(msg.title, msg.body, msg.kind, msg.actorId, msg.actorName);
       } else if (msg.type === "error") {

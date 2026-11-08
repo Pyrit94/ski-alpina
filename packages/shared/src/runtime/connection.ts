@@ -2,6 +2,7 @@ import { ClientMessageSchema, type Intent, type ServerMessage } from "../protoco
 import type { ChatEntry } from "../types.ts";
 import type { GameRoom } from "./room.ts";
 import { canSee, handleLobby, isLobbyMessage, type GameMeta, type SaveStore } from "./saves.ts";
+import { currentSnapshot, fieldSigs, newStream, nextUpdate, type RoomStream } from "./stream.ts";
 
 /**
  * What one game socket does with the messages it receives: join, chat, marks,
@@ -56,9 +57,51 @@ export function sendTo(socket: Socketish, msg: ServerMessage): void {
   }
 }
 
+/** The whole state, as a one-off message outside any room's update stream (tests, tools). */
 export function snapshotOf(room: GameRoom): ServerMessage {
   return { type: "snapshot", seq: room.seq, state: room.snapshot(), players: room.presence() };
 }
+
+/** Each room's update stream (runtime/stream.ts), made on first use. */
+const streams = new WeakMap<GameRoom, RoomStream>();
+export function streamOf(room: GameRoom): RoomStream {
+  let stream = streams.get(room);
+  if (!stream) {
+    stream = newStream();
+    streams.set(room, stream);
+  }
+  return stream;
+}
+
+/**
+ * Tell everyone in the room what changed: a patch of the changed fields, or
+ * a full snapshot when due. Worked out once per room, then sent to each socket.
+ */
+export function publish<S extends Socketish>(hub: Hub<S>, room: GameRoom, opts: { full?: boolean } = {}): void {
+  broadcastTo(hub, room.state.roomId, nextUpdate(streamOf(room), room.snapshot(), room.presence(), opts));
+}
+
+/**
+ * The whole current state for one socket (joining, or asking after a gap).
+ *
+ * Everyone else is first brought up to the same update, so the next patch
+ * applies for all of them alike. Pass `always` when the room's presence just
+ * changed (a join), so the others hear of it even if the resort did not move.
+ */
+export function sendSnapshot<S extends Socketish>(hub: Hub<S>, room: GameRoom, socket: Socketish, always = false): void {
+  const stream = streamOf(room);
+  if (always || !stream.sigs || !sameSigs(stream.sigs, fieldSigs(room.snapshot()))) publish(hub, room);
+  sendTo(socket, currentSnapshot(stream, room.snapshot(), room.presence()));
+}
+
+function sameSigs(a: Map<string, string>, b: Map<string, string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [k, v] of a) if (b.get(k) !== v) return false;
+  return true;
+}
+
+/** How often one socket may ask for the whole state again. */
+export const RESYNC_MIN_MS = 1000;
 
 export function broadcastTo<S extends Socketish>(hub: Hub<S>, roomId: string, msg: ServerMessage): void {
   // Serialised once for the whole room, not once per player.
@@ -93,6 +136,7 @@ export function connect<S extends Socketish>(
   let bound: Binding<S> | null = null;
   const send = (msg: ServerMessage) => sendTo(socket, msg);
   const broadcast = (roomId: string, msg: ServerMessage) => broadcastTo(hub, roomId, msg);
+  let lastResync = 0;
 
   let tokens: number = RATE.burst;
   let refilled = Date.now();
@@ -149,6 +193,15 @@ export function connect<S extends Socketish>(
       if (bound) hub.getRoom(bound.roomId).setFocus(bound.playerId, msg.hex);
       return;
     }
+    if (msg.type === "resync") {
+      // A full snapshot is the most expensive thing a socket can ask for.
+      const now = Date.now();
+      if (!bound || now - lastResync < RESYNC_MIN_MS) return;
+      lastResync = now;
+      const room = hub.rooms.get(bound.roomId);
+      if (room) sendSnapshot(hub, room, socket);
+      return;
+    }
     if (isLobbyMessage(msg)) {
       const player = bound ? hub.rooms.get(bound.roomId)?.players.get(bound.playerId) : undefined;
       void handleLobby(msg, {
@@ -160,7 +213,7 @@ export function connect<S extends Socketish>(
         boundRoomId: bound?.roomId ?? null,
         send,
         broadcast,
-        snapshotOf,
+        publish: (room, opts) => publish(hub, room, opts),
         isBlocked: hub.isBlocked,
       }).catch((err: unknown) => {
         hub.log("saves", err);
@@ -189,10 +242,13 @@ export function connect<S extends Socketish>(
       // the name and token the client sent (those are for local play).
       const player = room.join(msg.name, msg.token, identity ?? undefined);
       if (bound) hub.bindings.delete(bound);
+      bound = null;
+      send({ type: "welcome", playerId: player.id, token: player.token, roomId: room.state.roomId });
+      // The others hear of the arrival as a patch; the newcomer gets the
+      // whole state as of that same update, and only then joins the stream.
+      sendSnapshot(hub, room, socket, true);
       bound = { socket, playerId: player.id, roomId: room.state.roomId };
       hub.bindings.add(bound);
-      send({ type: "welcome", playerId: player.id, token: player.token, roomId: room.state.roomId });
-      broadcast(room.state.roomId, snapshotOf(room));
       return;
     }
     if (!bound) {
@@ -205,14 +261,14 @@ export function connect<S extends Socketish>(
     if (msg.type === "chat") {
       const entry = room.say(bound.playerId, msg.text);
       if (entry) {
-        broadcast(bound.roomId, snapshotOf(room));
+        publish(hub, room);
         hub.onChat?.(room, entry);
       }
       return;
     }
     if (msg.type === "mark") {
       room.setMark(bound.playerId, msg.hex, msg.kind);
-      broadcast(bound.roomId, snapshotOf(room));
+      publish(hub, room);
       return;
     }
 
@@ -230,7 +286,7 @@ export function connect<S extends Socketish>(
       actorId: result.event.actorId,
       actorName: result.event.actorName,
     });
-    broadcast(bound.roomId, snapshotOf(room));
+    publish(hub, room);
     hub.onIntent?.(room, bound.playerId, msg.intent);
   };
 

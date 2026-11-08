@@ -84,6 +84,8 @@ export interface UiState {
    * stays quiet for the income that ticks in every second.
    */
   coinActionSeq: number;
+  /** Just started a shared game: offer to invite someone. */
+  inviteHint: boolean;
 }
 
 export interface Celebrate {
@@ -104,6 +106,8 @@ export interface GameStore extends ResortState, UiState {
   saveGame: (name: string) => void;
   loadSave: (saveId: string) => void;
   deleteSave: (saveId: string) => void;
+  /** Open this own game to the others («freigeben»); only its owner may. */
+  shareGame: () => void;
   /** Back to the start screen, to pick another game. */
   leaveGame: () => void;
   /** The map whose ground is loaded and active; the scene waits for it. */
@@ -358,6 +362,7 @@ export const useGame = create<GameStore>((set, get) => ({
   celebrate: null,
   bilanzSeason: null,
   coinActionSeq: 0,
+  inviteHint: false,
 
   occupied: () => {
     const s = get();
@@ -626,6 +631,7 @@ export const useGame = create<GameStore>((set, get) => ({
   saveGame: (name) => net?.sendLobby({ type: "save_game", ...(name.trim() ? { name: name.trim() } : {}) }),
   loadSave: (saveId) => net?.sendLobby({ type: "load_save", saveId }),
   deleteSave: (saveId) => net?.sendLobby({ type: "delete_save", saveId }),
+  shareGame: () => net?.sendLobby({ type: "share_game", gameId: get().roomId }),
   leaveGame: () => {
     net?.close();
     net = null;
