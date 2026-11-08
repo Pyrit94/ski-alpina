@@ -14,6 +14,7 @@ import { continueFree, inMatch, PENDING_READY, startMatch, startSandbox } from "
 import { applyEventWeights, recordVote, settleActorCoins, walletKey } from "./rules.ts";
 import { MATCH } from "../../../config/src/match.ts";
 import { applyResearch, buildCost, discounted, isResearchIntent } from "./research.ts";
+import { applyProposalIntent } from "./proposals.ts";
 
 export interface Applied {
   state: ResortState;
@@ -48,7 +49,9 @@ function record(
   actor?: Actor,
 ): Applied {
   const next = applied.state;
-  const spent = Math.max(0, before.coins - next.coins);
+  // An accepted proposal's own steps were booked to their proposer already.
+  const nested = intent.type === "decide_proposal";
+  const spent = nested ? 0 : Math.max(0, before.coins - next.coins);
   const isBuild =
     intent.type === "place_building" || intent.type === "place_lift" || intent.type === "place_piste";
 
@@ -93,7 +96,7 @@ function record(
 
   let settled: ResortState = { ...next, contributors, activity, match };
   // Separate purses: whatever the intent cost or paid lands with its actor.
-  if (intent.type !== "start_match") settled = settleActorCoins(before, settled, actor?.id);
+  if (intent.type !== "start_match" && !nested) settled = settleActorCoins(before, settled, actor?.id);
   return { ...applied, state: settled };
 }
 
@@ -369,6 +372,10 @@ function applyOne(
       body: `${BY_ID[b.itemId].name} steht jetzt am neuen Platz.`,
       kind: "ok",
     };
+  }
+
+  if (intent.type === "propose" || intent.type === "decide_proposal" || intent.type === "set_proposal_limit") {
+    return applyProposalIntent(state, dem, intent, now, actor, team);
   }
 
   if (intent.type === "rearrange") {

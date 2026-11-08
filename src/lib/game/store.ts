@@ -24,6 +24,8 @@ import { play } from "./sound";
 import { finishPisteDraft, pisteClick } from "./piste-editor";
 import { emptyResort, loadRegion, setActiveRegion, TUTORIAL_STEPS } from "@ski/shared";
 import { CLASSIC_REGION } from "@ski/config";
+import { partners, proposalFor } from "./proposals";
+import { markOf, readMark, summarize, writeMark, type AwaySummary } from "./away";
 import type { NotificationItem } from "./types";
 
 type Net = ReturnType<typeof connectGame>;
@@ -87,6 +89,8 @@ export interface GameStore extends ResortState, UiState {
   descentOffer: string | null;
   /** «Pisten automatisch» while open: which lifts (null = all) and which grades. */
   autoPistes: { liftIds: string[] | null; mix: "mixed" | "blue" | "red" | "black" } | null;
+  /** «Während du weg warst», shown once after coming back. */
+  awaySummary: AwaySummary | null;
   /** The village optimiser's card is open. */
   villageOpen: boolean;
   /** The moves it proposes, for the map. */
@@ -107,6 +111,8 @@ export interface GameStore extends ResortState, UiState {
   finishPiste: () => void;
   /** Send an intent as-is; for editors that build their own (see piste-editor.ts). */
   sendIntent: (intent: Intent) => void;
+  /** Several intents as one step: one proposal for all of them when it needs the partner's yes. */
+  sendPlan: (intents: Intent[], title?: string) => void;
   upgrade: (id: string, key: "speed" | "cabins" | "capacity") => void;
   /** Take back your own build: full price, within the undo window. */
   undo: (id: string) => void;
@@ -154,6 +160,8 @@ export interface GameStore extends ResortState, UiState {
 }
 
 let net: Net | null = null;
+/** When this device last noted where the game stood (see away.ts). */
+let lastMarkAt = 0;
 
 function flatten(s: ResortState): Partial<ResortState> {
   return {
@@ -187,7 +195,26 @@ function flatten(s: ResortState): Partial<ResortState> {
     research: s.research,
     speed: s.speed ?? 1,
     daily: s.daily ?? [],
+    proposals: s.proposals ?? [],
+    proposalLimit: s.proposalLimit,
   };
+}
+
+/**
+ * Send what was built — or, when it is a big step and someone else builds
+ * here too, send it to them as a proposal (see TEAMPLAY).
+ */
+function dispatch(intents: Intent[], title?: string) {
+  const s = useGame.getState();
+  const me = s.playerId ? { id: s.playerId, name: s.playerName } : null;
+  const proposal = proposalFor(s as unknown as ResortState, getDem(), intents, me, s.players, title);
+  if (!proposal) {
+    for (const i of intents) net?.sendIntent(i);
+    return;
+  }
+  net?.sendIntent(proposal);
+  const who = partners(s as unknown as ResortState, me?.id ?? null, s.players);
+  s.pushNote("Vorschlag geschickt", `${proposal.title}: ${who.join(", ") || "die anderen"} entscheidet.`, "info");
 }
 
 const empty = emptyResort("zermatt");
@@ -324,6 +351,18 @@ export const useGame = create<GameStore>((set, get) => ({
           }
         }
         if (first || get().sheet === "chat") set({ chatSeen: chat.length });
+        // «Während du weg warst»: compare with this device's last mark, then keep it fresh.
+        const me = get().playerId;
+        if (me) {
+          if (first) {
+            const away = summarize(readMark(state.roomId, me), state, me);
+            if (away) set({ awaySummary: away });
+          }
+          if (first || Date.now() - lastMarkAt > 30_000) {
+            writeMark(state.roomId, me, markOf(state));
+            lastMarkAt = Date.now();
+          }
+        }
         if (!first && reports > prev.match.history.length && state.match.options?.album) {
           const report = state.match.history[reports - 1]!;
           set({ albumRequest: { roomId: state.roomId, matchStartedAt: state.match.startedAt, round: report.round } });
@@ -390,6 +429,7 @@ export const useGame = create<GameStore>((set, get) => ({
   regionReady: null,
   descentOffer: null,
   autoPistes: null,
+  awaySummary: null,
   villageOpen: false,
   villagePreview: [],
   researchFocus: null,
@@ -559,7 +599,7 @@ export const useGame = create<GameStore>((set, get) => ({
         get().pushNote("Nicht möglich", v.reason, "warn");
         return;
       }
-      net?.sendIntent({ type: "move_building", entityId: s.movingId, q, r });
+      dispatch([{ type: "move_building", entityId: s.movingId, q, r }]);
       set({ movingId: null, buildItem: null, phase: "idle", hover: null, lastStampAt: Date.now(), lastStampHex: { q, r } });
       return;
     }
@@ -570,7 +610,7 @@ export const useGame = create<GameStore>((set, get) => ({
         return;
       }
       const intent: Intent = { type: "place_building", itemId: s.buildItem, q, r };
-      net?.sendIntent(intent);
+      dispatch([intent]);
       set({ selectedId: null, lastStampAt: Date.now(), lastStampHex: { q, r } });
       return;
     }
@@ -599,7 +639,7 @@ export const useGame = create<GameStore>((set, get) => ({
         get().pushNote("Zu weit", "Wähle eine nähere Station.", "warn");
         return;
       }
-      net?.sendIntent({ type: "place_lift", itemId: s.buildItem, a: s.liftStart, b: { q, r } });
+      dispatch([{ type: "place_lift", itemId: s.buildItem, a: s.liftStart, b: { q, r } }]);
       // A lift is done in one go: leave building, so the camera can glide to
       // it and the advisor can offer its run straight away.
       set({
@@ -622,9 +662,10 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   finishPiste: () => finishPisteDraft(),
-  sendIntent: (intent) => net?.sendIntent(intent),
+  sendIntent: (intent) => dispatch([intent]),
+  sendPlan: (intents, title) => dispatch(intents, title),
 
-  upgrade: (id, key) => net?.sendIntent({ type: "upgrade", entityId: id, key }),
+  upgrade: (id, key) => dispatch([{ type: "upgrade", entityId: id, key }]),
   undo: (id) => net?.sendIntent({ type: "undo", entityId: id }),
   movingId: null,
   startMove: (id) => {
@@ -643,7 +684,7 @@ export const useGame = create<GameStore>((set, get) => ({
   },
   setSpeed: (speed) => net?.sendIntent({ type: "set_speed", speed }),
   nameLift: (id, name) => net?.sendIntent({ type: "name_lift", entityId: id, name }),
-  expand: (id) => net?.sendIntent({ type: "expand", entityId: id }),
+  expand: (id) => dispatch([{ type: "expand", entityId: id }]),
   freePlay: () => net?.sendIntent({ type: "free_play" }),
   demolish: (id) => {
     net?.sendIntent({ type: "demolish", entityId: id });

@@ -22,6 +22,7 @@ import {
 import type { PisteWidth } from "../types.ts";
 import { validateEditPiste } from "./piste-edit.ts";
 import { villageMovable } from "./site.ts";
+import { validateProposalIntent } from "./proposals.ts";
 import { hexKey } from "../hex.ts";
 
 export function validateHex(
@@ -316,6 +317,10 @@ export function validateIntent(
     // The building's own hex does not count as taken while it moves.
     const without = { ...state, buildings: state.buildings.filter((x) => x.id !== b.id) };
     return validateHex(without, dem, intent.q, intent.r, b.itemId);
+  }
+
+  if (intent.type === "propose" || intent.type === "decide_proposal" || intent.type === "set_proposal_limit") {
+    return validateProposalIntent(state, dem, intent, role, now, ctx);
   }
 
   if (intent.type === "rearrange") {

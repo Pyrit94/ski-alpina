@@ -83,6 +83,24 @@ export const IntentSchema = z.discriminatedUnion("type", [
       .min(1)
       .max(40),
   }),
+  // Playing together: ask the other player before a big step.
+  z.object({
+    type: z.literal("propose"),
+    title: z.string().trim().min(1).max(80),
+    // Checked one by one against IntentSchema in the engine; nesting is refused.
+    intents: z.array(z.record(z.string(), z.unknown())).min(1).max(16),
+  }),
+  // Accept or decline a proposal; the proposer declining withdraws it.
+  z.object({
+    type: z.literal("decide_proposal"),
+    proposalId: z.string().min(2).max(48),
+    accept: z.boolean(),
+  }),
+  // Above which cost actions become proposals (0 = never).
+  z.object({
+    type: z.literal("set_proposal_limit"),
+    limit: z.number().int().min(0).max(10_000_000),
+  }),
   z.object({
     type: z.literal("set_speed"),
     speed: z.union([z.literal(0), z.literal(1), z.literal(3)]),
