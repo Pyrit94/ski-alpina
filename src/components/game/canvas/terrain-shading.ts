@@ -29,7 +29,16 @@ function lin(h: number): Rgb {
  * because a north face in shade still has to read as stone and not as a hole.
  */
 export const PALETTE = {
-  meadow: lin(0x8c9868),
+  /** Summer pasture: the lush green of a mown alpine meadow. */
+  meadow: lin(0x82975a),
+  /** Grass just melted out in spring, or withered after the first frosts. */
+  straw: lin(0xa59a72),
+  /** Autumn pasture: golden brown. */
+  autumnMeadow: lin(0xa8874c),
+  /** Alpine heath in autumn: bilberry and alpenrose turn rust red. */
+  autumnAlpine: lin(0x93705a),
+  /** A larch stand in October. */
+  larch: lin(0xc58f2a),
   forest: lin(0x4f6142),
   alpine: lin(0x9a9b86),
   snow: lin(0xe8eef6),
@@ -59,6 +68,26 @@ function mixInto(out: Rgb, b: Rgb, t: number) {
 const SNOW_FEATHER = 130;
 
 /**
+ * How much lower a steep south face behaves for snow, metres. The sun works
+ * on it all day, so in spring it melts out weeks before the north side.
+ */
+const ASPECT_M = 260;
+
+/** Spread of the patchy edge, metres: drifts and hollows hold snow, knolls lose it. */
+const MOTTLE_M = 240;
+
+/** The season's tints for the ground (see season-look.ts). */
+export interface GroundSeason {
+  /** 0..1 golden autumn grass and heath. */
+  autumn: number;
+  /** 0..1 pale, withered grass. */
+  straw: number;
+}
+
+/** High summer: no tint at all. */
+const NO_TINT: GroundSeason = { autumn: 0, straw: 0 };
+
+/**
  * Albedo at one point.
  *
  * `elevM` is in gameplay metres; `offset` turns it into the real height
@@ -70,6 +99,10 @@ const SNOW_FEATHER = 130;
  *
  * `slope` is a real tangent, `villageDist` in world units, `patch` a 0…1
  * noise that breaks the forest into stands.
+ *
+ * `south` (-1…1) is how squarely and steeply the ground faces the sun, and
+ * `mottle` a 0…1 noise; together they make the snow edge retreat up the
+ * sunny side first and in patches rather than along a contour line.
  */
 export function groundAlbedo(
   elevM: number,
@@ -80,9 +113,13 @@ export function groundAlbedo(
   out: Rgb = [0, 0, 0],
   offset = 0,
   patch = 0.5,
+  season: GroundSeason = NO_TINT,
+  south = 0,
+  mottle = 0.5,
 ): Rgb {
   const real = elevM - offset;
-  const cover = smoothstep(snowLineM - SNOW_FEATHER, snowLineM + SNOW_FEATHER, elevM);
+  const lying = elevM - south * ASPECT_M + (mottle - 0.5) * MOTTLE_M;
+  const cover = smoothstep(snowLineM - SNOW_FEATHER, snowLineM + SNOW_FEATHER, lying);
   if (water) {
     // Open water in summer, frozen and snowed over in winter, as the lakes of the Engadin are.
     out[0] = PALETTE.water[0];
@@ -94,9 +131,16 @@ export function groundAlbedo(
   out[0] = PALETTE.meadow[0];
   out[1] = PALETTE.meadow[1];
   out[2] = PALETTE.meadow[2];
+  // The grass through the year: gold in autumn, pale when just melted out or
+  // frosted. The valley greens up first, so the straw lingers higher up.
+  // Valley pastures stay green longest; the high ones turn first.
+  mixInto(out, PALETTE.autumnMeadow, season.autumn * (0.45 + 0.4 * smoothstep(1300, 2100, real)));
+  mixInto(out, PALETTE.straw, Math.min(1, season.straw * (0.75 + 0.5 * smoothstep(1400, 2400, real))));
 
   // Above the tree line: alpine grass and heath, then scree.
-  mixInto(out, PALETTE.alpine, smoothstep(LANDSCAPE.treeLine, LANDSCAPE.treeLine + 260, real));
+  const alpine = smoothstep(LANDSCAPE.treeLine, LANDSCAPE.treeLine + 260, real);
+  mixInto(out, PALETTE.alpine, alpine);
+  mixInto(out, PALETTE.autumnAlpine, alpine * season.autumn * 0.5);
 
   // The forest belt: below the tree line, on slopes a forest holds to (the
   // valley floor is meadow and village), in stands rather than a carpet.
@@ -105,6 +149,10 @@ export function groundAlbedo(
   const stands = smoothstep(0.32, 0.58, patch);
   const forest = belt * growable * stands * smoothstep(4, 9, villageDist);
   mixInto(out, PALETTE.forest, forest);
+  // Larches grow toward the tree line and among the spruce; in autumn their
+  // stands show as gold in the dark forest.
+  const larches = smoothstep(LANDSCAPE.treeLine - 600, LANDSCAPE.treeLine - 150, real) * smoothstep(0.45, 0.7, patch);
+  mixInto(out, PALETTE.larch, forest * larches * season.autumn * 0.55);
 
   // Snow holds on anything a skier could stand on and slides off the rest.
   // Under trees it only frosts the crowns, so a forest stays dark in winter.

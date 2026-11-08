@@ -5,7 +5,7 @@ import { forestPatch, metersToWorldY, surfaceY, type Heightmap, type ScatterPoin
 import { worldToHex } from "@/lib/game/hex";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import type { MapLayer } from "@/lib/game/types";
-import { bakeOcclusion, groundAlbedo, type Rgb } from "./terrain-shading";
+import { bakeOcclusion, groundAlbedo, type GroundSeason, type Rgb } from "./terrain-shading";
 
 /**
  * The ground, the land beyond it, and what grows on it.
@@ -31,6 +31,10 @@ interface GroundBase {
   z: Float32Array;
   /** Forest stands, 0…1 (see forestPatch). */
   patch: Float32Array;
+  /** How squarely the ground faces the sun, -1…1 (see sunFacing). */
+  south: Float32Array;
+  /** Finer noise for a patchy snow edge, 0…1. */
+  mottle: Float32Array;
   /** Gameplay minus real metres on this map. */
   offset: number;
 }
@@ -77,14 +81,45 @@ export function groundBase(hm: Heightmap): GroundBase {
   geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
 
   const patch = new Float32Array(count);
-  for (let i = 0; i < count; i++) patch[i] = forestPatch(xs[i]!, zs[i]!);
-  const base = { geometry: geo, elevM, slope, village, water, x: xs, z: zs, patch, offset: hm.region.offset };
+  const south = new Float32Array(count);
+  const mottle = new Float32Array(count);
+  const normals = geo.attributes.normal!;
+  for (let i = 0; i < count; i++) {
+    patch[i] = forestPatch(xs[i]!, zs[i]!);
+    south[i] = sunFacing(normals.getY(i), normals.getZ(i));
+    mottle[i] = snowMottle(xs[i]!, zs[i]!);
+  }
+  const base = { geometry: geo, elevM, slope, village, water, x: xs, z: zs, patch, south, mottle, offset: hm.region.offset };
   groundCache.set(hm, base);
   return base;
 }
 
 const scratch: Rgb = [0, 0, 0];
 const tmp = new THREE.Color();
+
+/** World height is about twice the horizontal scale (see metersToWorldY): back to a real tangent. */
+const VERTICAL_EXAGGERATION = 1.98;
+
+/**
+ * How squarely a slope faces the sun, -1 (steep north face) to 1 (steep
+ * south face), from its world normal. On the real maps +z is south
+ * (scripts/build-regions.mjs), so a slope facing south leans its normal
+ * toward +z. A 27 degree slope counts fully; flat ground is neither.
+ */
+function sunFacing(ny: number, nz: number): number {
+  const rise = nz / Math.max(0.05, ny) / VERTICAL_EXAGGERATION;
+  return Math.max(-1, Math.min(1, rise / 0.5));
+}
+
+/** Noise at a few hundred metres for the snow edge: drifts and knolls, not stands of trees. */
+function snowMottle(x: number, z: number): number {
+  return forestPatch(x * 2.3 + 41.7, z * 2.3 - 13.1);
+}
+
+/** The season, as the ground needs it: where the snow lies and how the grass looks. */
+export interface GroundLook extends GroundSeason {
+  snowLineM: number;
+}
 
 /**
  * Write the ground colour for the current layer into the shared geometry.
@@ -95,7 +130,7 @@ const tmp = new THREE.Color();
 export function paintGround(
   base: GroundBase,
   layer: MapLayer,
-  snowLineM: number,
+  look: GroundLook,
   heat: Map<string, number> | null,
 ) {
   const attr = base.geometry.attributes.color as THREE.BufferAttribute;
@@ -120,7 +155,19 @@ export function paintGround(
       out[i * 3 + 2] = tmp.b;
       continue;
     }
-    groundAlbedo(m, base.slope[i]!, snowLineM, base.village[i]!, base.water[i] === 1, scratch, base.offset, base.patch[i]!);
+    groundAlbedo(
+      m,
+      base.slope[i]!,
+      look.snowLineM,
+      base.village[i]!,
+      base.water[i] === 1,
+      scratch,
+      base.offset,
+      base.patch[i]!,
+      look,
+      base.south[i]!,
+      base.mottle[i]!,
+    );
     out[i * 3] = scratch[0];
     out[i * 3 + 1] = scratch[1];
     out[i * 3 + 2] = scratch[2];
@@ -139,8 +186,11 @@ export function paintGround(
  * Inside the square it drops well below the playable ground and is never
  * seen; its edge vertices sit exactly on the map's perimeter at the map's
  * height, so the seam is continuous. One mesh, one draw call, no raycasting.
+ *
+ * Built without colour: `paintFarLand` writes that, so a change of season
+ * repaints one buffer instead of rebuilding the mesh and its normals.
  */
-export function buildFarLand(hm: Heightmap, snowLineM: number, reach = 470): THREE.BufferGeometry {
+export function buildFarLand(hm: Heightmap, reach = 470): THREE.BufferGeometry {
   const offset = hm.region.offset;
   const half = hm.world / 2;
   const axis: number[] = [];
@@ -256,24 +306,71 @@ export function buildFarLand(hm: Heightmap, snowLineM: number, reach = 470): THR
   geo.setIndex(index);
   geo.computeVertexNormals();
 
-  const colors = new Float32Array(n * n * 3);
-  const ao = new Float32Array(n * n);
+  // What a repaint needs per vertex, worked out once.
+  const count = n * n;
   const normals = geo.attributes.normal!;
-  for (let i = 0; i < n * n; i++) {
-    const y = positions[i * 3 + 1]!;
+  const inputs: FarInputs = {
+    offset,
+    elevM: new Float32Array(count),
+    slope: new Float32Array(count),
+    patch: new Float32Array(count),
+    south: new Float32Array(count),
+    mottle: new Float32Array(count),
+  };
+  for (let i = 0; i < count; i++) {
     const ny = Math.max(0.05, normals.getY(i));
+    const x = positions[i * 3]!;
+    const z = positions[i * 3 + 2]!;
+    inputs.elevM[i] = positions[i * 3 + 1]! / WORLD_Y_PER_M + BASE_M;
     // World-space tangent back to a real one: vertical is ~2x exaggerated.
-    const slope = Math.sqrt(1 - ny * ny) / ny / 1.98;
-    groundAlbedo(y / WORLD_Y_PER_M + BASE_M, slope, snowLineM, 999, false, scratch, offset, forestPatch(positions[i * 3]!, positions[i * 3 + 2]!));
-    colors[i * 3] = scratch[0];
-    colors[i * 3 + 1] = scratch[1];
-    colors[i * 3 + 2] = scratch[2];
-    ao[i] = 1;
+    inputs.slope[i] = Math.sqrt(1 - ny * ny) / ny / VERTICAL_EXAGGERATION;
+    inputs.patch[i] = forestPatch(x, z);
+    inputs.south[i] = sunFacing(ny, normals.getZ(i));
+    inputs.mottle[i] = snowMottle(x, z);
   }
-  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  geo.setAttribute("skiAO", new THREE.BufferAttribute(ao, 1));
+  farInputs.set(geo, inputs);
+  geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+  geo.setAttribute("skiAO", new THREE.BufferAttribute(new Float32Array(count).fill(1), 1));
   geo.computeBoundingSphere();
   return geo;
+}
+
+interface FarInputs {
+  offset: number;
+  elevM: Float32Array;
+  slope: Float32Array;
+  patch: Float32Array;
+  south: Float32Array;
+  mottle: Float32Array;
+}
+
+const farInputs = new WeakMap<THREE.BufferGeometry, FarInputs>();
+
+/** Colour the far land for the season. Same ground rules as the map, no village, no water. */
+export function paintFarLand(geo: THREE.BufferGeometry, look: GroundLook) {
+  const inputs = farInputs.get(geo);
+  if (!inputs) return;
+  const attr = geo.attributes.color as THREE.BufferAttribute;
+  const out = attr.array as Float32Array;
+  for (let i = 0; i < inputs.elevM.length; i++) {
+    groundAlbedo(
+      inputs.elevM[i]!,
+      inputs.slope[i]!,
+      look.snowLineM,
+      999,
+      false,
+      scratch,
+      inputs.offset,
+      inputs.patch[i]!,
+      look,
+      inputs.south[i]!,
+      inputs.mottle[i]!,
+    );
+    out[i * 3] = scratch[0];
+    out[i * 3 + 1] = scratch[1];
+    out[i * 3 + 2] = scratch[2];
+  }
+  attr.needsUpdate = true;
 }
 
 /**

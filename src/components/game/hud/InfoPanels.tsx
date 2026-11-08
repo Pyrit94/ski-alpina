@@ -9,6 +9,7 @@ import { RatingChip, RatingParts } from "./PisteRating";
 import { ReshapeOne } from "./Reshape";
 import { pct, siteTone } from "@/lib/game/placement";
 import { useStableGame } from "../canvas/use-stable-game";
+import { seasonGuestNote, visualSeason, VISUAL_SEASON_LABEL } from "../canvas/season-look";
 import { buildingLevelLabel, levelGain, pisteLevelLabel } from "@/lib/game/expansion";
 import { GRADE_COLOR } from "@/lib/game/piste-editor";
 import { fmt, fmtCompact, fmtSigned } from "@/lib/game/format";
@@ -596,6 +597,9 @@ export function OperationsPanel() {
           </Warning>
         )}
       </div>
+      <p className="mt-2 rounded-[12px] bg-ice px-2.5 py-1.5 text-[11px] leading-snug text-navy">
+        <span className="font-semibold">{VISUAL_SEASON_LABEL[visualSeason(day)]}:</span> {seasonGuestNote(day)}
+      </p>
       <div className="mt-2 grid grid-cols-2 gap-x-2 text-[10px] text-muted">
         <span>{SEASON_LABEL[phase]}</span>
         <span>Schneegrenze {fmt(realMetres(stats.snowLineM))} m</span>
