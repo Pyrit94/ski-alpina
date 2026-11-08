@@ -18,7 +18,6 @@ import {
   Hand,
   Hotel,
   ListChecks,
-  Menu,
   Mountain,
   MousePointer2,
   RotateCw,
@@ -30,6 +29,8 @@ import {
   Utensils,
   X,
   FlaskConical,
+  Settings,
+  Sparkles,
 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
@@ -49,6 +50,7 @@ import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCar
 import { useMyMoney } from "@/lib/game/team";
 import { DescentButton, DescentOffer, LinkStatus } from "./LinkStatus";
 import { AutoPistesButton, AutoPistesPanel } from "./AutoPistes";
+import { openAutoPistes } from "@/lib/game/auto-pistes";
 import { SavesPanel } from "./SavesPanel";
 import { useResearchReady } from "@/lib/game/research-ready";
 import { realMetres } from "@/lib/game/real-height";
@@ -169,6 +171,9 @@ function Coin({ className = "size-4" }: { className?: string }) {
   );
 }
 
+/** Category names that fit under a round button on a phone. */
+const SHORT_CAT: Partial<Record<Category, string>> = { lifts: "Bahnen", deco: "Deko" };
+
 const CAT_ICON: Record<Category, typeof Cable> = {
   lifts: Cable,
   buildings: Hotel,
@@ -214,7 +219,6 @@ export function GameHUD() {
       <TopBar />
       <div className="relative min-h-0 flex-1">
         <div className="flex h-full">
-          {desktop && <LeftColumn />}
           <div className="relative min-w-0 flex-1">
             {desktop && (
               <div className="absolute inset-x-0 top-2 z-10 flex flex-col items-center gap-2 px-3">
@@ -232,9 +236,13 @@ export function GameHUD() {
             {!desktop && <BuildHint />}
             {desktop && <CenterTools />}
             {desktop && <Attribution />}
+            {desktop && <DesktopTutorial />}
+            <ActionRail />
+            {desktop && <DesktopPanel />}
+            {desktop && <DesktopCorners />}
             {!desktop && <MobileFloats />}
             {!desktop && (
-              <div className="pointer-events-auto absolute right-3 top-3 z-20 flex flex-col items-end gap-2">
+              <div className="pointer-events-auto absolute left-3 top-3 z-20 flex flex-col items-start gap-2">
                 <MarkButtons vertical />
               </div>
             )}
@@ -244,7 +252,6 @@ export function GameHUD() {
               </div>
             )}
           </div>
-          {desktop && <RightColumn />}
         </div>
       </div>
       <BuildReticle />
@@ -254,7 +261,8 @@ export function GameHUD() {
           <MobileSheets />
         </>
       )}
-      <div className="absolute left-1/2 top-[4.25rem] z-40 -translate-x-1/2 lg:bottom-16 lg:left-auto lg:right-[316px] lg:top-auto lg:translate-x-0">
+      <BuildDrawer />
+      <div className="absolute left-1/2 top-[4.25rem] z-40 -translate-x-1/2 lg:left-auto lg:right-24 lg:translate-x-0">
         <Toasts />
       </div>
       <MatchSetupModal />
@@ -300,8 +308,6 @@ function TopBar() {
   const day = useGame((s) => s.day);
   const weather = useGame((s) => s.weather);
   const resortName = useGame((s) => s.resortName);
-  const setSheet = useGame((s) => s.setSheet);
-  const sheet = useGame((s) => s.sheet);
   const WeatherIcon = weather.kind === "snow" ? Snowflake : weather.kind === "sun" ? Sun : weather.kind === "storm" ? CloudLightning : weather.kind === "fog" ? CloudFog : Cloud;
   return (
     <header
@@ -328,22 +334,7 @@ function TopBar() {
       </div>
       <div className="hidden shrink-0 items-center gap-1.5 lg:flex">
         <Avatars />
-        <IconBtn onClick={() => setSheet(sheet === "menu" ? "none" : "menu")} label="Menü">
-          <Menu className="size-4" />
-        </IconBtn>
       </div>
-      <IconBtn
-        className="size-11 shrink-0 lg:hidden"
-        onClick={() => setSheet(sheet === "menu" ? "none" : "menu")}
-        label="Menü"
-      >
-        <Menu className="size-5" />
-      </IconBtn>
-      {sheet === "menu" && (
-        <div className="hidden lg:block">
-          <MenuSheet />
-        </div>
-      )}
     </header>
   );
 }
@@ -444,116 +435,7 @@ function Currency({ n, icon, label }: { n: number; icon: ReactNode; label: strin
   );
 }
 
-function IconBtn({
-  children,
-  onClick,
-  className = "",
-  label,
-}: {
-  children: ReactNode;
-  onClick?: () => void;
-  className?: string;
-  label?: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      className={`grid size-9 place-items-center rounded-full bg-panel/92 text-navy shadow-[var(--shadow-chip)] transition-transform duration-150 ease-[var(--ease-out)] hover:scale-[1.04] active:scale-[0.98] ${className}`}
-    >
-      {children}
-    </button>
-  );
-}
 
-function LeftColumn() {
-  const category = useGame((s) => s.category);
-  const setCategory = useGame((s) => s.setCategory);
-  const setBuildItem = useGame((s) => s.setBuildItem);
-  const cancel = useGame((s) => s.cancelBuild);
-  const buildItem = useGame((s) => s.buildItem);
-  const coins = useMyMoney().mine;
-  const terms = useBuildTerms();
-  const items = CATEGORIES;
-  return (
-    <aside className="hidden w-[292px] shrink-0 flex-col gap-2 overflow-hidden p-3 pr-1 lg:flex">
-      <Panel className="p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-[13px] font-semibold text-navy">
-            <Hammer className="size-4 text-accent" />
-            Bauen
-          </div>
-          <button type="button" onClick={cancel} className="grid size-7 place-items-center rounded-full text-muted hover:bg-ice">
-            <X className="size-4" />
-          </button>
-        </div>
-        <div className="grid grid-cols-5 gap-1">
-          {items.map((c) => {
-            const Icon = CAT_ICON[c.id];
-            const active = category === c.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                title={`${c.label} – ${c.hint}`}
-                onClick={() => setCategory(c.id)}
-                className={`flex flex-col items-center gap-1 rounded-[14px] px-1 py-2 text-[9px] font-semibold transition-colors duration-150 ${active ? "bg-accent text-panel" : "bg-snow text-navy hover:bg-ice"}`}
-              >
-                <Icon className="size-4" />
-                <span className="max-w-full truncate">{c.label.split(" ")[0]}</span>
-              </button>
-            );
-          })}
-        </div>
-      </Panel>
-      <Panel className="flex min-h-0 flex-1 flex-col p-3">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-          {CATEGORIES.find((c) => c.id === category)?.label}
-        </div>
-        {category === "pistes" && <AutoPistesButton className="mb-2 w-full" />}
-        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
-          {CATALOG.filter((i) => i.category === category).map((it) => {
-            const locked = terms.locked(it.id);
-            const tooExpensive = coins < terms.cost(it.id);
-            const active = buildItem === it.id;
-            return (
-              <button
-                key={it.id}
-                type="button"
-                onClick={() => setBuildItem(it.id)}
-                title={it.blurb}
-                className={`flex items-center gap-2.5 rounded-[14px] px-2 py-1.5 text-left transition-colors ${active ? "bg-accent text-panel" : locked ? "opacity-60 hover:bg-snow" : "hover:bg-snow"}`}
-              >
-                {locked ? (
-                  <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-snow text-subtle">
-                    <Lock className="size-4" />
-                  </span>
-                ) : (
-                  <ItemThumb id={it.id} className={`size-9 shrink-0 rounded-[11px] ${active ? "ring-2 ring-panel/70" : ""}`} />
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className={`block truncate text-[12px] font-semibold ${active ? "text-panel" : "text-navy"}`}>
-                    {it.name}
-                  </span>
-                  <span className={`block truncate text-[10px] ${active ? "text-panel/80" : "text-muted"}`}>
-                    {locked ? `Ab Level ${it.unlockLevel}` : it.blurb}
-                  </span>
-                </span>
-                <span
-                  className={`value ml-1 shrink-0 text-[11px] font-bold ${active ? "text-panel" : locked ? "text-subtle" : tooExpensive ? "text-warn" : "text-navy"}`}
-                >
-                  {priceLabel({ id: it.id, cost: terms.cost(it.id) })}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </Panel>
-      <TutorialCard />
-    </aside>
-  );
-}
 
 /**
  * The tutorial, collapsible.
@@ -638,88 +520,11 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function RightColumn() {
-  const selectedId = useGame((s) => s.selectedId);
-  const [tab, setTab] = useState<"ops" | "goals" | "research" | "team">("ops");
-  const unread = useUnreadChat();
-  const tabs = [
-    { id: "ops" as const, label: "Betrieb" },
-    { id: "goals" as const, label: "Ziele" },
-    { id: "research" as const, label: "Forschung" },
-    { id: "team" as const, label: "Team" },
-  ];
-  return (
-    <aside className="hidden w-[300px] shrink-0 flex-col gap-2 overflow-y-auto p-3 pl-1 lg:flex">
-      {selectedId && <InfoPanel />}
-      <Panel className="p-1">
-        <div className="grid grid-cols-4 gap-1">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`relative h-9 rounded-full text-[12px] font-semibold transition-colors ${tab === t.id ? "bg-accent text-panel" : "text-navy hover:bg-snow"}`}
-            >
-              {t.label}
-              {t.id === "team" && tab !== "team" && <UnreadBadge n={unread} />}
-            </button>
-          ))}
-        </div>
-      </Panel>
-      {tab === "ops" && (
-        <>
-          <OperationsPanel />
-          <TicketPricePanel />
-        </>
-      )}
-      {tab === "goals" && (
-        <>
-          <Panel className="p-3">
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Partie</div>
-            <MatchGoalsPanel />
-            <div className="mt-3 flex flex-col gap-2">
-              <VipCard />
-              <SecretGoalCard />
-              <DuelStandings />
-              <MatchRulesPanel />
-            </div>
-          </Panel>
-          <Quests />
-        </>
-      )}
-      {tab === "research" && (
-        <Panel className="p-3">
-          <ResearchPanel />
-        </Panel>
-      )}
-      {tab === "team" && (
-        <>
-          <Panel className="p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted">Wer baut mit</div>
-            <PlayersLine />
-          </Panel>
-          <Panel className="p-3">
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted">Team-Chat</div>
-            <ChatPanel />
-          </Panel>
-          <Panel className="p-3 empty:hidden">
-            <WalletPanel />
-          </Panel>
-          <Panel className="p-3">
-            <SavesPanel />
-          </Panel>
-          <RenamePanel />
-          <ActivityPanel />
-        </>
-      )}
-    </aside>
-  );
-}
 
 /** Copernicus attribution, required wherever the terrain is shown. */
 function Attribution() {
   return (
-    <div className="pointer-events-auto absolute bottom-2 left-3 z-10 max-w-[18rem] text-[9px] leading-tight text-navy/60">
+    <div className="pointer-events-auto absolute bottom-2 left-24 z-10 max-w-[18rem] text-[9px] leading-tight text-navy/60">
       {TERRAIN.attribution}
     </div>
   );
@@ -1572,10 +1377,6 @@ function BuildReticle() {
 function MobileDock() {
   const terms = useBuildTerms();
   const sheet = useGame((s) => s.sheet);
-  const unread = useUnreadChat();
-  const researchReady = useResearchReady();
-  const tool = useGame((s) => s.tool);
-  const setTool = useGame((s) => s.setTool);
   const phase = useGame((s) => s.phase);
   const finish = useGame((s) => s.finishPiste);
   const cancel = useGame((s) => s.cancelBuild);
@@ -1603,6 +1404,7 @@ function MobileDock() {
             : "Feld"
           : "Setzen";
 
+  if (sheet === "build" && !building) return null;
   return (
     <div
       className="pointer-events-auto px-3 pt-1 lg:hidden"
@@ -1619,7 +1421,8 @@ function MobileDock() {
         </div>
       </div>
       {building && (phase === "piste" ? <PisteEditor compact /> : <StampTray />)}
-      <div className="flex items-center gap-1.5 rounded-[22px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md">
+      {!building && <MobileCorners />}
+      <div className={`flex items-center gap-1.5 rounded-[22px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md ${building ? "" : "hidden"}`}>
         {building ? (
           <>
             <div className="min-w-0 flex-1 px-2">
@@ -1657,61 +1460,320 @@ function MobileDock() {
               <X className="size-5" />
             </button>
           </>
-        ) : (
-          <>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Idle phone dock: menu and camera bottom left, the big Bauen bottom right. */
+function MobileCorners() {
+  const tool = useGame((s) => s.tool);
+  const setTool = useGame((s) => s.setTool);
+  const sheet = useGame((s) => s.sheet);
+  return (
+    <div className="flex items-end justify-between gap-2">
+      <div className="flex items-end gap-2">
+        <RoundButton label="Menü" onClick={() => toggleSheet(sheet, "menu")} active={sheet === "menu"}>
+          <Settings className="size-5" />
+        </RoundButton>
+        <RoundButton label={tool === "pan" ? "Schieben" : "Drehen"} onClick={() => setTool(tool === "pan" ? "orbit" : "pan")}>
+          {tool === "pan" ? <Hand className="size-5" /> : <RotateCw className="size-5" />}
+        </RoundButton>
+      </div>
+      <BigBuildButton />
+    </div>
+  );
+}
+
+/**
+ * A round HUD button with its label under it, as city builders have them:
+ * the whole circle is the target, 56 px on a phone.
+ */
+function RoundButton({
+  label,
+  onClick,
+  active = false,
+  badge,
+  children,
+  size = "md",
+}: {
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  badge?: ReactNode;
+  children: ReactNode;
+  size?: "md" | "lg";
+}) {
+  const dim = size === "lg" ? "size-[4.5rem]" : "size-14";
+  return (
+    <button type="button" onClick={onClick} aria-label={label} className="pointer-events-auto flex flex-col items-center gap-0.5">
+      <span
+        className={`relative grid ${dim} place-items-center rounded-full shadow-[var(--shadow-panel)] ring-2 transition-transform duration-150 active:scale-95 ${active ? "bg-accent text-panel ring-panel" : "bg-panel/95 text-navy ring-panel/70 backdrop-blur-md"}`}
+      >
+        {children}
+        {badge}
+      </span>
+      <span className="rounded-full bg-navy/70 px-2 py-0.5 text-[10px] font-bold leading-none text-panel">{label}</span>
+    </button>
+  );
+}
+
+/** The big Bauen button, bottom right, as in a city builder. */
+function BigBuildButton() {
+  const sheet = useGame((s) => s.sheet);
+  const setSheet = useGame((s) => s.setSheet);
+  return (
+    <button
+      type="button"
+      onClick={() => setSheet(sheet === "build" ? "none" : "build")}
+      aria-label="Bauen"
+      className="pointer-events-auto flex flex-col items-center gap-0.5"
+    >
+      <span className="btn-3d grid size-[4.5rem] place-items-center rounded-full bg-accent text-panel shadow-[var(--shadow-panel)] ring-4 ring-panel" style={{ ["--lip" as string]: "var(--color-accent-dark)" }}>
+        <Hammer className="size-8" />
+      </span>
+      <span className="rounded-full bg-navy/70 px-2.5 py-0.5 text-[11px] font-bold leading-none text-panel">Bauen</span>
+    </button>
+  );
+}
+
+/**
+ * Betrieb, Ziele, Forschung, Team: round buttons down the right edge. Each
+ * opens its panel — a sheet on a phone, a card beside the rail on a desktop.
+ */
+function ActionRail() {
+  const sheet = useGame((s) => s.sheet);
+  const phase = useGame((s) => s.phase);
+  const unread = useUnreadChat();
+  const researchReady = useResearchReady();
+  if (phase !== "idle" || sheet === "build") return null;
+  const open = (next: HudSheet) => toggleSheet(sheet, next);
+  return (
+    <div className="pointer-events-none absolute right-3 top-3 z-20 flex flex-col gap-2.5 lg:top-1/2 lg:-translate-y-1/2">
+      <RoundButton label="Betrieb" active={sheet === "info"} onClick={() => open("info")}>
+        <BarChart3 className="size-6" />
+      </RoundButton>
+      <RoundButton label="Ziele" active={sheet === "quests"} onClick={() => open("quests")}>
+        <ListChecks className="size-6" />
+      </RoundButton>
+      <RoundButton
+        label="Forschung"
+        active={sheet === "research"}
+        onClick={() => open("research")}
+        badge={researchReady && sheet !== "research" ? <span className="absolute right-0.5 top-0.5 size-3 rounded-full bg-success ring-2 ring-panel" aria-label="Forschung bereit" /> : null}
+      >
+        <FlaskConical className="size-6" />
+      </RoundButton>
+      <RoundButton label="Team" active={sheet === "chat"} onClick={() => open("chat")} badge={<UnreadBadge n={unread} />}>
+        <MessageCircle className="size-6" />
+      </RoundButton>
+    </div>
+  );
+}
+
+/** Desktop: menu bottom left, Bauen bottom right. */
+function DesktopCorners() {
+  const sheet = useGame((s) => s.sheet);
+  const phase = useGame((s) => s.phase);
+  if (phase !== "idle" || sheet === "build") return null;
+  return (
+    <>
+      <div className="absolute bottom-4 left-4 z-20">
+        <RoundButton label="Menü" active={sheet === "menu"} onClick={() => toggleSheet(sheet, "menu")}>
+          <Settings className="size-6" />
+        </RoundButton>
+      </div>
+      <div className="absolute bottom-4 right-4 z-20">
+        <BigBuildButton />
+      </div>
+    </>
+  );
+}
+
+/** Desktop: the tutorial, top left, where the build list used to be. */
+function DesktopTutorial() {
+  const open = useGame((s) => s.tutorialOpen);
+  const phase = useGame((s) => s.phase);
+  if (!open || phase !== "idle") return null;
+  return (
+    <div className="pointer-events-auto absolute left-3 top-2 z-20 w-[292px]">
+      <TutorialCard />
+    </div>
+  );
+}
+
+/**
+ * Desktop: the panel the rail opens, as a card left of the rail. A selected
+ * building, lift or run shows here too, with its details and upgrades.
+ */
+function DesktopPanel() {
+  const sheet = useGame((s) => s.sheet);
+  const selectedId = useGame((s) => s.selectedId);
+  const phase = useGame((s) => s.phase);
+  const setSheet = useGame((s) => s.setSheet);
+  const selectEntity = useGame((s) => s.selectEntity);
+  const showSelected = !!selectedId && phase === "idle" && (sheet === "none" || sheet === "info");
+  if (!showSelected && (sheet === "none" || sheet === "build")) return null;
+  const kind = showSelected ? "selected" : sheet;
+  const title =
+    kind === "selected"
+      ? "Details"
+      : kind === "info"
+        ? "Betrieb"
+        : kind === "quests"
+          ? "Ziele & Partie"
+          : kind === "research"
+            ? "Forschung"
+            : kind === "chat"
+              ? "Team"
+              : "Menü";
+  const close = () => {
+    if (kind === "selected") selectEntity(null);
+    else setSheet("none");
+  };
+  const side = kind === "menu" ? "left-24" : "right-24";
+  return (
+    <div className={`pointer-events-auto absolute bottom-4 top-2 z-20 flex w-[340px] flex-col ${side}`}>
+      <div className="flex max-h-full min-h-0 flex-col rounded-[24px] bg-panel/97 shadow-[var(--shadow-panel)] backdrop-blur-md">
+        <div className="flex items-center justify-between px-4 pb-1 pt-3">
+          <div className="text-[15px] font-semibold text-navy">{title}</div>
+          <button type="button" aria-label="Schliessen" onClick={close} className="grid size-10 place-items-center rounded-full text-muted hover:bg-ice">
+            <X className="size-5" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          {kind === "selected" && <InfoPanel />}
+          {kind === "info" && (
+            <div className="flex flex-col gap-2">
+              <OperationsPanel />
+              <TicketPricePanel />
+              <WalletPanel />
+              <RenamePanel />
+              <ActivityPanel />
+            </div>
+          )}
+          {kind === "quests" && (
+            <div className="flex flex-col gap-2">
+              <MatchGoalsPanel />
+              <VipCard />
+              <SecretGoalCard />
+              <DuelStandings />
+              <MatchRulesPanel />
+              <Quests />
+            </div>
+          )}
+          {kind === "research" && <ResearchPanel />}
+          {kind === "chat" && (
+            <div className="flex flex-col gap-2">
+              <PlayersLine />
+              <ChatPanel />
+            </div>
+          )}
+          {kind === "menu" && <MobileMenuBody />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The build menu of a city builder: round category buttons along the bottom,
+ * and above them the items of that category as cards to swipe through. A tap
+ * on a card picks it up; the drawer folds away and the map is free to build.
+ */
+function BuildDrawer() {
+  const sheet = useGame((s) => s.sheet);
+  const phase = useGame((s) => s.phase);
+  const setSheet = useGame((s) => s.setSheet);
+  const category = useGame((s) => s.category);
+  const setCategory = useGame((s) => s.setCategory);
+  const setBuildItem = useGame((s) => s.setBuildItem);
+  const coins = useMyMoney().mine;
+  const terms = useBuildTerms();
+  if (sheet !== "build" || phase !== "idle") return null;
+  const items = CATALOG.filter((i) => i.category === category);
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30">
+      <button type="button" aria-label="Schliessen" className="pointer-events-auto absolute inset-x-0 bottom-0 h-screen bg-navy/20" onClick={() => setSheet("none")} />
+      <div className="relative mx-auto max-w-[1100px] px-2 lg:px-6" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
+        <div className="pointer-events-auto -mx-2 flex snap-x gap-2 overflow-x-auto px-2 pb-2 pt-1 lg:mx-0 lg:px-0">
+          {category === "pistes" && (
             <button
               type="button"
-              aria-label={tool === "pan" ? "Drehen" : "Verschieben"}
-              onClick={() => setTool(tool === "pan" ? "orbit" : "pan")}
-              className={`grid size-11 shrink-0 place-items-center rounded-[14px] ${tool === "pan" ? "bg-accent text-panel" : "text-navy"}`}
+              onClick={() => openAutoPistes(null)}
+              className="flex w-[7.5rem] shrink-0 snap-start flex-col overflow-hidden rounded-[18px] bg-accent text-left text-panel shadow-[var(--shadow-panel)] lg:w-[9rem]"
             >
-              {tool === "pan" ? <Hand className="size-5" /> : <RotateCw className="size-5" />}
+              <span className="grid h-20 w-full place-items-center lg:h-24">
+                <Sparkles className="size-9" />
+              </span>
+              <span className="px-2.5 pb-2.5 pt-1.5">
+                <span className="block text-[13px] font-bold leading-tight">Pisten automatisch</span>
+                <span className="mt-0.5 block text-[10px] leading-snug opacity-85">Plant, was sich lohnt</span>
+              </span>
             </button>
-            <button
-              type="button"
-              onClick={() => toggleSheet(sheet, "build")}
-              className={`flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full text-[13px] font-semibold ${sheet === "build" ? "bg-accent-dark text-panel" : "bg-accent text-panel"}`}
-            >
-              <Hammer className="size-4" /> Bauen
-            </button>
-            <button
-              type="button"
-              aria-label="Team-Chat"
-              onClick={() => toggleSheet(sheet, "chat")}
-              className={`relative grid size-11 shrink-0 place-items-center rounded-[14px] ${sheet === "chat" ? "bg-accent text-panel" : "text-navy"}`}
-            >
-              <MessageCircle className="size-5" />
-              <UnreadBadge n={unread} />
-            </button>
-            <button
-              type="button"
-              aria-label="Forschung"
-              onClick={() => toggleSheet(sheet, "research")}
-              className={`relative grid size-11 shrink-0 place-items-center rounded-[14px] ${sheet === "research" ? "bg-accent text-panel" : "text-navy"}`}
-            >
-              <FlaskConical className="size-5" />
-              {researchReady && sheet !== "research" && (
-                <span className="absolute right-1.5 top-1.5 size-2.5 rounded-full bg-success ring-2 ring-panel" aria-label="Forschung bereit" />
-              )}
-            </button>
-            <button
-              type="button"
-              aria-label="Ziele"
-              onClick={() => toggleSheet(sheet, "quests")}
-              className={`grid size-11 shrink-0 place-items-center rounded-[14px] ${sheet === "quests" ? "bg-accent text-panel" : "text-navy"}`}
-            >
-              <ListChecks className="size-5" />
-            </button>
-            <button
-              type="button"
-              aria-label="Info"
-              onClick={() => toggleSheet(sheet, "info")}
-              className={`grid size-11 shrink-0 place-items-center rounded-[14px] ${sheet === "info" ? "bg-accent text-panel" : "text-navy"}`}
-            >
-              <BarChart3 className="size-5" />
-            </button>
-          </>
-        )}
+          )}
+          {items.map((it) => {
+            const locked = terms.locked(it.id);
+            const cost = terms.cost(it.id);
+            const short = !locked && coins < cost;
+            return (
+              <button
+                key={it.id}
+                type="button"
+                onClick={() => setBuildItem(it.id)}
+                title={it.blurb}
+                className="flex w-[7.5rem] shrink-0 snap-start flex-col overflow-hidden rounded-[18px] bg-panel text-left shadow-[var(--shadow-panel)] transition-transform active:scale-[0.97] lg:w-[9rem]"
+              >
+                <span className="relative block">
+                  <ItemThumb id={it.id} className={`h-20 w-full lg:h-24 ${locked ? "grayscale" : ""}`} iconClass="size-8" />
+                  {locked && (
+                    <span className="absolute inset-0 grid place-items-center bg-snow/85 text-[11px] font-bold text-muted">
+                      <span className="flex items-center gap-1">
+                        <Lock className="size-4" /> Level {it.unlockLevel}
+                      </span>
+                    </span>
+                  )}
+                </span>
+                <span className="flex flex-1 flex-col px-2.5 pb-2.5 pt-1.5">
+                  <span className={`line-clamp-2 text-[12px] font-bold leading-tight ${locked ? "text-muted" : "text-navy"}`}>{it.name}</span>
+                  <span
+                    className={`mt-auto inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 pt-1 text-[11px] font-bold ${short ? "bg-warn/15 text-warn" : "bg-coin/15 text-navy"}`}
+                  >
+                    <Coin className="size-3.5" /> {priceLabel({ id: it.id, cost })}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="pointer-events-auto flex items-center gap-0.5 rounded-[28px] bg-panel/97 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md lg:gap-1 lg:p-2">
+          {CATEGORIES.map((c) => {
+            const Icon = CAT_ICON[c.id];
+            const active = category === c.id;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setCategory(c.id)}
+                className="flex min-w-0 flex-1 flex-col items-center gap-1 rounded-[18px] py-1"
+              >
+                <span className={`grid size-11 place-items-center rounded-full transition-colors lg:size-12 ${active ? "bg-accent text-panel shadow-[var(--shadow-chip)]" : "bg-ice text-navy"}`}>
+                  <Icon className="size-6" />
+                </span>
+                <span className={`max-w-full truncate text-[10px] font-bold ${active ? "text-accent" : "text-navy"}`}>{SHORT_CAT[c.id] ?? c.label}</span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setSheet("none")}
+            aria-label="Bauen schliessen"
+            className="ml-1 grid size-11 shrink-0 place-items-center rounded-full bg-danger text-panel shadow-[var(--shadow-chip)] lg:size-12"
+          >
+            <X className="size-6" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1866,14 +1928,12 @@ function MobileFloats() {
 function MobileSheets() {
   const sheet = useGame((s) => s.sheet);
   const setSheet = useGame((s) => s.setSheet);
-  if (sheet === "none") return null;
+  if (sheet === "none" || sheet === "build") return null;
   const title =
-    sheet === "build"
-      ? "Bauen"
-      : sheet === "quests"
+    sheet === "quests"
         ? "Ziele & Partie"
         : sheet === "info"
-          ? "Gebiet"
+          ? "Betrieb"
           : sheet === "chat"
             ? "Team-Chat"
             : sheet === "research"
@@ -1906,7 +1966,6 @@ function MobileSheets() {
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
-          {sheet === "build" && <MobileBuildGrid />}
           {sheet === "quests" && (
             <div className="flex flex-col gap-3">
               <button
@@ -1943,150 +2002,9 @@ function MobileSheets() {
   );
 }
 
-function MobileBuildGrid() {
-  const setBuildItem = useGame((s) => s.setBuildItem);
-  const category = useGame((s) => s.category);
-  const setCategory = useGame((s) => s.setCategory);
-  const terms = useBuildTerms();
-  const items = CATALOG.filter((i) => i.category === category);
-  return (
-    <div>
-      <div className="-mx-1 flex gap-1 overflow-x-auto pb-3">
-        {CATEGORIES.map((c) => {
-          const Icon = CAT_ICON[c.id];
-          const active = category === c.id;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => setCategory(c.id)}
-              className={`flex h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[12px] font-semibold ${active ? "bg-accent text-panel" : "bg-ice text-navy"}`}
-            >
-              <Icon className="size-4" />
-              {c.label}
-            </button>
-          );
-        })}
-      </div>
-      {category === "pistes" && <AutoPistesButton className="mb-2 w-full" />}
-      <div className="grid grid-cols-2 gap-2">
-        {items.map((it) => {
-          const locked = terms.locked(it.id);
-          return (
-            <button
-              key={it.id}
-              type="button"
-              onClick={() => setBuildItem(it.id)}
-              className={`min-h-[5.5rem] overflow-hidden rounded-[16px] bg-snow text-left ${locked ? "opacity-55" : ""}`}
-            >
-              <div className="relative">
-                <ItemThumb id={it.id} className="h-20 w-full" iconClass="size-7" />
-                {locked && (
-                  <span className="absolute inset-0 grid place-items-center bg-snow/70 text-[11px] font-semibold text-subtle">
-                    <span className="flex items-center gap-1">
-                      <Lock className="size-4" /> Ab Level {it.unlockLevel}
-                    </span>
-                  </span>
-                )}
-              </div>
-              <div className="p-3 pt-2">
-              <div className="text-[13px] font-semibold text-navy">{it.name}</div>
-              <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted">{it.blurb}</div>
-              <div className="mt-2 flex items-center gap-1 text-[12px] font-semibold text-coin">
-                <Coin className="size-3.5" /> {fmt(terms.cost(it.id))}
-              </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
-function MatchMenuButtons() {
-  const mode = useGame((s) => s.match.mode);
-  const openSetup = useGame((s) => s.setMatchSetupOpen);
-  const start = useGame((s) => s.startMatch);
-  const freePlay = useGame((s) => s.freePlay);
-  const setSheet = useGame((s) => s.setSheet);
-  const [armed, setArmed] = useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        className="flex min-h-12 w-full items-center gap-2 rounded-[16px] bg-accent px-4 text-left text-[13px] font-bold text-panel"
-        onClick={() => {
-          setSheet("none");
-          openSetup(true);
-        }}
-      >
-        <Flag className="size-4" /> {mode === "match" ? "Neue Partie" : "Partie starten"}
-      </button>
-      {mode === "match" && (
-        <button
-          type="button"
-          className="flex min-h-12 w-full flex-col items-start justify-center rounded-[16px] bg-ice px-4 py-2 text-left text-navy"
-          onClick={() => {
-            setSheet("none");
-            freePlay();
-          }}
-        >
-          <span className="text-[13px] font-semibold">Ohne Runden weiterspielen</span>
-          <span className="text-[11px] text-muted">Dieses Tal bleibt, die Zeit läuft von selbst.</span>
-        </button>
-      )}
-      {mode === "match" &&
-        (armed ? (
-          <button
-            type="button"
-            className="flex min-h-12 w-full items-center rounded-[16px] bg-danger/10 px-4 text-left text-[13px] font-semibold text-danger"
-            onClick={() => {
-              setSheet("none");
-              start("sandbox");
-            }}
-          >
-            Wirklich alles abreissen und leer beginnen?
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="flex min-h-12 w-full items-center rounded-[16px] px-4 text-left text-[13px] font-medium text-muted ring-1 ring-ice"
-            onClick={() => setArmed(true)}
-          >
-            Freies Spiel in leerem Tal
-          </button>
-        ))}
-    </>
-  );
-}
 
-function SoundToggle({ className }: { className: string }) {
-  const [on, setOn] = useState(() => (typeof window === "undefined" ? true : soundEnabled()));
-  return (
-    <button
-      type="button"
-      className={className}
-      onClick={() => {
-        setSoundEnabled(!on);
-        setOn(!on);
-        if (!on) play("click");
-      }}
-    >
-      Ton: {on ? "An" : "Aus"}
-    </button>
-  );
-}
 
-function PhotoTextureToggle({ className }: { className: string }) {
-  const on = useGame((s) => s.photoTextures);
-  const set = useGame((s) => s.setPhotoTextures);
-  return (
-    <button type="button" className={className} onClick={() => set(!on)}>
-      Fotostrukturen: {on ? "An" : "Aus"}
-    </button>
-  );
-}
 
 /**
  * The phone menu: sections like a settings screen, one row per thing, every
@@ -2250,27 +2168,3 @@ function MobileMatchRows() {
   );
 }
 
-function MenuSheet() {
-  const quality = useGame((s) => s.quality);
-  return (
-    <div className="absolute right-3 top-14 z-30 flex w-72 flex-col gap-1.5 rounded-[20px] bg-panel p-3 shadow-[var(--shadow-panel)]">
-      <MatchMenuButtons />
-      <SoundToggle className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy" />
-      <PhotoTextureToggle className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy" />
-      <button
-        type="button"
-        className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy"
-        onClick={() => useGame.setState({ quality: quality === "high" ? "low" : "high" })}
-      >
-        Grafik: {quality === "high" ? "Hoch" : "Sparsam"}
-      </button>
-      <button
-        type="button"
-        className="w-full rounded-[12px] bg-ice px-3 py-2.5 text-left text-[12px] font-medium text-navy"
-        onClick={() => exportSave(useGame.getState())}
-      >
-        Spielstand exportieren
-      </button>
-    </div>
-  );
-}
