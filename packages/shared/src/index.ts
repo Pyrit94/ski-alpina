@@ -113,6 +113,8 @@ export { withEdits } from "./terrain/edits.ts";
 export type { TerrainEdits } from "./terrain/edits.ts";
 export { validateLevel } from "./engine/terraform.ts";
 export { midStationCost, midStationSpots } from "./engine/mid-station.ts";
+export { missingLegs, planStationRuns, STATION_LEGS, withMidStation } from "./engine/station-runs.ts";
+export type { StationLeg, StationRun, StationRunsResult } from "./engine/station-runs.ts";
 export { accessAt, accessNeed, onPiste, onRoad } from "./engine/access.ts";
 export { bestReshape, reshapeAll } from "./engine/piste-reshape.ts";
 export type { Reshape } from "./engine/piste-reshape.ts";

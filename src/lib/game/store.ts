@@ -95,6 +95,8 @@ export interface GameStore extends ResortState, UiState {
   descentOffer: string | null;
   /** «Pisten automatisch» while open: which lifts (null = all) and which grades. */
   autoPistes: { liftIds: string[] | null; mix: "mixed" | "blue" | "red" | "black" } | null;
+  /** The grades the piste assistant was last asked for; new stations' runs use them too. */
+  pisteMix: "mixed" | "blue" | "red" | "black";
   /** «Während du weg warst», shown once after coming back. */
   awaySummary: AwaySummary | null;
   /** The village optimiser's card is open. */
@@ -457,6 +459,7 @@ export const useGame = create<GameStore>((set, get) => ({
   regionReady: null,
   descentOffer: null,
   autoPistes: null,
+  pisteMix: "mixed",
   awaySummary: null,
   villageOpen: false,
   villagePreview: [],

@@ -1,23 +1,17 @@
 import { useEffect, useMemo } from "react";
 import { Sparkles, X } from "lucide-react";
 import { BY_ID, FLOW } from "@ski/config";
-import { getDem, planAutoPistes, starsFor, type AutoMix, type AutoPlan } from "@ski/shared";
+import { getDem, planAutoPistes, starsFor, type AutoPlan } from "@ski/shared";
 import { RatingChip } from "./PisteRating";
 import { ReshapeAll } from "./Reshape";
 import { GRADE_COLOR } from "@/lib/game/piste-editor";
 import { fmt } from "@/lib/game/format";
 import { play } from "@/lib/game/sound";
 import { useGame } from "@/lib/game/store";
-import { openAutoPistes } from "@/lib/game/auto-pistes";
+import { MIXES, openAutoPistes } from "@/lib/game/auto-pistes";
 import { useMyMoney } from "@/lib/game/team";
 import { useStableGame } from "../canvas/use-stable-game";
 
-const MIXES: { id: AutoMix; label: string }[] = [
-  { id: "mixed", label: "Gemischt" },
-  { id: "blue", label: "Blau" },
-  { id: "red", label: "Rot" },
-  { id: "black", label: "Schwarz" },
-];
 
 const GRADE_NAME: Record<string, string> = { blue: "Blaue", red: "Rote", black: "Schwarze" };
 
@@ -102,7 +96,8 @@ export function AutoPistesPanel() {
   useEffect(() => () => useGame.setState({ autoPreview: [] }), []);
 
   if (!open || !result) return null;
-  const set = (next: Partial<NonNullable<typeof open>>) => useGame.setState({ autoPistes: { ...open, ...next } });
+  const set = (next: Partial<NonNullable<typeof open>>) =>
+    useGame.setState({ autoPistes: { ...open, ...next }, ...(next.mix ? { pisteMix: next.mix } : {}) });
   const close = () => useGame.setState({ autoPistes: null });
   const all = open.liftIds === null;
   const toggle = (id: string) => {
