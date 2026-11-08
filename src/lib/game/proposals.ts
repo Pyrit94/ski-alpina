@@ -17,6 +17,9 @@ const COSTLY = new Set<Intent["type"]>([
   "move_building",
   "rearrange",
   "reshape_piste",
+  // Buying a neighbour out: costly only when the offer is taken (see costOf).
+  "offer_buyout",
+  "answer_counter",
 ]);
 
 type View = Pick<ResortState, "contributors" | "match" | "proposalLimit"> & ResortState;
@@ -50,6 +53,8 @@ export function planTitle(intents: readonly Intent[]): string {
   if (first.type === "upgrade") return "Bahn verbessern";
   if (first.type === "move_building") return "Gebäude verschieben";
   if (first.type === "edit_piste") return "Piste ändern";
+  if (first.type === "offer_buyout") return "Nachbargebiet kaufen";
+  if (first.type === "answer_counter") return "Gegenangebot annehmen";
   return "Bauen";
 }
 

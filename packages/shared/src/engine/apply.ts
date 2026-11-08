@@ -1,4 +1,5 @@
 import { setNeighbourMode } from "./neighbours.ts";
+import { applyTrade, isTradeIntent } from "./neighbour-trade.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { BUILDING_LEVELS, ECONOMY, PISTE_LEVELS, PISTE_SCORE, UPGRADES } from "../../../config/src/economy.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
@@ -407,6 +408,8 @@ function applyOne(
     };
   }
 
+  if (isTradeIntent(intent)) return applyTrade(state, intent, now, actor);
+
   if (intent.type === "set_neighbours") {
     if (!dem) return { state, title: "Nachbarn", body: "", kind: "info" };
     const next = setNeighbourMode(state, dem, intent.mode, now);
@@ -416,7 +419,9 @@ function applyOne(
         ? "Die Nachbar-Skigebiete ruhen."
         : names.length === 0
           ? "Auf dieser Karte ist kein Platz für ein Nachbargebiet."
-          : `${names.join(" und ")} ${names.length === 1 ? "betreibt" : "betreiben"} jetzt Lifte in der Gegend.`;
+          : intent.mode === "wettbewerb"
+            ? `${names.join(" und ")} ${names.length === 1 ? "macht" : "machen"} euch jetzt Konkurrenz – mit günstigeren Pässen.`
+            : `${names.join(" und ")} ${names.length === 1 ? "betreibt" : "betreiben"} jetzt Lifte in der Gegend.`;
     return { state: next, title: "Nachbarn", body, kind: "info" };
   }
 

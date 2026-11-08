@@ -21,12 +21,13 @@ export function UndoChip() {
   }, []);
   const last = useMemo(() => {
     const mine = [
-      ...lifts.map((l) => ({ id: l.id, name: l.name ?? BY_ID[l.itemId].name, builtAt: l.builtAt, builtBy: l.builtBy })),
+      ...lifts.map((l) => ({ id: l.id, name: l.name ?? BY_ID[l.itemId].name, builtAt: l.builtAt, builtBy: l.builtBy, acquired: l.acquired })),
       ...buildings
         .filter((b) => !isLift(b.itemId))
-        .map((b) => ({ id: b.id, name: BY_ID[b.itemId].name, builtAt: b.builtAt, builtBy: b.builtBy })),
-      ...pistes.map((p) => ({ id: p.id, name: p.name ?? BY_ID[p.itemId].name, builtAt: p.builtAt, builtBy: p.builtBy })),
-    ].filter((e) => !e.builtBy || e.builtBy === me);
+        .map((b) => ({ id: b.id, name: BY_ID[b.itemId].name, builtAt: b.builtAt, builtBy: b.builtBy, acquired: b.acquired })),
+      ...pistes.map((p) => ({ id: p.id, name: p.name ?? BY_ID[p.itemId].name, builtAt: p.builtAt, builtBy: p.builtBy, acquired: p.acquired })),
+      // Bought with a neighbour area: nothing to take back.
+    ].filter((e) => (!e.builtBy || e.builtBy === me) && !e.acquired);
     return mine.sort((a, b) => b.builtAt - a.builtAt)[0] ?? null;
   }, [buildings, lifts, pistes, me]);
   const left = last ? Math.ceil((last.builtAt + ECONOMY.undoSeconds * 1000 - now) / 1000) : 0;

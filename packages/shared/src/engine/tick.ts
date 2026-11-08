@@ -2,7 +2,7 @@ import { ECONOMY, SEASON } from "../../../config/src/economy.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { ResortState } from "../types.ts";
 import { tickFlow } from "./flow.ts";
-import { neighboursDayEnded } from "./neighbours.ts";
+import { closeNeighbourDay } from "./neighbours.ts";
 import { syncQuestProgress } from "./quests.ts";
 import { weatherForDay } from "./weather.ts";
 import { accrueResearch } from "./research.ts";
@@ -20,9 +20,13 @@ export function tickResort(state: ResortState, dem: Dem, realSeconds: number, no
   let daily = state.daily;
   let todayIncome = state.todayIncome ?? 0;
   let neighbours = state.neighbours;
+  let fees = 0;
   if (timeOfDay < state.timeOfDay) {
-    // The neighbours close their day too: takings, and now and then a new lift.
-    neighbours = neighboursDayEnded(state, dem, now);
+    // The neighbours close their day too: takings, and now and then a new
+    // lift; and a «Tarifverbund» costs its fee.
+    const closed = closeNeighbourDay(state, dem, now);
+    neighbours = closed.neighbours;
+    fees = state.coins - closed.coins;
     // The day just ended: keep one line of it for the charts.
     daily = [
       ...(state.daily ?? []),
@@ -61,7 +65,7 @@ export function tickResort(state: ResortState, dem: Dem, realSeconds: number, no
     // Upkeep can outrun takings, but nothing can be demolished yet, so a
     // player who overbuilds must be able to earn their way out rather than
     // sink into a debt no action can clear.
-    coins: Math.max(0, state.coins + flowed.coinsDelta),
+    coins: Math.max(0, state.coins - fees + flowed.coinsDelta),
     stats: flowed.stats,
     flow: flowed.flow,
     ...(daily ? { daily } : {}),
