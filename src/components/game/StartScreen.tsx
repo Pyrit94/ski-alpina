@@ -37,11 +37,17 @@ export function StartScreen() {
   const home = step === "home";
   return (
     <main className="relative isolate min-h-dvh w-full overflow-hidden bg-navy" style={{ color: "#F5FAFE" }}>
-      <img
-        src="/textures/hero.jpg"
-        alt=""
-        className="absolute inset-0 -z-10 h-full w-full object-cover object-[58%_42%] lg:object-center"
-      />
+      {/* WebP at the width the screen needs: 70 KB on a phone instead of 860. */}
+      <picture>
+        <source type="image/webp" srcSet="/textures/hero-800.webp 800w, /textures/hero-1600.webp 1600w" sizes="100vw" />
+        <img
+          src="/textures/hero.jpg"
+          alt=""
+          fetchPriority="high"
+          decoding="async"
+          className="absolute inset-0 -z-10 h-full w-full object-cover object-[58%_42%] lg:object-center"
+        />
+      </picture>
       <div className="absolute inset-0 -z-10 bg-gradient-to-t from-navy via-navy/75 to-navy/20" />
       <div
         className="flex min-h-dvh flex-col justify-between"
