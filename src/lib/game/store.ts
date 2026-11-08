@@ -8,6 +8,7 @@ import {
   levelFromXp,
   worldToHex,
   type BuildPhase,
+  type GameInfo,
   type HudSheet,
   type Intent,
   type MapLayer,
@@ -68,6 +69,14 @@ export interface UiState {
 export interface GameStore extends ResortState, UiState {
   tick: (dt: number) => void;
   startGame: (fresh: boolean, name?: string, roomId?: string) => void;
+  /** Games and their saves, as last heard from the server. */
+  games: GameInfo[];
+  refreshGames: () => void;
+  saveGame: (name: string) => void;
+  loadSave: (saveId: string) => void;
+  deleteSave: (saveId: string) => void;
+  /** Back to the start screen, to pick another game. */
+  leaveGame: () => void;
   setBuildItem: (id: ItemId | null) => void;
   setCategory: (c: UiState["category"]) => void;
   setLayer: (l: MapLayer) => void;
@@ -238,7 +247,11 @@ export const useGame = create<GameStore>((set, get) => ({
       lastStampHex: null,
     });
     net = connectGame(room, playerName, {
-      onWelcome: (playerId, _token, rid) => set({ playerId, roomId: rid }),
+      onWelcome: (playerId, _token, rid) => {
+        set({ playerId, roomId: rid });
+        // Joined: now the socket is open, ask for this game's saves.
+        net?.sendLobby({ type: "list_games" });
+      },
       onSnapshot: (state, players) => {
         const prev = get();
         const before = levelFromXp(prev.xp);
@@ -312,10 +325,25 @@ export const useGame = create<GameStore>((set, get) => ({
         get().pushNote("Nicht möglich", reason, "warn");
       },
       onStatus: (connected) => set({ connected }),
+      onGames: (games) => set({ games }),
     });
   },
 
   setStarted: (v) => set({ started: v }),
+  games: [],
+  refreshGames: () => net?.sendLobby({ type: "list_games" }),
+  saveGame: (name) => net?.sendLobby({ type: "save_game", ...(name.trim() ? { name: name.trim() } : {}) }),
+  loadSave: (saveId) => net?.sendLobby({ type: "load_save", saveId }),
+  deleteSave: (saveId) => net?.sendLobby({ type: "delete_save", saveId }),
+  leaveGame: () => {
+    net?.close();
+    net = null;
+    // A fresh page rather than unmounting the scene in place: tearing the
+    // canvas down under its HTML labels throws in React, and a reload also
+    // hands back the GPU memory. The start screen never joins on its own.
+    if (typeof window !== "undefined") window.location.reload();
+    else set({ started: false });
+  },
   startMatch: (preset, options) => {
     net?.sendIntent({ type: "start_match", preset, ...(options ? { options } : {}) });
     set({ matchSetupOpen: false, selectedId: null, sheet: "none" });

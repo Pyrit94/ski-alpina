@@ -61,7 +61,7 @@ npm ci --legacy-peer-deps
 npm run dev
 ```
 
-Spieler treten dem Raum `zermatt` bei und bauen gemeinsam. Spielstand liegt serverseitig (PGlite lokal, Postgres in Coolify). Ohne Google-Konfiguration lokal mit `VITE_AUTH_ENABLED=false npm run dev` spielen.
+Auf dem Startbildschirm wählt man bewusst ein Spiel: gemeinsame Spiele sehen alle auf der Freigabeliste, eigene nur die Person, die sie angelegt hat. Jedes Spiel speichert sich laufend selbst und steht still, solange niemand drin ist. Dazu kann man beliebig viele benannte Sicherungen anlegen («Spielstand sichern») und später gezielt laden – der Stand, den das Laden ersetzt, wird vorher automatisch gesichert. Spielstand liegt serverseitig (PGlite lokal, Postgres in Coolify). Ohne Google-Konfiguration lokal mit `VITE_AUTH_ENABLED=false npm run dev` spielen.
 
 ```bash
 npm test

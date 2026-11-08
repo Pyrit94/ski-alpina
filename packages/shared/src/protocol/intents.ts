@@ -167,6 +167,24 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     hex: AxialSchema,
     kind: z.enum(["look", "build", "warn"]),
   }),
+  // Games and save points (runtime/saves.ts). Allowed before joining, so the
+  // start screen can list them; `reqId` comes back on the reply.
+  z.object({ type: z.literal("list_games"), reqId: z.string().max(40).optional() }),
+  z.object({
+    type: z.literal("create_game"),
+    reqId: z.string().max(40).optional(),
+    kind: z.enum(["shared", "own"]),
+    name: z.string().max(60).optional(),
+  }),
+  z.object({
+    type: z.literal("save_game"),
+    reqId: z.string().max(40).optional(),
+    /** Which game; the one this socket is in when left out. */
+    gameId: z.string().min(2).max(40).optional(),
+    name: z.string().max(80).optional(),
+  }),
+  z.object({ type: z.literal("load_save"), reqId: z.string().max(40).optional(), saveId: z.string().min(2).max(40) }),
+  z.object({ type: z.literal("delete_save"), reqId: z.string().max(40).optional(), saveId: z.string().min(2).max(40) }),
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -207,8 +225,19 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("error"),
     intentId: z.string().optional(),
+    reqId: z.string().optional(),
     reason: z.string(),
     code: z.string(),
+  }),
+  z.object({
+    type: z.literal("games"),
+    reqId: z.string().optional(),
+    games: z.array(z.unknown()),
+  }),
+  z.object({
+    type: z.literal("created"),
+    reqId: z.string().optional(),
+    roomId: z.string(),
   }),
   z.object({
     type: z.literal("pong"),

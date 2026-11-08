@@ -134,6 +134,8 @@ export type { SeasonPhase } from "./engine/season.ts";
 export { weatherForDay } from "./engine/weather.ts";
 export { GameRoom, TICK_MS, PERSIST_MS, MARK_TTL_MS, CHAT_LIMIT } from "./runtime/room.ts";
 export type { RoomPlayer, RoomEvent } from "./runtime/room.ts";
+export { defaultSaveName, SAVE_NAME_MAX, GAME_NAME_MAX } from "./runtime/saves.ts";
+export type { GameInfo, GameKind, SaveInfo, SaveSummary } from "./runtime/saves.ts";
 export {
   researchEffects,
   researchEnabled,

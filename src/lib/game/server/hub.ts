@@ -1,5 +1,12 @@
 import { ClientMessageSchema, type ServerMessage } from "@ski/shared";
 import { GameRoom, PERSIST_MS, TICK_MS } from "../../../../packages/shared/src/runtime/room.ts";
+import {
+  canSee,
+  handleLobby,
+  isLobbyMessage,
+  SqlSaveStore,
+  type GameMeta,
+} from "../../../../packages/shared/src/runtime/saves.ts";
 import { getSql } from "@/lib/db";
 import type { SocketIdentity } from "./identity.server";
 
@@ -28,13 +35,27 @@ export function getRoom(roomId: string): GameRoom {
   return room;
 }
 
+/** Save points, in the same database as the resorts. */
+const saveStore = new SqlSaveStore(async (text, params) => (await getSql()).query(text, params));
+
+function createRoom(id: string, meta: GameMeta): GameRoom {
+  const room = getRoom(id);
+  room.meta = meta;
+  return room;
+}
+
 export async function hydrateRooms(): Promise<void> {
   try {
     const sql = await getSql();
-    const rows = await sql.query<{ id: string; snapshot: unknown }>("select id, snapshot from resorts");
+    const rows = await sql.query<{ id: string; snapshot: unknown; kind?: string; owner?: string | null; updated_at?: unknown }>(
+      "select id, snapshot, kind, owner, updated_at from resorts",
+    );
     for (const row of rows) {
       const snap = typeof row.snapshot === "string" ? JSON.parse(row.snapshot) : row.snapshot;
-      rooms.set(row.id, new GameRoom(row.id, snap as GameRoom["state"]));
+      const room = new GameRoom(row.id, snap as GameRoom["state"]);
+      room.meta = { kind: row.kind === "own" ? "own" : "shared", owner: row.owner ?? null };
+      if (row.updated_at) room.updatedAt = new Date(String(row.updated_at)).getTime() || room.updatedAt;
+      rooms.set(row.id, room);
     }
   } catch (err) {
     console.warn("[ski] hydrate skipped", err);
@@ -68,11 +89,12 @@ function ensureTimers() {
 async function persistAll() {
   const sql = await getSql();
   for (const room of rooms.values()) {
+    // Kind and owner are written once, when the game is first stored.
     await sql.query(
-      `insert into resorts (id, name, snapshot, updated_at)
-       values ($1, $2, $3::jsonb, now())
+      `insert into resorts (id, name, snapshot, kind, owner, updated_at)
+       values ($1, $2, $3::jsonb, $4, $5, now())
        on conflict (id) do update set name = excluded.name, snapshot = excluded.snapshot, updated_at = now()`,
-      [room.state.roomId, room.state.resortName, room.snapshot()],
+      [room.state.roomId, room.state.resortName, room.snapshot(), room.meta.kind, room.meta.owner],
     );
   }
 }
@@ -121,7 +143,31 @@ export function handleSocket(socket: Socket, identity?: SocketIdentity | null): 
       if (bound) getRoom(bound.roomId).setFocus(bound.playerId, msg.data.hex);
       return;
     }
+    if (isLobbyMessage(msg.data)) {
+      const lobby = msg.data;
+      void handleLobby(lobby, {
+        store: saveStore,
+        rooms,
+        createRoom,
+        userId: identity?.userId ?? null,
+        userName:
+          identity?.name ?? (bound ? rooms.get(bound.roomId)?.players.get(bound.playerId)?.name : undefined) ?? "Gast",
+        boundRoomId: bound?.roomId ?? null,
+        send: (m) => send(socket, m),
+        broadcast,
+        snapshotOf: (r) => ({ type: "snapshot", seq: r.seq, state: r.snapshot(), players: r.presence() }),
+      }).catch((err) => {
+        console.warn("[ski] saves", err);
+        send(socket, { type: "error", reason: "Spielstände gerade nicht erreichbar", code: "invalid", reqId: lobby.reqId });
+      });
+      return;
+    }
     if (msg.data.type === "join") {
+      const existing = rooms.get(msg.data.roomId);
+      if (existing && !canSee(existing.meta, identity?.userId ?? null)) {
+        send(socket, { type: "error", reason: "Dieses Spiel gehört jemand anderem", code: "rights" });
+        return;
+      }
       const room = getRoom(msg.data.roomId);
       // When the socket was authenticated the account decides who this is —
       // the name and token in the message are only a fallback for local dev.

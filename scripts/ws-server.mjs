@@ -17,6 +17,13 @@ import { createServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import pg from "pg";
 import { GameRoom, PERSIST_MS, TICK_MS } from "../packages/shared/src/runtime/room.ts";
+import {
+  canSee,
+  handleLobby,
+  isLobbyMessage,
+  MemorySaveStore,
+  SqlSaveStore,
+} from "../packages/shared/src/runtime/saves.ts";
 import { ClientMessageSchema } from "../packages/shared/src/protocol/intents.ts";
 import { NOT_ALLOWED_MESSAGE, rosterAdmits, rosterGate } from "../src/lib/auth/allowlist.ts";
 import { createNotifier } from "./notify.mjs";
@@ -52,6 +59,17 @@ if (!pool) {
   console.warn("[ws] no DATABASE_URL — the resort will not survive a restart");
 }
 
+/** Save points: in Postgres with the resorts, in memory without a database. */
+const saveStore = pool
+  ? new SqlSaveStore(async (text, params) => (await pool.query(text, params)).rows)
+  : new MemorySaveStore();
+
+function createRoom(id, meta) {
+  const room = getRoom(id);
+  room.meta = meta;
+  return room;
+}
+
 function getRoom(id) {
   if (quarantined.has(id)) throw new Error(`resort ${id} is quarantined`);
   let room = rooms.get(id);
@@ -75,7 +93,7 @@ async function hydrate() {
   if (!pool) return;
   let rows;
   try {
-    ({ rows } = await pool.query("select id, snapshot from resorts"));
+    ({ rows } = await pool.query("select id, snapshot, kind, owner, updated_at from resorts"));
   } catch (err) {
     console.error("[ws] could not load saved resorts — refusing to start with an empty world", err);
     process.exit(1);
@@ -84,6 +102,8 @@ async function hydrate() {
     try {
       const snap = typeof row.snapshot === "string" ? JSON.parse(row.snapshot) : row.snapshot;
       const room = new GameRoom(row.id, snap);
+      room.meta = { kind: row.kind === "own" ? "own" : "shared", owner: row.owner ?? null };
+      if (row.updated_at) room.updatedAt = new Date(row.updated_at).getTime() || room.updatedAt;
       rooms.set(row.id, room);
       savedSeq.set(row.id, room.seq);
     } catch (err) {
@@ -101,12 +121,13 @@ async function persist() {
     const id = room.state.roomId;
     if (quarantined.has(id) || savedSeq.get(id) === room.seq) continue;
     const seq = room.seq;
+    // Kind and owner are written once, when the game is first stored.
     await pool.query(
-      `insert into resorts (id, name, snapshot, updated_at)
-       values ($1, $2, $3::jsonb, now())
+      `insert into resorts (id, name, snapshot, kind, owner, updated_at)
+       values ($1, $2, $3::jsonb, $4, $5, now())
        on conflict (id) do update
          set name = excluded.name, snapshot = excluded.snapshot, updated_at = now()`,
-      [id, room.state.resortName, JSON.stringify(room.snapshot())],
+      [id, room.state.resortName, JSON.stringify(room.snapshot()), room.meta.kind, room.meta.owner],
     );
     savedSeq.set(id, seq);
   }
@@ -229,9 +250,34 @@ wss.on("connection", (ws, _req, identity) => {
       return;
     }
 
+    if (isLobbyMessage(msg)) {
+      const player = bound ? rooms.get(bound.roomId)?.players.get(bound.playerId) : undefined;
+      void handleLobby(msg, {
+        store: saveStore,
+        rooms,
+        createRoom,
+        userId: identity?.userId ?? null,
+        userName: identity?.name ?? player?.name ?? "Gast",
+        boundRoomId: bound?.roomId ?? null,
+        send: (m) => send(ws, m),
+        broadcast,
+        snapshotOf,
+        isBlocked: (id) => quarantined.has(id),
+      }).catch((err) => {
+        console.warn("[ws] saves", err);
+        send(ws, { type: "error", reason: "Spielstände gerade nicht erreichbar", code: "invalid", reqId: msg.reqId });
+      });
+      return;
+    }
+
     if (msg.type === "join") {
       if (quarantined.has(msg.roomId)) {
         send(ws, { type: "error", reason: "Dieser Spielstand konnte nicht geladen werden", code: "invalid" });
+        return;
+      }
+      const existing = rooms.get(msg.roomId);
+      if (existing && !canSee(existing.meta, identity?.userId ?? null)) {
+        send(ws, { type: "error", reason: "Dieses Spiel gehört jemand anderem", code: "rights" });
         return;
       }
       const room = getRoom(msg.roomId);
