@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Check,
   ChevronRight,
@@ -30,6 +30,9 @@ import { runStepAction } from "@/lib/game/step-actions";
 import { RulesEditor, VoteStatus } from "./RulesHUD";
 import { AlbumView } from "./AlbumHUD";
 import { AwardsPanel } from "./TeamHUD";
+import { ItemThumb } from "./HudBits";
+import { BY_ID } from "@ski/config";
+import { snowflakes } from "@/lib/game/juice";
 
 const WEATHER_ICON: Record<WeatherKind, typeof Sun> = {
   sun: Sun,
@@ -824,30 +827,95 @@ function Confetti() {
   );
 }
 
-/** Level-ups and other good news, briefly and in the middle. */
+/**
+ * Level-ups and other good news, briefly and in the middle: snow falls over
+ * the whole screen, the card says what happened and what it unlocked. Nothing
+ * but the card takes a tap — the map stays usable under the flakes — and a
+ * tap on it, or a few seconds, puts it away.
+ */
 export function Celebration() {
   const celebrate = useGame((s) => s.celebrate);
   const clear = useGame((s) => s.clearCelebration);
   useEffect(() => {
     if (!celebrate) return;
-    const t = window.setTimeout(clear, 4200);
+    const t = window.setTimeout(clear, celebrate.items?.length ? 5200 : 4200);
     return () => window.clearTimeout(t);
   }, [celebrate, clear]);
   if (!celebrate) return null;
+  const items = (celebrate.items ?? []).slice(0, 4);
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-[18%] z-40 flex justify-center px-4">
-      <button
-        type="button"
-        onClick={clear}
-        className="pop-in pointer-events-auto relative overflow-hidden rounded-[24px] bg-gradient-to-br from-accent to-navy px-6 py-4 text-center text-snow shadow-[var(--shadow-panel)]"
-      >
-        <Confetti />
-        <div className="flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent-soft">
-          <Sparkles className="size-4" /> {celebrate.kicker ?? "Aufgestiegen"}
-        </div>
-        <div className="mt-0.5 text-[26px] font-bold">{celebrate.title}</div>
-        <div className="mt-0.5 max-w-xs text-[12px] text-ice">{celebrate.body}</div>
-      </button>
+    <div key={celebrate.id} className="pointer-events-none fixed inset-0 z-40">
+      <SnowBurst />
+      <div className="absolute inset-x-0 top-[18%] flex justify-center px-4">
+        <button
+          type="button"
+          onClick={clear}
+          aria-label={`${celebrate.title}. Schliessen`}
+          className="celebrate-in pointer-events-auto relative min-w-[16rem] max-w-[22rem] overflow-hidden rounded-[24px] bg-gradient-to-br from-accent to-navy px-6 py-4 text-center text-snow shadow-[var(--shadow-panel)] ring-1 ring-white/25"
+        >
+          <span className="celebrate-shine pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/25 to-transparent" aria-hidden />
+          <div className="flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent-soft">
+            <Sparkles className="size-4" /> {celebrate.kicker ?? "Aufgestiegen"}
+          </div>
+          <div className="mt-0.5 text-[26px] font-bold leading-tight">{celebrate.title}</div>
+          {items.length > 0 ? (
+            <>
+              <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-ice/80">Neu freigeschaltet</div>
+              <div className="mt-1.5 flex justify-center gap-2">
+                {items.map((id, i) => (
+                  <div key={id} className="unlock-in flex w-16 flex-col items-center gap-1" style={{ animationDelay: `${0.25 + i * 0.09}s` }}>
+                    <ItemThumb id={id} className="size-12 rounded-[14px] ring-2 ring-white/60" iconClass="size-6" />
+                    <span className="line-clamp-2 text-[10px] font-semibold leading-tight text-snow">{BY_ID[id].name}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="mt-0.5 text-[12px] text-ice">{celebrate.body}</div>
+          )}
+          <div className="mt-2 text-[10px] text-ice/70">Tippen zum Schliessen</div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Snowflakes and a few gold glints falling over the HUD, once. */
+function SnowBurst() {
+  const flakes = useMemo(() => snowflakes(34), []);
+  return (
+    <div className="absolute inset-0 overflow-hidden" aria-hidden>
+      {flakes.map((f, i) => (
+        <span
+          key={i}
+          className="snow-flake absolute top-0 block"
+          style={
+            {
+              left: `${f.left}%`,
+              animationDelay: `${f.delay}s`,
+              animationDuration: `${f.duration}s`,
+              "--drift": `${f.drift}px`,
+            } as CSSProperties
+          }
+        >
+          {f.crystal ? (
+            <Snowflake
+              className={f.gold ? "text-coin" : "text-white"}
+              style={{ width: f.size + 6, height: f.size + 6, filter: "drop-shadow(0 1px 2px rgba(11,31,58,.35))" }}
+            />
+          ) : (
+            <span
+              className="block rounded-full"
+              style={{
+                width: f.size,
+                height: f.size,
+                background: f.gold ? "var(--color-coin)" : "radial-gradient(circle, #fff 45%, rgba(255,255,255,.4) 75%, rgba(255,255,255,0))",
+                boxShadow: "0 1px 3px rgba(11,31,58,.25)",
+              }}
+            />
+          )}
+        </span>
+      ))}
     </div>
   );
 }
