@@ -2,7 +2,7 @@ export { ITEM_IDS, LIFT_IDS, PISTE_IDS, HOTEL_IDS, CATEGORY_IDS, isLift, isPiste
 export type { ItemId, Category } from "./ids.ts";
 export { CATALOG, BY_ID, CATEGORIES, QUICK } from "./items.ts";
 export type { CatalogItem } from "./items.ts";
-export { DOOR_EXPANSION, ECONOMY, FLOW, LEVEL, UPGRADES } from "./economy.ts";
+export { BUILDING_LEVELS, ECONOMY, FLOW, LEVEL, PISTE_LEVELS, UPGRADES } from "./economy.ts";
 export type { UpgradeKey } from "./economy.ts";
 export { QUEST_DEFS } from "./quests.ts";
 export type { QuestDef } from "./quests.ts";

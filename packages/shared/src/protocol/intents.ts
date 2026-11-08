@@ -59,7 +59,7 @@ export const IntentSchema = z.discriminatedUnion("type", [
     key: UpgradeKeySchema,
   }),
   z.object({
-    type: z.literal("expand_building"),
+    type: z.literal("expand"),
     entityId: z.string().min(2).max(48),
   }),
   z.object({

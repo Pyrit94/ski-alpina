@@ -1,4 +1,4 @@
-import { DOOR_EXPANSION, ECONOMY } from "../../../config/src/economy.ts";
+import { BUILDING_LEVELS, ECONOMY, PISTE_LEVELS } from "../../../config/src/economy.ts";
 import { CLASSIC_REGION, REGION_BY_ID } from "../../../config/src/regions.ts";
 import { BY_ID } from "../../../config/src/items.ts";
 import { QUEST_DEFS } from "../../../config/src/quests.ts";
@@ -287,43 +287,85 @@ export function entityCost(entity: ResortEntity): { coins: number; gems: number 
         ? BY_ID[entity.building.itemId]
         : BY_ID[entity.piste.itemId];
   const segments = entity.kind === "piste" ? Math.max(1, entity.piste.hexes.length - 1) : 1;
-  const grown = entity.kind === "building" ? expansionSpent(entity.building) : 0;
+  const grown =
+    entity.kind === "building" ? expansionSpent(entity.building) : entity.kind === "piste" ? pisteExpansionSpent(entity.piste) : 0;
   return { coins: item.cost * segments + grown, gems: (item.gemCost ?? 0) * segments };
 }
 
-/** Car parks and bus stations grow by level instead of by copies. */
+/** Whether a building can be expanded: everything but lift stations and plain decoration. */
 export function expandable(itemId: string): boolean {
-  return DOOR_EXPANSION.items.includes(itemId);
+  const item = BY_ID[itemId as keyof typeof BY_ID];
+  if (!item || item.category === "lifts" || item.category === "pistes") return false;
+  return itemId !== "road" && !BUILDING_LEVELS.fixed.includes(itemId);
 }
 
-/** List price of the next level, or null when there is none. */
+/** Whether a run can be expanded: any piste or park, not a road. */
+export function pisteExpandable(p: Pick<PlacedPiste, "difficulty">): boolean {
+  return p.difficulty !== "road";
+}
+
+const clampLevel = (level: number | undefined, max: number) => Math.max(1, Math.min(max, level ?? 1));
+
+/** A building's level, 1 for anything that cannot grow. */
+export function buildingLevel(b: Pick<PlacedBuilding, "itemId" | "level">): number {
+  return expandable(b.itemId) ? clampLevel(b.level, BUILDING_LEVELS.maxLevel) : 1;
+}
+
+/** A run's level; older saves have none, which is 1. */
+export function pisteLevel(p: Pick<PlacedPiste, "difficulty" | "level">): number {
+  return pisteExpandable(p) ? clampLevel(p.level, PISTE_LEVELS.maxLevel) : 1;
+}
+
+/** List price of a building's next level, or null when there is none. */
 export function expansionCost(b: Pick<PlacedBuilding, "itemId" | "level">): number | null {
   if (!expandable(b.itemId)) return null;
-  const level = Math.max(1, b.level ?? 1);
-  const share = DOOR_EXPANSION.costShare[level - 1];
-  if (level >= DOOR_EXPANSION.maxLevel || share === undefined) return null;
+  const level = buildingLevel(b);
+  const share = BUILDING_LEVELS.costShare[level - 1];
+  if (level >= BUILDING_LEVELS.maxLevel || share === undefined) return null;
   return Math.round(BY_ID[b.itemId].cost * share);
 }
 
-/** What the levels so far cost, at list price: part of what a refund returns. */
+/** What a building's levels so far cost, at list price: part of what a refund returns. */
 export function expansionSpent(b: Pick<PlacedBuilding, "itemId" | "level">): number {
-  if (!expandable(b.itemId)) return 0;
   let total = 0;
-  for (let l = 1; l < Math.max(1, b.level ?? 1); l++) {
-    total += Math.round(BY_ID[b.itemId].cost * (DOOR_EXPANSION.costShare[l - 1] ?? 0));
+  for (let l = 1; l < buildingLevel(b); l++) {
+    total += Math.round(BY_ID[b.itemId].cost * (BUILDING_LEVELS.costShare[l - 1] ?? 0));
   }
   return total;
 }
 
-/** Arrivals of an expandable building, as a multiple of one at level 1. */
-export function doorLevelFactor(b: Pick<PlacedBuilding, "itemId" | "level">): number {
-  return expandable(b.itemId) ? Math.max(1, Math.min(DOOR_EXPANSION.maxLevel, b.level ?? 1)) : 1;
+const segmentsOf = (p: Pick<PlacedPiste, "hexes">) => Math.max(1, p.hexes.length - 1);
+
+/** List price of a run's next level, or null when there is none. */
+export function pisteExpansionCost(p: Pick<PlacedPiste, "difficulty" | "level" | "hexes">): number | null {
+  if (!pisteExpandable(p)) return null;
+  const level = pisteLevel(p);
+  const per = PISTE_LEVELS.costPerSegment[level - 1];
+  if (level >= PISTE_LEVELS.maxLevel || per === undefined) return null;
+  return per * segmentsOf(p);
 }
 
-/** Upkeep of a building at its level, as a multiple of the catalogue value. */
-export function doorUpkeepFactor(b: Pick<PlacedBuilding, "itemId" | "level">): number {
-  return 1 + (doorLevelFactor(b) - 1) * DOOR_EXPANSION.upkeepPerLevel;
+/** What a run's levels so far cost, at list price. */
+export function pisteExpansionSpent(p: Pick<PlacedPiste, "difficulty" | "level" | "hexes">): number {
+  let total = 0;
+  for (let l = 1; l < pisteLevel(p); l++) total += (PISTE_LEVELS.costPerSegment[l - 1] ?? 0) * segmentsOf(p);
+  return total;
 }
+
+type Leveled = Pick<PlacedBuilding, "itemId" | "level">;
+/** Arrivals, seats and shop customers, as a multiple of level 1. */
+export const capacityFactor = (b: Leveled) => 1 + (buildingLevel(b) - 1) * BUILDING_LEVELS.capacityPerLevel;
+/** Hotel beds, as a multiple of level 1. */
+export const bedsFactor = (b: Leveled) => 1 + (buildingLevel(b) - 1) * BUILDING_LEVELS.bedsPerLevel;
+/** Comfort, summer draw and the service bonuses, as a multiple of level 1. */
+export const bonusFactor = (b: Leveled) => 1 + (buildingLevel(b) - 1) * BUILDING_LEVELS.bonusPerLevel;
+/** A workshop's upkeep cut, as a multiple of level 1. */
+export const cutFactor = (b: Leveled) => 1 + (buildingLevel(b) - 1) * BUILDING_LEVELS.cutPerLevel;
+/** Upkeep of a building at its level, as a multiple of the catalogue value. */
+export const upkeepFactor = (b: Leveled) => 1 + (buildingLevel(b) - 1) * BUILDING_LEVELS.upkeepPerLevel;
+/** Upkeep of a run at its level, as a multiple of a level-1 run. */
+export const pisteUpkeepFactor = (p: Pick<PlacedPiste, "difficulty" | "level">) =>
+  1 + (pisteLevel(p) - 1) * PISTE_LEVELS.upkeepPerLevel;
 
 export function occupiedSet(state: ResortState): Set<string> {
   const set = new Set<string>();

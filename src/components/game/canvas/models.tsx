@@ -116,6 +116,8 @@ export function BuildingModel({
   level?: number;
 }) {
   const opacity = constructing ? 0.72 : 1;
+  // A hotel wing shows as more floors.
+  const grow = Math.max(0, Math.min(3, level - 1));
   const mat = { opacity, transparent: constructing };
   switch (itemId) {
     case "gondola":
@@ -126,13 +128,13 @@ export function BuildingModel({
     case "glacier":
       return <Station constructing={constructing} kind={itemId} lit={lit} />;
     case "hotel-resort":
-      return <Hotel floors={6} width={2.7} lit={lit} />;
+      return <Hotel floors={6 + grow} width={2.7} lit={lit} />;
     case "hotel5":
-      return <Hotel floors={5} width={2.4} lit={lit} />;
+      return <Hotel floors={5 + grow} width={2.4} lit={lit} />;
     case "hotel3":
-      return <Hotel floors={3} width={2.1} lit={lit} />;
+      return <Hotel floors={3 + grow} width={2.1} lit={lit} />;
     case "hotel1":
-      return <Hotel floors={2} width={1.8} lit={lit} />;
+      return <Hotel floors={2 + grow} width={1.8} lit={lit} />;
     case "restaurant":
     case "hut":
     case "apres":
