@@ -162,6 +162,11 @@ export const FLOW = {
    * without a road: within this many hexes of the village…
    */
   villageAccessRadius: 9,
+  /**
+   * A run ending anywhere within this many hexes of the village centre ends
+   * in the village: guests ski home and walk or take the bus to the lifts.
+   */
+  villageRunRadius: 4,
   /** …and no more than this many metres above it. */
   villageAccessRise: 260,
   /**
@@ -441,4 +446,8 @@ export const PISTE_SCORE = {
   drawPerPoint: 0.0015,
   /** The auto planner values a point this much against its money gain (share of the gain per 100 points). */
   plannerWeight: 0.3,
+  /** Reshaping a run: the old line's grooming counts this much against the new one's price. */
+  reshapeCredit: 0.5,
+  /** A new line must be at least this many points better to be offered. */
+  reshapeMinGain: 8,
 } as const;

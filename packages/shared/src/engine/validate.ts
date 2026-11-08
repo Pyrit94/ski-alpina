@@ -25,6 +25,7 @@ import type { PisteWidth } from "../types.ts";
 import { validateEditPiste } from "./piste-edit.ts";
 import { villageMovable } from "./site.ts";
 import { validateProposalIntent } from "./proposals.ts";
+import { validateReshape } from "./piste-reshape.ts";
 import { hexKey } from "../hex.ts";
 
 export function validateHex(
@@ -369,6 +370,7 @@ export function validateIntent(
   }
 
   if (intent.type === "edit_piste") return validateEditPiste(state, dem, intent, actorId);
+  if (intent.type === "reshape_piste") return validateReshape(state, dem, intent, money);
 
 
   if (isResearchIntent(intent)) return validateResearch(state, intent, ctx);

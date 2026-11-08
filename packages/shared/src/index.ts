@@ -109,6 +109,8 @@ export { planAutoPistes } from "./engine/auto-pistes.ts";
 export { siteAt, siteContext, siteFactors, siteImpact, siteKind, villageMovable } from "./engine/site.ts";
 export type { SiteContext, SiteEffect, SiteImpact, SiteKind, SiteReport } from "./engine/site.ts";
 export { planVillage } from "./engine/village.ts";
+export { bestReshape, reshapeAll } from "./engine/piste-reshape.ts";
+export type { Reshape } from "./engine/piste-reshape.ts";
 export { countSwings, pistePoints, relaxLine, scorePiste, starsFor } from "./engine/piste-score.ts";
 export type { PisteScore } from "./engine/piste-score.ts";
 export { costOf, parseCarried, proposalLimit } from "./engine/proposals.ts";

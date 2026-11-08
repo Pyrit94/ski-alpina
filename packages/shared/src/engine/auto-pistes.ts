@@ -100,7 +100,7 @@ const rated = (value: number, points: number) => {
  * Each piece is routed with the same legal-line rules, so every line returned
  * is one the server would accept.
  */
-function swingLines(dem: Dem, top: Axial, goals: readonly Axial[], grade: PisteGrade, plain: Axial[] | null): Axial[][] {
+export function swingLines(dem: Dem, top: Axial, goals: readonly Axial[], grade: PisteGrade, plain: Axial[] | null): Axial[][] {
   if (!plain || plain.length < 6) return [];
   const a = hexToWorld(top.q, top.r);
   const end = plain[plain.length - 1]!;

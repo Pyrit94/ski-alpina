@@ -6,6 +6,7 @@ import type { CatalogItem } from "@/lib/game/catalog";
 import { BUILDING_LEVELS, PISTE_LEVELS, TERRAIN } from "@ski/config";
 import { buildingLevel, expandable, expansionCost, expansionSpent, getDem, PENDING_READY, pisteExpandable, pisteExpansionCost, pisteExpansionSpent, pisteLevel, scorePiste, siteAt, siteContext, siteKind, widthDef } from "@ski/shared";
 import { RatingChip, RatingParts } from "./PisteRating";
+import { ReshapeOne } from "./Reshape";
 import { pct, siteTone } from "@/lib/game/placement";
 import { useStableGame } from "../canvas/use-stable-game";
 import { buildingLevelLabel, levelGain, pisteLevelLabel } from "@/lib/game/expansion";
@@ -382,6 +383,7 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
           cost={pisteExpansionCost(piste)}
         />
       )}
+      {piste.itemId === "piste" && <ReshapeOne key={`re-${piste.id}`} pisteId={piste.id} />}
       <PisteEditPanel key={piste.id} piste={piste} />
       <DemolishButton id={piste.id} refund={refundFor(item.cost * segments + pisteExpansionSpent(piste))} label={piste.name || item.name} />
     </Panel>

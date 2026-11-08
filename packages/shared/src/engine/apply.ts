@@ -16,6 +16,7 @@ import { MATCH } from "../../../config/src/match.ts";
 import { applyResearch, buildCost, discounted, isResearchIntent } from "./research.ts";
 import { applyProposalIntent } from "./proposals.ts";
 import { scorePiste } from "./piste-score.ts";
+import { applyReshape } from "./piste-reshape.ts";
 
 export interface Applied {
   state: ResortState;
@@ -623,6 +624,7 @@ function applyOne(
   }
 
   if (intent.type === "edit_piste") return applyEditPiste(state, intent, dem);
+  if (intent.type === "reshape_piste") return applyReshape(state, dem, intent);
 
   if (intent.type === "dismiss_tutorial") {
     return {

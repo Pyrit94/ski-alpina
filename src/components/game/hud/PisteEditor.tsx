@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { discounted } from "@ski/shared";
 import { useMyMoney } from "@/lib/game/team";
-import { Check, CircleCheck, CircleX, PenLine, Route, Undo2, X } from "lucide-react";
+import { Check, CircleCheck, CircleX, MapPin, PenLine, Route, Undo2, X } from "lucide-react";
 import { BY_ID, FLOW, PISTE_WIDTHS, type PisteGrade } from "@ski/config";
 import {
   GRADE_LABEL,
@@ -277,10 +277,10 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
     : draft.length === 0
       ? stampMode
         ? "Bergstation unter das Raster schieben und setzen"
-        : "Bergstation antippen und talwärts ziehen"
+        : "Bei der Bergstation beginnen, dann Punkt für Punkt talwärts tippen"
       : stampMode
-        ? "Raster talwärts schieben, Feld für Feld setzen"
-        : "Weiter talwärts ziehen oder tippen, dann «Bauen»";
+        ? "Raster zum nächsten Punkt schieben und setzen"
+        : "Nächsten Punkt tippen – die Piste läuft gerade dorthin. «Zurück» nimmt den letzten weg";
 
   const fertig = (
     <button
@@ -318,8 +318,8 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
           <div className="flex shrink-0 rounded-full bg-ice p-0.5" role="radiogroup" aria-label="Modus">
             {(
               [
-                ["draw", "Zeichnen", PenLine],
-                ["route", "Route", Route],
+                ["draw", "Punkt für Punkt", MapPin],
+                ["route", "Dem Hang nach", Route],
               ] as const
             ).map(([m, label, Icon]) => (
               <button

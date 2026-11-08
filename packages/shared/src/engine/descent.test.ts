@@ -7,6 +7,7 @@ import { applyIntent } from "./apply.ts";
 import { descentGoals, liftEnds, resortLinks, suggestDescent } from "./descent.ts";
 import { tickFlow } from "./flow.ts";
 import { VILLAGE_HEX } from "./graph.ts";
+import { routePiste } from "./piste-route.ts";
 import { emptyResort } from "./state.ts";
 import { validateIntent } from "./validate.ts";
 
@@ -78,8 +79,10 @@ test("acceptance: a second run into the first counts as joined", () => {
 });
 
 test("a run ending on another run mid-way is joined, by hand too", () => {
-  const { state: withLift, liftId } = freshWithChair();
-  const first = suggestDescent(withLift, dem, liftId)!;
+  const { state: withLift } = freshWithChair();
+  // All the way to the valley station, not just to the edge of the village.
+  const { top } = liftEnds(dem, withLift.lifts[0]!);
+  const first = routePiste(dem, top, VILLAGE_HEX, "any")!;
   assert.ok(first.length >= 7, "long enough to join mid-way");
   const state = act(withLift, { type: "place_piste", itemId: "piste", hexes: first });
   // Any goal on the first run is a valid end for a second run.
@@ -117,4 +120,20 @@ test("a run that ends nowhere is not offered as a place to end", () => {
   assert.equal(resortLinks(state, dem).get(id), "dead-end");
   const goals = descentGoals(state, dem, { q: 99, r: 99 });
   assert.ok(!goals.some((g) => g.q === -8 && g.r === 5));
+});
+
+test("a run may end anywhere in the village, without a lift there", () => {
+  const { state: withLift } = freshWithChair();
+  const { top } = liftEnds(dem, withLift.lifts[0]!);
+  // Aim for a village hex beside the centre, not the valley station.
+  const goals = descentGoals(withLift, dem, top);
+  const edge = goals.find((g) => {
+    const d = Math.max(Math.abs(g.q - VILLAGE_HEX.q), Math.abs(g.r - VILLAGE_HEX.r), Math.abs(g.q + g.r - VILLAGE_HEX.q - VILLAGE_HEX.r));
+    return d === 3;
+  });
+  assert.ok(edge, "the village edge is offered as a place to end");
+  const run = routePiste(dem, top, edge!, "any");
+  if (!run) return; // terrain: no line there
+  const state = act(withLift, { type: "place_piste", itemId: "piste", hexes: run });
+  assert.equal(resortLinks(state, dem).get(state.pistes[0]!.id), "ok");
 });

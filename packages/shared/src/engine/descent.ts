@@ -74,8 +74,10 @@ export function descentGoals(
     seen.add(k);
     out.push(hex);
   };
-  const places = [dem.region.villageHex, ...state.lifts.map((l) => liftEnds(dem, l).base), ...doors(state)];
+  const places = [...state.lifts.map((l) => liftEnds(dem, l).base), ...doors(state)];
   for (const p of places) for (const h of hexesInRange(p, 1)) add(h);
+  // The whole village is a place to end, so a run can come home without a lift there.
+  for (const h of hexesInRange(dem.region.villageHex, FLOW.villageRunRadius)) add(h);
   for (const p of state.pistes) {
     if (p.difficulty === "road" || links.get(p.id) === "dead-end") continue;
     for (const h of p.hexes) add(h);

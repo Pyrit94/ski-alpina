@@ -113,7 +113,9 @@ function nearest(anchors: readonly Anchor[], hex: Axial, kinds: readonly AnchorK
     const d = hexDistance(a.hex, hex);
     // Ties go to the kind listed first.
     const rank = d + kinds.indexOf(a.kind) * 0.01;
-    if (d <= FLOW.linkRadius && rank < bestD) {
+    // The village is a place, not a point: a run may end anywhere in it.
+    const reach = a.kind === "village" ? FLOW.villageRunRadius : FLOW.linkRadius;
+    if (d <= reach && rank < bestD) {
       best = a;
       bestD = rank;
     }
