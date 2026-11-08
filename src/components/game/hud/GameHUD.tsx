@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Cloud, CloudFog, CloudLightning, Sun, Check, Gem, Snowflake, Star, X, Settings, Smile, Users, LayoutGrid } from "lucide-react";
+import { Cloud, CloudFog, CloudLightning, Sun, Check, Gem, Snowflake, Star, X, Settings, Smile, Users, LayoutGrid, Flower2, Leaf } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
 import { useAmbientBed } from "@/lib/game/use-ambient";
@@ -30,6 +30,7 @@ import { MobileMenuBody } from "./MenuBody";
 import { BuildDrawer, BigBuildButton } from "./BuildDrawer";
 import { ActionRail, DesktopCorners, TeamMarks, DesktopPanel } from "./Rail";
 import { LongGoalsPanel, RankChip, RankPanel, SeasonReportModal } from "./Progression";
+import { seasonGuestNote, seasonLabel, visualSeason, type VisualSeason } from "../canvas/season-look";
 
 export function GameHUD() {
   // The wide columns are not rendered at all on a phone, rather than rendered
@@ -129,16 +130,48 @@ function TopBar() {
           <RankChip />
         </span>
         <LevelChip />
+        {/* On a phone the bar is full; the season sits beside the rank instead (MobileRank). */}
+        <span className="hidden lg:contents">
+          <SeasonChip day={day} />
+        </span>
         <div className="hidden items-center gap-2 rounded-full bg-panel/92 px-3 py-1.5 text-[11px] font-medium text-muted shadow-[var(--shadow-chip)] lg:flex">
           <WeatherIcon className="size-3.5 text-accent" />
           {weather.label} · {weather.tempC}°
-          <span className="text-subtle">· S{season} T{day}</span>
+          <span className="text-subtle">· Saison {season}</span>
         </div>
       </div>
       <div className="hidden shrink-0 items-center gap-1.5 lg:flex">
         <Avatars />
       </div>
     </header>
+  );
+}
+
+const SEASON_ICON: Record<VisualSeason, { Icon: typeof Sun; tone: string }> = {
+  winter: { Icon: Snowflake, tone: "text-accent" },
+  spring: { Icon: Flower2, tone: "text-success" },
+  summer: { Icon: Sun, tone: "text-coin" },
+  autumn: { Icon: Leaf, tone: "text-warn" },
+};
+
+/**
+ * Where in the year the resort is: «Winter · Tag 34». Tapping opens Betrieb,
+ * which says what the season means for the guests.
+ */
+function SeasonChip({ day }: { day: number }) {
+  const setSheet = useGame((s) => s.setSheet);
+  const { Icon, tone } = SEASON_ICON[visualSeason(day)];
+  const label = seasonLabel(day);
+  return (
+    <button
+      type="button"
+      onClick={() => setSheet("info")}
+      aria-label={`${label}. ${seasonGuestNote(day)}`}
+      className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-panel/92 px-2.5 py-1.5 text-[11px] font-semibold text-navy shadow-[var(--shadow-chip)] lg:text-[12px]"
+    >
+      <Icon className={`size-3.5 ${tone}`} />
+      {label}
+    </button>
   );
 }
 
@@ -202,14 +235,16 @@ function LevelChip() {
   );
 }
 
-/** The rank on a phone: top left over the map, out of the way while building. */
+/** The rank and the season on a phone: top left over the map, out of the way while building. */
 function MobileRank() {
   const sheet = useGame((s) => s.sheet);
   const phase = useGame((s) => s.phase);
+  const day = useGame((s) => s.day);
   if (phase !== "idle" || sheet !== "none") return null;
   return (
-    <div className="absolute left-3 top-3 z-20">
+    <div className="absolute left-3 top-3 z-20 flex items-center gap-2">
       <RankChip />
+      <SeasonChip day={day} />
     </div>
   );
 }

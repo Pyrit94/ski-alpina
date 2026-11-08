@@ -30,7 +30,9 @@ import { AutoPreview } from "./AutoPreview";
 import { VillagePreview } from "./VillagePreview";
 import { VillageHouses } from "./village";
 import { ribbonGeometry } from "./geometry";
-import { makeTreeMaterial } from "./snow-shaders";
+import { makeTreeMaterial, SEASON_UNIFORMS } from "./snow-shaders";
+import { isGreenSeason, snowCoverAt } from "./season-look";
+import { useGreenSeason, useSeasonLook } from "./use-season";
 import { STATION_CABLE_Y, cableGap, stationYaw } from "./station";
 import { drapedRibbon, joinRun, makePisteMaterial, markerPoles, mergeRibbons, smoothPath, snowPlaza, type Pole, type RunLine } from "./piste-mesh";
 import {
@@ -39,7 +41,9 @@ import {
   groundBase,
   makeBoulderGeometry,
   makeConiferGeometry,
+  paintFarLand,
   paintGround,
+  type GroundLook,
 } from "./landscape";
 import { useTerrainMaterial } from "./terrain-material";
 import { useTexturePack } from "./texture-pack";
@@ -63,17 +67,17 @@ import { BuildBursts } from "./BuildBursts";
  * The playable ground.
  *
  * Shape, normals and occlusion are built once per heightmap (landscape.ts);
- * what changes with the game — snow line, overlay, piste heat — only rewrites
- * the colour buffer. Snapshots that change none of those touch nothing.
+ * what changes with the game — the season, overlay, piste heat — only
+ * rewrites the colour buffer. Snapshots that change none of those touch
+ * nothing.
  */
 function Terrain() {
   const hm = getHeightmap();
   const layer = useGame((s) => s.layer);
   const pistes = useStableGame((s) => s.pistes);
-  // Quantised: the raw snow line moves a metre at a time as weather and
-  // snowmaking shift. 25 m steps are below what the eye catches on a 130 m
-  // blend.
-  const snowLineM = useGame((s) => Math.round(s.stats.snowLineM / 25) * 25);
+  // Quantised in useSeasonLook: the line in 25 m steps, below what the eye
+  // catches on a 130 m blend, so the clock does not repaint every second.
+  const look = useSeasonLook();
   const base = useMemo(() => groundBase(hm), [hm]);
   // Only the heat layer reads this, so only the heat layer pays for it.
   const heat = useMemo(() => {
@@ -88,8 +92,8 @@ function Terrain() {
     return m;
   }, [pistes, layer]);
   useLayoutEffect(() => {
-    paintGround(base, layer, snowLineM, heat);
-  }, [base, layer, snowLineM, heat]);
+    paintGround(base, layer, look, heat);
+  }, [base, layer, look, heat]);
 
   const click = useGame((s) => s.clickHex);
   const hover = useGame((s) => s.hoverHex);
@@ -139,7 +143,7 @@ function Terrain() {
           click(q, r);
         }}
       />
-      <FarLand snowLineM={snowLineM} />
+      <FarLand look={look} />
     </>
   );
 }
@@ -153,12 +157,17 @@ function Terrain() {
  * terms cannot be seen at that distance but were costing about a sixth of the
  * frame on a software rasteriser.
  */
-function FarLand({ snowLineM }: { snowLineM: number }) {
+function FarLand({ look }: { look: GroundLook }) {
   const hm = getHeightmap();
-  // Distant snow follows the season in coarse steps; nobody counts metres at 300 units.
-  const coarse = Math.round(snowLineM / 200) * 200;
-  const geo = useMemo(() => buildFarLand(hm, coarse), [hm, coarse]);
+  const geo = useMemo(() => buildFarLand(hm), [hm]);
   const mat = useMemo(() => new THREE.MeshLambertMaterial({ vertexColors: true }), []);
+  // Distant snow follows the season in coarse steps; nobody counts metres at
+  // 300 units. Only the colours are rewritten, never the mesh.
+  const coarse = Math.round(look.snowLineM / 100) * 100;
+  const { autumn, straw } = look;
+  useLayoutEffect(() => {
+    paintFarLand(geo, { snowLineM: coarse, autumn, straw });
+  }, [geo, coarse, autumn, straw]);
   useEffect(() => () => geo.dispose(), [geo]);
   useEffect(() => () => mat.dispose(), [mat]);
   return <mesh geometry={geo} material={mat} raycast={noRaycast} />;
@@ -166,6 +175,23 @@ function FarLand({ snowLineM }: { snowLineM: number }) {
 
 function noRaycast() {
   /* decoration: never a pick target */
+}
+
+/**
+ * Keeps the shared season uniforms (snow-shaders.ts) current: the snow line
+ * the trees and roofs hold to, the line the runs stay white above, and how
+ * far the larches have turned. Writes numbers only; nothing is rebuilt.
+ */
+function SeasonDriver() {
+  const look = useSeasonLook();
+  const runLineM = useGame((s) => Math.round(s.stats.snowLineM / 25) * 25);
+  useLayoutEffect(() => {
+    SEASON_UNIFORMS.uSnowLineY.value = metersToWorldY(look.snowLineM);
+    SEASON_UNIFORMS.uRunLineY.value = metersToWorldY(runLineM);
+    SEASON_UNIFORMS.uAutumn.value = look.autumn;
+    SEASON_UNIFORMS.uBare.value = look.straw;
+  }, [look, runLineM]);
+  return null;
 }
 
 /** Position, size and tint every tree of one kind. */
@@ -221,11 +247,16 @@ function Forest({ quality }: { quality: "low" | "high" }) {
     },
     [parts],
   );
-  // Snow on the branches follows today's snow line, in coarse steps so a
-  // drifting line does not rebuild the material every tick.
-  const snowLineM = useGame((s) => Math.round(s.stats.snowLineM / 100) * 100);
-  const treeMat = useMemo(() => makeTreeMaterial(metersToWorldY(snowLineM)), [snowLineM]);
-  useEffect(() => () => treeMat.dispose(), [treeMat]);
+  // Snow on the branches and the larches' colour follow the season through
+  // shared uniforms (SeasonDriver), so the materials are built once.
+  const treeMats = useMemo(() => ({ spruce: makeTreeMaterial(), larch: makeTreeMaterial(true) }), []);
+  useEffect(
+    () => () => {
+      treeMats.spruce.dispose();
+      treeMats.larch.dispose();
+    },
+    [treeMats],
+  );
   // Runs and lift lines are cut through the forest, as on a real mountain:
   // no tree stands on a hex a run or a cable crosses.
   const pistes = useStableGame((s) => s.pistes);
@@ -289,10 +320,10 @@ function Forest({ quality }: { quality: "low" | "high" }) {
       <instancedMesh
         key={`t${kinds.spruce.length}${spruceFile ? "f" : ""}`}
         ref={meshRef}
-        // The material is a prop, not an argument: a new snow line must not
+        // The material is a prop, not an argument: a new material must not
         // rebuild the mesh and drop every tree back to the origin.
         args={[spruceGeo, undefined, kinds.spruce.length]}
-        material={treeMat}
+        material={treeMats.spruce}
         castShadow={tier.shadows}
         raycast={noRaycast}
       />
@@ -300,7 +331,7 @@ function Forest({ quality }: { quality: "low" | "high" }) {
         key={`f${kinds.fir.length}${larchFile ? "f" : ""}`}
         ref={firRef}
         args={[firGeo, undefined, kinds.fir.length]}
-        material={treeMat}
+        material={treeMats.larch}
         castShadow={tier.shadows}
         raycast={noRaycast}
       />
@@ -316,14 +347,21 @@ function Forest({ quality }: { quality: "low" | "high" }) {
   );
 }
 
+const LAKE_ICE = new THREE.Color("#b9d7e6");
+const LAKE_WATER = new THREE.Color("#4f86a6");
+
+/** A mountain lake: frozen and snowed over while the snow lies at its shore, open water once it melts out. */
 function Lake() {
   const lake = getHeightmap().region.lake;
+  const look = useSeasonLook();
+  const frozen = lake ? snowCoverAt(lake.elev, look.snowLineM) : 1;
+  const color = `#${LAKE_WATER.clone().lerp(LAKE_ICE, frozen).getHexString()}`;
   if (!lake) return null;
   const y = metersToWorldY(lake.elev) + 0.12;
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[lake.x, y, lake.z]} receiveShadow>
       <circleGeometry args={[lake.radius * 0.95, 40]} />
-      <meshStandardMaterial color="#b9d7e6" roughness={0.22} metalness={0.18} />
+      <meshStandardMaterial color={color} roughness={0.22 - 0.12 * (1 - frozen)} metalness={0.18} />
     </mesh>
   );
 }
@@ -1307,7 +1345,7 @@ function Pistes() {
   const hide = layer === "height";
 
   const material = useMemo(
-    () => makePisteMaterial(tier.pisteRibs, layer === "pistes" ? 1 : 0.97),
+    () => makePisteMaterial(tier.pisteRibs, layer === "pistes" ? 1 : 0.97, layer === "pistes"),
     [tier.pisteRibs, layer],
   );
   useEffect(() => () => material.dispose(), [material]);
@@ -1461,7 +1499,64 @@ function MarkerPoles({ poles }: { poles: Pole[] }) {
 }
 const TMP_POLE = new THREE.Object3D();
 
+/** Hikers' jackets: the colours a summer trail is made of. */
+const HIKER_COLOURS = ["#c23b32", "#2f6fed", "#e0a020", "#3a8a4a", "#7a3fa0"].map((c) => new THREE.Color(c));
+
+/** In the green season a few hikers walk the runs, slowly and mostly uphill. */
 function Skiers() {
+  const green = useGreenSeason();
+  return green ? <Hikers /> : <Skiing />;
+}
+
+function Hikers() {
+  const pistes = useWorldPistes();
+  const hm = getHeightmap();
+  const paths = useMemo(
+    () => pistes.filter((p) => p.difficulty !== "road" && p.hexes.length >= 2).map((p) => pistePoints(p, hm)),
+    [pistes, hm],
+  );
+  const count = Math.min(14, paths.length * 2);
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  useLayoutEffect(() => {
+    const inst = ref.current;
+    if (!inst) return;
+    for (let i = 0; i < count; i++) inst.setColorAt(i, HIKER_COLOURS[i % HIKER_COLOURS.length]!);
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  }, [count]);
+  useFrame(() => {
+    const inst = ref.current;
+    if (!inst || paths.length === 0) return;
+    const t = performance.now() / 1000;
+    for (let i = 0; i < count; i++) {
+      const path = paths[i % paths.length]!;
+      // A tenth of a skier's pace; two in three walk up, the rest come down.
+      const up = i % 3 !== 2;
+      const raw = (t * 0.008 + i * 0.29) % 1;
+      const u = up ? 1 - raw : raw;
+      const idx = u * (path.length - 1);
+      const a = path[Math.floor(idx)]!;
+      const b = path[Math.min(path.length - 1, Math.floor(idx) + 1)]!;
+      const f = idx % 1;
+      // Walking side by side with the trail, not on its centre line.
+      const side = ((i % 4) - 1.5) * 0.18;
+      dummy.position.set(a.x + (b.x - a.x) * f + side, a.y + (b.y - a.y) * f + 0.17, a.z + (b.z - a.z) * f);
+      dummy.lookAt(up ? a : b);
+      dummy.updateMatrix();
+      inst.setMatrixAt(i, dummy.matrix);
+    }
+    inst.instanceMatrix.needsUpdate = true;
+  });
+  if (count === 0) return null;
+  return (
+    <instancedMesh key={count} ref={ref} args={[undefined, undefined, count]} raycast={noRaycast}>
+      <capsuleGeometry args={[0.07, 0.2, 3, 6]} />
+      <meshStandardMaterial color="#ffffff" />
+    </instancedMesh>
+  );
+}
+
+function Skiing() {
   const pistes = useWorldPistes();
   const hm = getHeightmap();
   const paths = useMemo(() => pistes.filter((p) => p.hexes.length >= 2).map((p) => pistePoints(p, hm)), [pistes, hm]);
@@ -2193,6 +2288,8 @@ export function SkiScene() {
   // Levelled ground changes the heightmap: redraw everything that stands on it.
   useGame((s) => s.terrainVersion);
   const weather = useGame((s) => s.weather.kind);
+  // A summer storm is a thunderstorm: no snow out of it.
+  const green = useGame((s) => isGreenSeason(s.day));
   const tier = QUALITY[quality];
   // Computed once per map: the opening framing, not a leash.
   const view = useMemo(() => openingView(getHeightmap(), tier), [tier]);
@@ -2229,6 +2326,7 @@ export function SkiScene() {
         <LightsAndSky />
         <Controls />
         <Loop />
+        <SeasonDriver />
         <Terrain />
         <Lake />
         <Forest quality={quality} />
@@ -2239,7 +2337,7 @@ export function SkiScene() {
         <BuildBursts />
         <Skiers />
         <Traffic />
-        <Groomers />
+        {!green && <Groomers />}
         <Props />
         <HexRaster />
         <HexCursor />
@@ -2254,7 +2352,7 @@ export function SkiScene() {
         <MapMarks />
         <AlbumCapture />
         <MapLabelProjector />
-        <Snowfall on={weather === "snow" || weather === "storm"} />
+        <Snowfall on={!green && (weather === "snow" || weather === "storm")} />
       </Canvas>
       {/* The map's names, one DOM layer over the canvas, moved by MapLabelProjector. */}
       <MapLabels />

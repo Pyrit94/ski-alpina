@@ -7,17 +7,20 @@ import { hexKey, worldToHex } from "@/lib/game/hex";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { HOUSE_KEYS, houseVariant } from "@/lib/game/model-keys";
 import { SOLID } from "./bake";
+import { withRoofSnow } from "./snow-shaders";
 import { useFilePart, useFileParts } from "./file-parts";
 import { useStableGame } from "./use-stable-game";
 
 /** A chalet: white walls, a dark timber roof with snow on it. One geometry, coloured per vertex. */
 function makeHouseGeometry(): THREE.BufferGeometry {
-  const paint = (g: THREE.BufferGeometry, hex: number) => {
+  const paint = (g: THREE.BufferGeometry, hex: number, snow = 0) => {
     const c = new THREE.Color(hex);
     const n = g.attributes.position!.count;
     const col = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
     g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    // The roof's snow goes with the season (snow-shaders.ts).
+    g.setAttribute("roofSnow", new THREE.BufferAttribute(new Float32Array(n).fill(snow), 1));
     return g;
   };
   const body = paint(new THREE.BoxGeometry(1, 0.62, 0.78).translate(0, 0.31, 0).toNonIndexed(), 0xefe8dc);
@@ -31,7 +34,7 @@ function makeHouseGeometry(): THREE.BufferGeometry {
   const roof = new THREE.ExtrudeGeometry(shape, { depth: 1.14, bevelEnabled: false });
   roof.rotateY(Math.PI / 2);
   roof.translate(-0.57, 0.62, 0);
-  const roofSnow = paint(roof.toNonIndexed(), 0xe6edf4);
+  const roofSnow = paint(roof.toNonIndexed(), 0xe6edf4, 1);
   const merged = mergeGeometries([body, base, roofSnow])!;
   merged.computeVertexNormals();
   return merged;
@@ -52,7 +55,10 @@ export function VillageHouses() {
   const lifts = useStableGame((s) => s.lifts);
   const pistes = useStableGame((s) => s.pistes);
   const geometry = useMemo(() => makeHouseGeometry(), []);
-  const material = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true }), []);
+  const material = useMemo(
+    () => withRoofSnow(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true }), "chalet"),
+    [],
+  );
   useEffect(
     () => () => {
       geometry.dispose();

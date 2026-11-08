@@ -3,6 +3,7 @@ import type { ItemId } from "@/lib/game/types";
 import { isLift } from "@/lib/game/catalog";
 import { modelAt, slotModel, useModelLibrary } from "@/lib/game/model-library";
 import { STATION_CABLE_Y, cableGap } from "./station";
+import { ROOF_SNOW, TREE_SNOW_CAP } from "./snow-shaders";
 
 /**
  * Wallis in six colours.
@@ -59,7 +60,7 @@ function GableRoof({
           castShadow
         >
           <boxGeometry args={[face, 0.1, d]} />
-          <meshStandardMaterial color={snow} roughness={0.62} />
+          <meshStandardMaterial color={snow} userData={ROOF_SNOW} roughness={0.62} />
         </mesh>
       ))}
       {/* The dark underside of the eaves, which is what reads as a shadow. */}
@@ -302,7 +303,7 @@ export function BuildingModel({
           </mesh>
           <mesh position={[0, 1.2, 0]}>
             <cylinderGeometry args={[0.7, 0.7, 0.08, 8]} />
-            <meshStandardMaterial color={snow} />
+            <meshStandardMaterial color={snow} userData={ROOF_SNOW} />
           </mesh>
         </group>
       );
@@ -508,7 +509,7 @@ function Station({
           {pane(-0.31, 0.52, 0, 0.36, 0.22, Math.PI / 2)}
           <mesh position={[0, 0.84, 0]} castShadow>
             <boxGeometry args={[0.74, 0.1, 0.76]} />
-            <meshStandardMaterial color={snow} roughness={0.62} />
+            <meshStandardMaterial color={snow} userData={ROOF_SNOW} roughness={0.62} />
           </mesh>
         </group>
       </group>
@@ -543,7 +544,7 @@ function Station({
         {wheel}
         <mesh position={[0, roofY, -0.1]} castShadow>
           <boxGeometry args={[w + 0.3, 0.12, d + 0.2]} />
-          <meshStandardMaterial color={snow} roughness={0.6} {...ghost} />
+          <meshStandardMaterial color={snow} userData={ROOF_SNOW} roughness={0.6} {...ghost} />
         </mesh>
         <mesh position={[0, roofY - 0.1, -0.1]}>
           <boxGeometry args={[w + 0.32, 0.08, d + 0.22]} />
@@ -559,7 +560,7 @@ function Station({
           {pane(0, 0.68, 0.41, 0.4, 0.32)}
           <mesh position={[0, 1.06, 0]} castShadow>
             <boxGeometry args={[0.84, 0.1, 0.94]} />
-            <meshStandardMaterial color={snow} roughness={0.62} />
+            <meshStandardMaterial color={snow} userData={ROOF_SNOW} roughness={0.62} />
           </mesh>
         </group>
       </group>
@@ -638,7 +639,7 @@ export function Pine({ scale = 1 }: { scale?: number }) {
       </mesh>
       <mesh position={[0, 2.02, 0]}>
         <coneGeometry args={[0.13, 0.34, 8]} />
-        <meshStandardMaterial color={snow} roughness={0.6} />
+        <meshStandardMaterial color={snow} userData={TREE_SNOW_CAP} roughness={0.6} />
       </mesh>
     </group>
   );
