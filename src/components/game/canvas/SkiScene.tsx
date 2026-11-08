@@ -19,6 +19,7 @@ import type { ItemId, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game
 import { applyWeather, atmosphereAt, createAtmosphere, easeWeather, WEATHER_LOOK } from "./atmosphere";
 import { BuildingInstances, type Placement } from "./baked-buildings";
 import { BuildingModel } from "./models";
+import { loadModelLibrary, useModelLibrary } from "@/lib/game/model-library";
 import { AutoPreview } from "./AutoPreview";
 import { ribbonGeometry } from "./geometry";
 import { makeTreeMaterial } from "./snow-shaders";
@@ -558,6 +559,11 @@ function seedHuts(hm: Heightmap): Array<[number, number]> {
  */
 function Structures() {
   const buildings = useStableGame((s) => s.buildings);
+  // Models from files arrive after the scene: bake again when they do.
+  const modelVersion = useModelLibrary((s) => s.version);
+  useEffect(() => {
+    void loadModelLibrary();
+  }, []);
   const selectEntity = useGame((s) => s.selectEntity);
   const quality = useGame((s) => s.quality);
   const lit = useLampsOn();
@@ -620,7 +626,7 @@ function Structures() {
       <Foundations buildings={buildings} yaws={yaws} />
       {kinds.map(([k, { itemId, level, placements }]) => (
         <BuildingInstances
-          key={`${k}|${lit}`}
+          key={`${k}|${lit}|${modelVersion}`}
           itemId={itemId}
           level={level}
           lit={lit}

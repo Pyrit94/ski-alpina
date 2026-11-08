@@ -1,4 +1,7 @@
+import { useMemo } from "react";
 import type { ItemId } from "@/lib/game/types";
+import { isLift } from "@/lib/game/catalog";
+import { modelFor, useModelLibrary } from "@/lib/game/model-library";
 import { STATION_CABLE_Y, cableGap } from "./station";
 
 /**
@@ -115,10 +118,15 @@ export function BuildingModel({
   /** Car park decks, bus lines: what has been built onto it. */
   level?: number;
 }) {
+  // A model from public/models wins over the built-in one (see model-library.ts).
+  useModelLibrary((st) => st.version);
+  const file = isLift(itemId) ? null : modelFor(itemId, level);
+  const fromFile = useMemo(() => (file ? file.clone(true) : null), [file]);
   const opacity = constructing ? 0.72 : 1;
   // A hotel wing shows as more floors.
   const grow = Math.max(0, Math.min(3, level - 1));
   const mat = { opacity, transparent: constructing };
+  if (fromFile) return <primitive object={fromFile} />;
   switch (itemId) {
     case "gondola":
     case "chair":
