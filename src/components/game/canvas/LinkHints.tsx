@@ -1,14 +1,13 @@
-import { Html } from "@react-three/drei";
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { getDem, liftEnds, suggestDescent, type Axial } from "@ski/shared";
 import { getHeightmap, surfaceY } from "@/lib/game/alpine";
 import { hexToWorld } from "@/lib/game/hex";
-import { LIFT_LINK_TEXT, proposeDescent, useResortLinks } from "@/lib/game/links";
+import { useResortLinks } from "@/lib/game/links";
 import { useGame } from "@/lib/game/store";
 import { useStableGame } from "./use-stable-game";
 
-/** At most this many chips on the map at once: each one is a DOM node. */
+/** At most this many lifts get a suggested line at once. */
 const MAX_CHIPS = 6;
 const LINE_COLOR = "#E8A23A";
 
@@ -16,9 +15,8 @@ const LINE_COLOR = "#E8A23A";
  * What is still missing, drawn where it is missing.
  *
  * For every lift with no way down, the run «Abfahrt anlegen» would build is
- * shown as a dashed line from its top station, and a chip at the top station
- * names the problem and builds that run on a tap. One draw call for all the
- * lines; the chips are bounded.
+ * shown as a dashed line from its top station; the advisor chip offers to
+ * build it. One draw call for all the lines.
  */
 export function LinkHints() {
   const lifts = useStableGame((s) => s.lifts);
@@ -85,42 +83,9 @@ export function LinkHints() {
 
   // While «Pisten automatisch» shows its own plan, these would only repeat it.
   const busy = phase !== "idle" || layer === "height" || autoOpen;
+  // Only the dashed line: the advisor chip (NextStepChip) says what is
+  // missing and builds it, so a second label on the map would only repeat it
+  // — and grew huge whenever the camera came close.
   if (missing.length === 0) return null;
-  return (
-    <group>
-      <primitive object={lines} visible={!busy} />
-      {missing.map((m) => {
-        const { x, z } = hexToWorld(m.top.q, m.top.r);
-        const text = LIFT_LINK_TEXT[m.link];
-        return (
-          // Kept mounted while building and only hidden: unmounting an Html
-          // from inside its own click handler tears the DOM out from under
-          // React.
-          <Html
-            key={m.id}
-            position={[x, surfaceY(hm, x, z) + 3.2, z]}
-            center
-            distanceFactor={80}
-            zIndexRange={[7, 0]}
-            style={{ visibility: busy ? "hidden" : "visible" }}
-          >
-            {m.link === "no-descent" && m.route ? (
-              <button
-                type="button"
-                onClick={() => requestAnimationFrame(() => proposeDescent(m.id))}
-                className="flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-full bg-panel/95 px-3 text-[12px] font-semibold text-navy shadow-[var(--shadow-chip)]"
-              >
-                <span className="size-2.5 rounded-full" style={{ background: LINE_COLOR }} />
-                {text.chip} · <span className="text-accent">Abfahrt anlegen</span>
-              </button>
-            ) : (
-              <div className="pointer-events-none flex items-center gap-1.5 whitespace-nowrap rounded-full bg-panel/95 px-2.5 py-1 text-[11px] font-semibold text-warn shadow-[var(--shadow-chip)]">
-                {text.chip}
-              </div>
-            )}
-          </Html>
-        );
-      })}
-    </group>
-  );
+  return <primitive object={lines} visible={!busy} />;
 }

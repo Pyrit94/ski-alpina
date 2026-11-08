@@ -12,7 +12,7 @@ import { PisteDraftMarks } from "./PisteDraftLayer";
 import { drapedHexEdges, drapedHexes, makeHexGeometry, slopeQuaternion } from "./geometry";
 import { useStableGame } from "./use-stable-game";
 
-const GRID_RADIUS = 12;
+const GRID_RADIUS = 8;
 const NDC_STAMP = new THREE.Vector2(0, 0.02);
 const COLOR_EMPTY = new THREE.Color("#e7f3ff");
 const COLOR_OCC = new THREE.Color("#9bb8d4");

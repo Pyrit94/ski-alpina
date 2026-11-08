@@ -19,8 +19,27 @@ const MIXES: { id: AutoMix; label: string }[] = [
 
 const GRADE_NAME: Record<string, string> = { blue: "Blaue", red: "Rote", black: "Schwarze" };
 
-/** The button that opens it, for the build menu and a lift's panel. */
-export function AutoPistesButton({ liftId, className = "" }: { liftId?: string; className?: string }) {
+/** The button that opens it: a full button in the build menu, a quiet link in a lift's panel. */
+export function AutoPistesButton({
+  liftId,
+  className = "",
+  variant = "button",
+}: {
+  liftId?: string;
+  className?: string;
+  variant?: "button" | "link";
+}) {
+  if (variant === "link") {
+    return (
+      <button
+        type="button"
+        onClick={() => openAutoPistes(liftId ? [liftId] : null)}
+        className={`flex min-h-11 items-center gap-1.5 text-[12px] font-semibold text-accent ${className}`}
+      >
+        <Sparkles className="size-4" /> Mehr Pisten automatisch planen
+      </button>
+    );
+  }
   return (
     <button
       type="button"

@@ -1,12 +1,11 @@
 import { Lock, Hammer, X, FlaskConical, Sparkles } from "lucide-react";
 import { CATALOG, CATEGORIES } from "@/lib/game/catalog";
 import { RESEARCH_BY_ID } from "@ski/config";
-import { fmtCompact } from "@/lib/game/format";
 import { useMyMoney } from "@/lib/game/team";
 import { openAutoPistes } from "@/lib/game/auto-pistes";
 import { useBuildTerms } from "@/lib/game/research";
 import { useGame } from "@/lib/game/store";
-import { SHORT_CAT, CAT_ICON, ITEM_ICON, priceLabel } from "./hud-shared";
+import { SHORT_CAT, CAT_ICON, priceLabel } from "./hud-shared";
 import { Coin, ItemThumb } from "./HudBits";
 
 /** The big Bauen button, bottom right, as in a city builder. */
@@ -137,57 +136,3 @@ export function BuildDrawer() {
   );
 }
 
-export function StampTray() {
-  const category = useGame((s) => s.category);
-  const setCategory = useGame((s) => s.setCategory);
-  const setBuildItem = useGame((s) => s.setBuildItem);
-  const buildItem = useGame((s) => s.buildItem);
-  const coins = useMyMoney().mine;
-  const terms = useBuildTerms();
-  const items = CATALOG.filter((i) => i.category === category);
-  return (
-    <div className="mb-1.5 rounded-[20px] bg-panel/95 p-1.5 shadow-[var(--shadow-panel)] backdrop-blur-md">
-      <div className="flex gap-1 overflow-x-auto pb-1">
-        {CATEGORIES.map((c) => {
-          const Icon = CAT_ICON[c.id];
-          const active = category === c.id;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => setCategory(c.id)}
-              className={`btn-3d ${active ? "" : "btn-3d-light"} flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold ${active ? "bg-accent text-panel" : "bg-ice text-navy"}`}
-              style={active ? { ["--lip" as string]: "var(--color-accent-dark)" } : undefined}
-            >
-              <Icon className="size-3.5" />
-              {c.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-1 flex gap-1 overflow-x-auto">
-        {items.map((it) => {
-          const locked = terms.locked(it.id);
-          const tooExpensive = coins < terms.cost(it.id);
-          const active = buildItem === it.id;
-          const Icon = ITEM_ICON[it.id] ?? CAT_ICON[it.category];
-          return (
-            <button
-              key={it.id}
-              type="button"
-              onClick={() => setBuildItem(it.id)}
-              className={`btn-3d ${active ? "" : "btn-3d-light"} flex h-14 w-[4.6rem] shrink-0 flex-col items-center justify-center rounded-[14px] px-1 ${active ? "bg-accent text-panel" : locked ? "bg-snow text-subtle" : "bg-ice text-navy"}`}
-              style={active ? { ["--lip" as string]: "var(--color-accent-dark)" } : undefined}
-            >
-              <Icon className="size-4" />
-              <span className="mt-0.5 max-w-full truncate text-[9px] font-bold">{it.name.split(" ")[0]}</span>
-              <span className={`value text-[9px] font-semibold ${active ? "text-panel/85" : tooExpensive ? "text-danger" : "text-muted"}`}>
-                {locked ? (terms.lock(it.id)?.kind === "research" ? "Forschung" : `Lv ${it.unlockLevel}`) : it.id === "piste" ? `ab ${fmtCompact(terms.cost(it.id))}` : fmtCompact(terms.cost(it.id))}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
