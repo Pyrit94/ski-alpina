@@ -79,6 +79,11 @@ export type TerrainDetail = {
    * face read as a mountain. Zero drops it (the data overlays).
    */
   rock: number;
+  /**
+   * Sun glints in the snow: sparse bright specks that move as the camera
+   * does. Per fragment, and only near the camera, so desktop only.
+   */
+  glitter: number;
 };
 
 /**
@@ -93,15 +98,15 @@ export const TERRAIN_DETAIL: Record<"low" | "high", TerrainDetail> = {
   // Albedo break-up only. The ground covers most of the screen, so the two
   // extra samples a normal gradient costs are the difference between a phone
   // holding its frame rate and not.
-  low: { octaves: 2, scale: 0.13, albedo: 0.14, bump: 0, rock: 0.85 },
-  high: { octaves: 3, scale: 0.14, albedo: 0.17, bump: 0.85, rock: 1 },
+  low: { octaves: 2, scale: 0.13, albedo: 0.14, bump: 0, rock: 0.85, glitter: 0 },
+  high: { octaves: 3, scale: 0.14, albedo: 0.17, bump: 0.85, rock: 1, glitter: 0.9 },
 };
 
 /**
  * The height and heat overlays are read as data, so they get no detail at all:
  * noise on a legend is just noise.
  */
-export const OVERLAY_DETAIL: TerrainDetail = { octaves: 1, scale: 0.14, albedo: 0, bump: 0, rock: 0 };
+export const OVERLAY_DETAIL: TerrainDetail = { octaves: 1, scale: 0.14, albedo: 0, bump: 0, rock: 0, glitter: 0 };
 
 /**
  * A standard material with the detail shader patched in.
@@ -190,6 +195,8 @@ vSkiAO = skiAO;`,
         `#include <common>
 #define SKI_OCTAVES ${Math.max(1, Math.round(detail.octaves))}
 #define SKI_ROCK ${detail.rock > 0 ? 1 : 0}
+#define SKI_GLITTER ${detail.glitter > 0 ? 1 : 0}
+#define SKI_GLITTER_STRENGTH ${detail.glitter.toFixed(3)}
 varying vec3 vSkiWorld;
 varying vec3 vSkiUp;
 varying float vSkiAO;
@@ -310,6 +317,30 @@ reflectedLight.indirectSpecular *= vSkiAO;`,
       );
     }
 
+    if (detail.glitter > 0) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <emissivemap_fragment>",
+        `#include <emissivemap_fragment>
+#if SKI_GLITTER
+{
+  // Sparse specks on bright snow that flick on and off as the view moves:
+  // each cell picks one direction it "faces", and glints when the camera
+  // lines up with it. Faded out with distance, where it would only shimmer.
+  vec3 skiView = cameraPosition - vSkiWorld;
+  float skiDist = length(skiView);
+  float skiNear = 1.0 - smoothstep(18.0, 60.0, skiDist);
+  if (skiNear > 0.0) {
+    vec2 skiCell = floor(vSkiWorld.xz * 7.0);
+    float skiH = fract(sin(dot(skiCell, vec2(127.1, 311.7))) * 43758.5453);
+    float skiFace = fract(skiH * 17.31 + dot(skiView / skiDist, vec3(3.7, 2.3, 5.1)));
+    float skiWhite = smoothstep(0.78, 0.92, min(diffuseColor.r, diffuseColor.b));
+    float skiSpark = step(0.96, skiH) * smoothstep(0.93, 0.99, skiFace) * skiWhite * skiNear;
+    totalEmissiveRadiance += vec3(skiSpark * SKI_GLITTER_STRENGTH);
+  }
+}
+#endif`,
+      );
+    }
     if (detail.bump > 0) {
       shader.fragmentShader = shader.fragmentShader.replace(
         "#include <normal_fragment_maps>",
@@ -333,7 +364,7 @@ reflectedLight.indirectSpecular *= vSkiAO;`,
   // the first one's shader.
   const texKey = pack ? (["snow", "rock", "ground"] as const).map((k) => (pack[k] ? k[0] : "-")).join("") : "none";
   material.customProgramCacheKey = () =>
-    `ski-terrain-${detail.octaves}-${detail.bump > 0 ? "bump" : "flat"}-${detail.rock > 0 ? "rock" : "bare"}-${texKey}`;
+    `ski-terrain-${detail.octaves}-${detail.bump > 0 ? "bump" : "flat"}-${detail.rock > 0 ? "rock" : "bare"}-${detail.glitter > 0 ? "glint" : "matte"}-${texKey}`;
 
   return material;
 }

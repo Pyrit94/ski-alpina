@@ -2,7 +2,6 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, MapControls } from "@react-three/drei";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   getHeightmap,
   LAKE,
@@ -15,7 +14,7 @@ import {
   type Heightmap,
 } from "@/lib/game/alpine";
 import { ECONOMY } from "@/lib/game/catalog";
-import { HEX_SIZE, hexToWorld, worldToHex } from "@/lib/game/hex";
+import { HEX_SIZE, hexLine, hexToWorld, worldToHex } from "@/lib/game/hex";
 import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
 import { useGame } from "@/lib/game/store";
@@ -24,6 +23,8 @@ import { atmosphereAt, createAtmosphere } from "./atmosphere";
 import { BuildingInstances, type Placement } from "./baked-buildings";
 import { BuildingModel } from "./models";
 import { ribbonGeometry } from "./geometry";
+import { makeTreeMaterial } from "./snow-shaders";
+import { drapedRibbon, makePisteMaterial, markerPoles, mergeRibbons, smoothPath, type Pole } from "./piste-mesh";
 import {
   buildFarLand,
   clumpTrees,
@@ -152,7 +153,30 @@ function noRaycast() {
   /* decoration: never a pick target */
 }
 
-/** Conifer stands and boulders: two instanced meshes for the whole map. */
+/** Position, size and tint every tree of one kind. */
+function placeTrees(inst: THREE.InstancedMesh | null, trees: { x: number; y: number; z: number; r: number; s: number }[], seed: string) {
+  if (!inst) return;
+  const dummy = new THREE.Object3D();
+  const c = new THREE.Color();
+  const rng = mulberry32(seedFromString(seed));
+  trees.forEach((t, i) => {
+    dummy.position.set(t.x, t.y, t.z);
+    dummy.rotation.set(0, t.r, 0);
+    // Slightly taller than wide, varied, so stands do not look stamped.
+    dummy.scale.set(t.s, t.s * (0.95 + rng() * 0.3), t.s);
+    dummy.updateMatrix();
+    inst.setMatrixAt(i, dummy.matrix);
+    // Per-tree tint: some bluer spruce, some warmer larch-dark.
+    const v = 0.82 + rng() * 0.36;
+    c.setRGB(v * (0.94 + rng() * 0.1), v, v * (0.9 + rng() * 0.14));
+    inst.setColorAt(i, c);
+  });
+  inst.instanceMatrix.needsUpdate = true;
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  inst.computeBoundingSphere();
+}
+
+/** Conifer stands (two kinds) and boulders: three instanced meshes for the whole map. */
 function Forest({ quality }: { quality: "low" | "high" }) {
   const hm = getHeightmap();
   const tier = QUALITY[quality];
@@ -166,9 +190,9 @@ function Forest({ quality }: { quality: "low" | "high" }) {
   }, [hm, tier.rocks]);
   const parts = useMemo(
     () => ({
-      tree: makeConiferGeometry(),
+      tree: makeConiferGeometry("spruce"),
+      fir: makeConiferGeometry("fir"),
       boulder: makeBoulderGeometry(),
-      treeMat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
       rockMat: new THREE.MeshStandardMaterial({ color: "#a39484", roughness: 0.95, flatShading: true }),
     }),
     [],
@@ -176,37 +200,47 @@ function Forest({ quality }: { quality: "low" | "high" }) {
   useEffect(
     () => () => {
       parts.tree.dispose();
+      parts.fir.dispose();
       parts.boulder.dispose();
-      parts.treeMat.dispose();
       parts.rockMat.dispose();
     },
     [parts],
   );
+  // Snow on the branches follows today's snow line, in coarse steps so a
+  // drifting line does not rebuild the material every tick.
+  const snowLineM = useGame((s) => Math.round(s.stats.snowLineM / 100) * 100);
+  const treeMat = useMemo(() => makeTreeMaterial(metersToWorldY(snowLineM)), [snowLineM]);
+  useEffect(() => () => treeMat.dispose(), [treeMat]);
+  // Runs and lift lines are cut through the forest, as on a real mountain:
+  // no tree stands on a hex a run or a cable crosses.
+  const pistes = useStableGame((s) => s.pistes);
+  const lifts = useStableGame((s) => s.lifts);
+  const cleared = useMemo(() => {
+    const out = new Set<string>();
+    for (const p of pistes) for (const h of p.hexes) out.add(`${h.q},${h.r}`);
+    for (const l of lifts) for (const h of hexLine(l.a, l.b)) out.add(`${h.q},${h.r}`);
+    return out;
+  }, [pistes, lifts]);
+  // Two kinds of conifer, every third stand a fir: one more draw call for a
+  // forest that no longer looks stamped from a single tree.
+  const kinds = useMemo(() => {
+    const spruce: typeof trees = [];
+    const fir: typeof trees = [];
+    trees.forEach((t, i) => {
+      const h = worldToHex(t.x, t.z);
+      if (cleared.has(`${h.q},${h.r}`)) return;
+      (Math.floor(i / Math.max(1, tier.treesPerClump)) % 3 === 2 ? fir : spruce).push(t);
+    });
+    return { spruce, fir };
+  }, [trees, tier.treesPerClump, cleared]);
   const meshRef = useRef<THREE.InstancedMesh>(null);
+  const firRef = useRef<THREE.InstancedMesh>(null);
   const rockRef = useRef<THREE.InstancedMesh>(null);
 
   useLayoutEffect(() => {
-    const inst = meshRef.current;
-    if (!inst) return;
-    const dummy = new THREE.Object3D();
-    const c = new THREE.Color();
-    const rng = mulberry32(seedFromString("tree-tint"));
-    trees.forEach((t, i) => {
-      dummy.position.set(t.x, t.y, t.z);
-      dummy.rotation.set(0, t.r, 0);
-      // Slightly taller than wide, varied, so stands do not look stamped.
-      dummy.scale.set(t.s, t.s * (0.95 + rng() * 0.3), t.s);
-      dummy.updateMatrix();
-      inst.setMatrixAt(i, dummy.matrix);
-      // Per-tree tint: some bluer spruce, some warmer larch-dark.
-      const v = 0.82 + rng() * 0.36;
-      c.setRGB(v * (0.94 + rng() * 0.1), v, v * (0.9 + rng() * 0.14));
-      inst.setColorAt(i, c);
-    });
-    inst.instanceMatrix.needsUpdate = true;
-    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-    inst.computeBoundingSphere();
-  }, [trees]);
+    placeTrees(meshRef.current, kinds.spruce, "tree-tint");
+    placeTrees(firRef.current, kinds.fir, "fir-tint");
+  }, [kinds]);
 
   useLayoutEffect(() => {
     const inst = rockRef.current;
@@ -232,9 +266,20 @@ function Forest({ quality }: { quality: "low" | "high" }) {
   return (
     <group>
       <instancedMesh
-        key={`t${trees.length}`}
+        key={`t${kinds.spruce.length}`}
         ref={meshRef}
-        args={[parts.tree, parts.treeMat, trees.length]}
+        // The material is a prop, not an argument: a new snow line must not
+        // rebuild the mesh and drop every tree back to the origin.
+        args={[parts.tree, undefined, kinds.spruce.length]}
+        material={treeMat}
+        castShadow={tier.shadows}
+        raycast={noRaycast}
+      />
+      <instancedMesh
+        key={`f${kinds.fir.length}`}
+        ref={firRef}
+        args={[parts.fir, undefined, kinds.fir.length]}
+        material={treeMat}
         castShadow={tier.shadows}
         raycast={noRaycast}
       />
@@ -1012,57 +1057,52 @@ const PISTE_COLOR: Record<string, string> = {
   road: "#5a6570",
 };
 
+/** Drawn width of a run, in world units, before the width setting. Visual only. */
+const RUN_WIDTH = 2.3;
+const PARK_WIDTH = 3;
+const ROAD_WIDTH = 1.3;
+
 /**
- * Runs as groomed snow with a coloured edge, rather than a coloured stripe.
- *
- * A blue piste is not blue ground — it is white corduroy with blue markers
- * down the side. Two strips do the job: a wider one in the difficulty colour
- * and a narrower white one floating just above it, which leaves the colour
- * showing as a border. That reads as both "this is snow" and "this is a blue
- * run" at the same time, where a flat tinted band read as neither.
- *
- * Roads keep a single grey strip: they are not pistes and should not pretend.
+ * Runs as groomed snow lying on the mountain: see piste-mesh.ts. One draped,
+ * smoothed strip per run, all merged into a single mesh, and the grade on
+ * marker poles in one instanced mesh — two draw calls for every run built,
+ * the same as the two flat strips they replace.
  */
 function Pistes() {
   const pistes = useStableGame((s) => s.pistes);
   const draft = useGame((s) => s.pisteDraft);
   const layer = useGame((s) => s.layer);
+  const quality = useGame((s) => s.quality);
+  const tier = QUALITY[quality];
   const hm = getHeightmap();
   const hide = layer === "height";
 
-  // Every run in two draw calls: all coloured edges in one vertex-coloured
-  // mesh, all groomed centres in another. One mesh pair per run used to cost
-  // two calls (and two more transparent sorts) for every piste built.
-  const geos = useMemo(() => {
-    const edges: THREE.BufferGeometry[] = [];
-    const snows: THREE.BufferGeometry[] = [];
-    const tint = new THREE.Color();
+  const material = useMemo(
+    () => makePisteMaterial(tier.pisteRibs, layer === "pistes" ? 1 : 0.97),
+    [tier.pisteRibs, layer],
+  );
+  useEffect(() => () => material.dispose(), [material]);
+
+  const built = useMemo(() => {
+    const ground = (x: number, z: number) => surfaceY(hm, x, z);
+    const strips: THREE.BufferGeometry[] = [];
+    const poles: Pole[] = [];
     for (const p of pistes) {
       if (p.hexes.length < 2) continue;
-      const pts = pistePoints(p, hm);
-      const w =
-        p.difficulty === "park" ? 1.7 : p.difficulty === "road" ? 1.0 : 1.25 * RIBBON_SCALE[p.width ?? 2];
-      const edge = ribbonGeometry(pts, w + 0.34, 0.07);
-      tint.set(PISTE_COLOR[p.difficulty] ?? "#2b7de9");
-      const n = edge.attributes.position!.count;
-      const colours = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) {
-        colours[i * 3] = tint.r;
-        colours[i * 3 + 1] = tint.g;
-        colours[i * 3 + 2] = tint.b;
-      }
-      edge.setAttribute("color", new THREE.BufferAttribute(colours, 3));
-      edges.push(edge);
-      if (p.difficulty !== "road") snows.push(ribbonGeometry(pts, w, 0.1));
+      const road = p.difficulty === "road";
+      const width =
+        p.difficulty === "park" ? PARK_WIDTH : road ? ROAD_WIDTH : RUN_WIDTH * RIBBON_SCALE[p.width ?? 2];
+      const color = new THREE.Color(PISTE_COLOR[p.difficulty] ?? "#2b7de9");
+      const path = smoothPath(
+        p.hexes.map((h) => hexToWorld(h.q, h.r)),
+        4,
+      );
+      strips.push(drapedRibbon(path, { width, color, road, lift: road ? 0.08 : 0.12 }, ground));
+      if (!road) poles.push(...markerPoles(path, width, color, ground, tier.poleSpacing));
     }
-    const merge = (parts: THREE.BufferGeometry[]) => {
-      if (parts.length === 0) return null;
-      const g = mergeGeometries(parts);
-      for (const part of parts) part.dispose();
-      return g;
-    };
-    return { edge: merge(edges), snow: merge(snows) };
-  }, [pistes, hm]);
+    return { geo: mergeRibbons(strips), poles: poles.slice(0, tier.poles) };
+  }, [pistes, hm, tier.poleSpacing, tier.poles]);
+  useEffect(() => () => built.geo?.dispose(), [built]);
 
   // The draft ribbon is as wide as the run will be and coloured per segment
   // by the grade the ground gives it.
@@ -1080,41 +1120,13 @@ function Pistes() {
     return g;
   }, [draft, hm, draftWidth, draftItem]);
 
-  useEffect(
-    () => () => {
-      geos.edge?.dispose();
-      geos.snow?.dispose();
-    },
-    [geos],
-  );
   useEffect(() => () => draftGeo?.dispose(), [draftGeo]);
 
   if (hide) return null;
-  const emphasis = layer === "pistes";
   return (
     <group>
-      {geos.edge && (
-        <mesh geometry={geos.edge} raycast={noRaycast}>
-          <meshStandardMaterial
-            vertexColors
-            roughness={0.72}
-            transparent
-            opacity={emphasis ? 0.98 : 0.9}
-          />
-        </mesh>
-      )}
-      {geos.snow && (
-        <mesh geometry={geos.snow} receiveShadow raycast={noRaycast}>
-          <meshStandardMaterial
-            // Slightly blue-white and smoother than the terrain: groomed
-            // snow catches the light differently from the open mountain.
-            color="#eef5fd"
-            roughness={0.5}
-            transparent
-            opacity={emphasis ? 0.55 : 0.95}
-          />
-        </mesh>
-      )}
+      {built.geo && <mesh geometry={built.geo} material={material} receiveShadow={tier.shadows} raycast={noRaycast} />}
+      <MarkerPoles poles={built.poles} />
       {draftGeo && (
         <mesh geometry={draftGeo} raycast={noRaycast}>
           <meshStandardMaterial vertexColors transparent opacity={0.8} />
@@ -1123,6 +1135,41 @@ function Pistes() {
     </group>
   );
 }
+
+/** Every marker pole on the mountain in one instanced mesh, tinted by grade. */
+function MarkerPoles({ poles }: { poles: Pole[] }) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const parts = useMemo(() => {
+    const geo = new THREE.CylinderGeometry(0.03, 0.04, 0.7, 5);
+    geo.translate(0, 0.35, 0);
+    return { geo, mat: new THREE.MeshLambertMaterial() };
+  }, []);
+  useEffect(
+    () => () => {
+      parts.geo.dispose();
+      parts.mat.dispose();
+    },
+    [parts],
+  );
+  const capacity = Math.max(1, poles.length);
+  useLayoutEffect(() => {
+    const inst = ref.current;
+    if (!inst) return;
+    poles.forEach((p, i) => {
+      TMP_POLE.position.set(p.x, p.y, p.z);
+      TMP_POLE.updateMatrix();
+      inst.setMatrixAt(i, TMP_POLE.matrix);
+      inst.setColorAt(i, p.color);
+    });
+    inst.count = poles.length;
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    inst.computeBoundingSphere();
+  }, [poles]);
+  if (poles.length === 0) return null;
+  return <instancedMesh key={capacity} ref={ref} args={[parts.geo, parts.mat, capacity]} raycast={noRaycast} />;
+}
+const TMP_POLE = new THREE.Object3D();
 
 function Skiers() {
   const pistes = useStableGame((s) => s.pistes);

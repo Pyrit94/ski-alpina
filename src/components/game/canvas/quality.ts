@@ -63,6 +63,12 @@ export type QualityTier = {
   slowFrameMs: number;
   /** Peak labels drop their altitude on a narrow screen. */
   compactLabels: boolean;
+  /** Fine corduroy ribs inside the groomer lanes (one more cosine per pixel). */
+  pisteRibs: boolean;
+  /** Most piste marker poles drawn, all in one instanced mesh. */
+  poles: number;
+  /** World units between marker poles along a run. */
+  poleSpacing: number;
 };
 
 export const QUALITY: Record<"low" | "high", QualityTier> = {
@@ -89,6 +95,9 @@ export const QUALITY: Record<"low" | "high", QualityTier> = {
     treesPerClump: 2,
     slowFrameMs: 24,
     compactLabels: true,
+    pisteRibs: false,
+    poles: 200,
+    poleSpacing: 6,
   },
   high: {
     terrain: TERRAIN_DETAIL.high,
@@ -109,5 +118,8 @@ export const QUALITY: Record<"low" | "high", QualityTier> = {
     treesPerClump: 3,
     slowFrameMs: 22,
     compactLabels: false,
+    pisteRibs: true,
+    poles: 600,
+    poleSpacing: 4.5,
   },
 };
