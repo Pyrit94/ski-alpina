@@ -103,7 +103,7 @@ const Import = z.object({
   pistes: z.array(Piste).max(IMPORT_LIMITS.pistes),
   research: Research.optional(),
   terrain: z.record(z.string().regex(/^-?\d{1,3},-?\d{1,3}$/), z.number().finite().min(-1000).max(9000)).optional(),
-  neighbours: z.object({ mode: z.enum(["off", "gemuetlich"]) }).passthrough().optional(),
+  neighbours: z.object({ mode: z.enum(["off", "gemuetlich", "wettbewerb"]) }).passthrough().optional(),
   version: z.number().int().optional(),
 });
 

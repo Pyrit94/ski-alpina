@@ -8,6 +8,7 @@ import { hexDistance, hexesInRange, hexToWorld, type Axial } from "../hex.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { Neighbour, NeighbourMode, NeighbourState, PlacedPiste, ResortState } from "../types.ts";
 import { routeToAny } from "./piste-route.ts";
+import { creditAll } from "./rules.ts";
 import { scorePiste } from "./piste-score.ts";
 import { seasonDemandShare } from "./season.ts";
 import { surveyPiste, validateGround } from "./validate.ts";
@@ -17,7 +18,10 @@ import { surveyPiste, validateGround } from "./validate.ts";
  * the players' village, lifts up the slope above it, a run down beside each.
  * They grow slowly from what their guests leave there. In «Gemütlich» they
  * share the region's guests with the players (see `neighbourCut`) and never
- * build on, or next to, anything the players have.
+ * build on, or next to, anything the players have. In «Wettbewerb» they do
+ * the same, only harder: a bigger share, faster growth, cheaper passes.
+ * A «Tarifverbund» turns one into a partner (see `pactFee`); buying one out
+ * lives in `neighbour-trade.ts`.
  *
  * Everything is worked out from the ground, without chance, so a map gets
  * the same neighbours every time.
@@ -40,8 +44,17 @@ export function neighbourOf(id: string): string | null {
   return m ? m[1]! : id.match(/^nb\d+$/) ? id : null;
 }
 
-export const neighboursOn = (state: Pick<ResortState, "neighbours">) =>
-  state.neighbours?.mode === "gemuetlich" ? state.neighbours.list : [];
+const NONE: Neighbour[] = [];
+export const neighboursOn = (state: Pick<ResortState, "neighbours">): Neighbour[] =>
+  state.neighbours && state.neighbours.mode !== "off" ? state.neighbours.list : NONE;
+
+/** How hard the neighbours play: the mode's share of guests, pace and size. */
+function modeRules(mode: NeighbourMode | undefined) {
+  const w = NEIGHBOURS.wettbewerb;
+  return mode === "wettbewerb"
+    ? { maxCut: w.maxCut, growEveryDays: w.growEveryDays, maxLifts: w.maxLifts }
+    : { maxCut: NEIGHBOURS.maxCut, growEveryDays: NEIGHBOURS.growEveryDays, maxLifts: NEIGHBOURS.maxLifts };
+}
 
 /** Every hex a neighbour's stations and runs cover. Cached per neighbour list. */
 const covered = new WeakMap<readonly Neighbour[], Map<string, Neighbour>>();
@@ -304,15 +317,76 @@ export function neighbourKm(n: Neighbour): number {
   );
 }
 
+type CutView = Pick<ResortState, "neighbours"> & Partial<Pick<ResortState, "ticketPrice">>;
+
+/**
+ * «Wettbewerb»: how much the rivals' cheaper passes pull, 1 at their price.
+ * A dearer pass of yours sends more guests their way, a cheaper one fewer.
+ */
+export function rivalPriceFactor(ticketPrice: number | undefined): number {
+  const w = NEIGHBOURS.wettbewerb;
+  if (ticketPrice === undefined) return 1;
+  const raw = 1 + w.priceSensitivity * ((ticketPrice - w.rivalTicket) / w.rivalTicket);
+  return Math.min(w.priceFactor[1], Math.max(w.priceFactor[0], raw));
+}
+
 /**
  * The share of the region's guests the neighbours take from the players,
  * 0 … NEIGHBOURS.maxCut: their slopes against yours. A bigger area of your
- * own keeps more guests at home.
+ * own keeps more guests at home. A partner in a «Tarifverbund» takes none.
+ * In «Wettbewerb» the share is larger and follows your ticket price.
  */
-export function neighbourCut(state: Pick<ResortState, "neighbours">, playerKm: number): number {
-  const theirs = neighboursOn(state).reduce((sum, n) => sum + neighbourKm(n), 0);
+export function neighbourCut(state: CutView, playerKm: number): number {
+  const theirs = neighboursOn(state).reduce((sum, n) => sum + (n.pact ? 0 : neighbourKm(n)), 0);
   if (theirs <= 0) return 0;
-  return NEIGHBOURS.maxCut * (theirs / (theirs + Math.max(0, playerKm)));
+  const mode = state.neighbours?.mode;
+  const base = modeRules(mode).maxCut * (theirs / (theirs + Math.max(0, playerKm)));
+  if (mode !== "wettbewerb") return base;
+  return Math.min(NEIGHBOURS.wettbewerb.cutCeiling, base * rivalPriceFactor(state.ticketPrice));
+}
+
+/** One neighbour's part of `cut` (the whole share), by its slopes. */
+export function neighbourCutOf(state: Pick<ResortState, "neighbours">, cut: number, n: Neighbour): number {
+  if (n.pact) return 0;
+  const all = neighboursOn(state).reduce((sum, x) => sum + (x.pact ? 0 : neighbourKm(x)), 0);
+  return all > 0 ? (cut * neighbourKm(n)) / all : 0;
+}
+
+/** What a «Tarifverbund» with this neighbour costs a day. */
+export function pactFee(n: Neighbour): number {
+  return Math.round(NEIGHBOURS.pact.feeBase + NEIGHBOURS.pact.feePerKm * neighbourKm(n));
+}
+
+/** Weighted km the partners in a «Tarifverbund» add to the players' draw. */
+export function pactDraw(state: Pick<ResortState, "neighbours">): number {
+  return neighboursOn(state).reduce((sum, n) => sum + (n.pact ? neighbourKm(n) * NEIGHBOURS.pact.drawShare : 0), 0);
+}
+
+/**
+ * The day's end for the neighbours, with the players' side of it: the fees
+ * for every «Tarifverbund» (all of them end when the money is not there),
+ * offers that ran out, then `neighboursDayEnded`.
+ */
+export function closeNeighbourDay(state: ResortState, dem: Dem, now: number): ResortState {
+  const ns = state.neighbours;
+  if (!ns || ns.mode === "off" || ns.list.length === 0) return state;
+  const fee = ns.list.reduce((sum, n) => sum + (n.pact ? pactFee(n) : 0), 0);
+  // Fees come out of every purse alike; without the money the pass ends.
+  const affordable = fee <= 0 || state.coins >= fee;
+  const today = absDay(state);
+  const list = ns.list.map((n) => {
+    let x = n;
+    if (x.counter && x.counter.until < today) {
+      x = { ...x };
+      delete x.counter;
+    }
+    if (x.pact && !affordable) x = { ...x, pact: false };
+    return x;
+  });
+  let next: ResortState = { ...state, neighbours: { ...ns, list } };
+  if (fee > 0 && affordable) next = creditAll(next, -fee);
+  const neighbours = neighboursDayEnded(next, dem, now);
+  return neighbours ? { ...next, neighbours } : next;
 }
 
 /**
@@ -323,15 +397,16 @@ export function neighboursDayEnded(state: ResortState, dem: Dem, now: number): N
   const ns = state.neighbours;
   if (!ns || ns.mode === "off" || ns.list.length === 0) return ns;
   const season = seasonDemandShare(state.day);
+  const rules = modeRules(ns.mode);
   let list = ns.list;
   for (const n of ns.list) {
     const guests = Math.round(neighbourKm(n) * NEIGHBOURS.guestsPerKmDay * season);
     let next: Neighbour = { ...n, guestsYesterday: guests, coins: n.coins + guests * NEIGHBOURS.marginPerGuest };
     const price = BY_ID[next.lifts.length >= 3 ? "gondola" : "chair"].cost * 1.5;
     if (
-      next.lifts.length < NEIGHBOURS.maxLifts &&
+      next.lifts.length < rules.maxLifts &&
       next.coins >= price &&
-      absDay(state) - next.lastBuilt >= NEIGHBOURS.growEveryDays
+      absDay(state) - next.lastBuilt >= rules.growEveryDays
     ) {
       const grown = growNeighbour({ ...state, neighbours: { ...ns, list } }, dem, next, now);
       // Paid either way: a neighbour that found no room tries again later.

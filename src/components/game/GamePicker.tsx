@@ -1,6 +1,6 @@
 import { ArrowLeft, ChevronDown, ChevronRight, CableCar, History, Mountain, Play, Plus, Route, Trash2, Upload, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { GAME_NAME_MAX, type GameInfo, type GameKind, type SaveInfo } from "@ski/shared";
+import { GAME_NAME_MAX, type GameInfo, type GameKind, type NeighbourMode, type SaveInfo } from "@ski/shared";
 import { summaryLine, when } from "@/lib/game/saves-format";
 import { lobbyRequest } from "@/lib/game/net";
 import { ECONOMY, REGION_BY_ID, REGIONS } from "@ski/config";
@@ -39,7 +39,7 @@ export function GamePicker({
   const [newName, setNewName] = useState("");
   const [region, setRegion] = useState(REGIONS[0]!.id);
   const [kind, setKind] = useState<GameKind>("own");
-  const [neighbours, setNeighbours] = useState<"off" | "gemuetlich">("gemuetlich");
+  const [neighbours, setNeighbours] = useState<NeighbourMode>("gemuetlich");
 
   useEffect(() => {
     let live = true;
@@ -166,10 +166,11 @@ export function GamePicker({
           <div className="flex items-center gap-1.5 px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-ice">
             <Mountain className="size-3.5" /> Nachbar-Skigebiete
           </div>
-          <div className="grid grid-cols-2 gap-1">
+          <div className="grid grid-cols-3 gap-1">
             {(
               [
-                { v: "gemuetlich", title: "Gemütlich", text: "Andere Gebiete im Tal, sie teilen sich die Gäste mit dir" },
+                { v: "gemuetlich", title: "Gemütlich", text: "Teilen sich die Gäste mit dir" },
+                { v: "wettbewerb", title: "Wettbewerb", text: "Stärkere Rivalen, günstigere Pässe" },
                 { v: "off", title: "Allein im Tal", text: "Keine Nachbarn" },
               ] as const
             ).map((o) => (
@@ -179,7 +180,7 @@ export function GamePicker({
                 role="radio"
                 aria-checked={neighbours === o.v}
                 onClick={() => setNeighbours(o.v)}
-                className={`min-h-14 rounded-[16px] px-3 py-2 text-left ${neighbours === o.v ? "bg-panel text-navy" : "text-snow"}`}
+                className={`min-h-14 rounded-[16px] px-2.5 py-2 text-left ${neighbours === o.v ? "bg-panel text-navy" : "text-snow"}`}
               >
                 <span className="block text-[13px] font-bold">{o.title}</span>
                 <span className={`block text-[11px] leading-snug ${neighbours === o.v ? "text-muted" : "text-ice/80"}`}>{o.text}</span>
@@ -203,7 +204,7 @@ export function GamePicker({
           {busy ? "Gebiet wird angelegt…" : "Los geht's"} {!busy && <ChevronRight className="size-5" />}
         </PrimaryAction>
         <p className="text-center text-[11px] text-ice/80">
-          {regionName} · {kind === "own" ? "Allein" : "Gemeinsam"} · {neighbours === "off" ? "Ohne Nachbarn" : "Mit Nachbarn"} · Du startest mit {fmt(ECONOMY.startingCoins)} CHF, der Ratgeber zeigt dir die ersten Schritte.
+          {regionName} · {kind === "own" ? "Allein" : "Gemeinsam"} · {neighbours === "off" ? "Ohne Nachbarn" : neighbours === "wettbewerb" ? "Mit Konkurrenz" : "Mit Nachbarn"} · Du startest mit {fmt(ECONOMY.startingCoins)} CHF, der Ratgeber zeigt dir die ersten Schritte.
         </p>
       </div>
     );

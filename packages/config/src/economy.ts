@@ -537,4 +537,53 @@ export const NEIGHBOURS = {
   /** Shortest and longest lift a neighbour builds, in hexes, and the rise it wants. */
   liftSpan: [7, 13] as const,
   minRise: 250,
+  /**
+   * «Wettbewerb»: stronger rivals. They take more guests, grow faster and
+   * go further, and undercut you: the dearer your day pass against theirs,
+   * the bigger their share (scaled by `priceSensitivity` per relative CHF,
+   * held within `priceFactor`, never above `cutCeiling` in all).
+   */
+  wettbewerb: {
+    maxCut: 0.3,
+    growEveryDays: 4,
+    maxLifts: 8,
+    rivalTicket: 66,
+    priceSensitivity: 1.2,
+    priceFactor: [0.5, 1.6] as const,
+    cutCeiling: 0.42,
+  },
+  /**
+   * «Tarifverbund»: one pass for both areas. The partner takes no more of
+   * your guests, and `drawShare` of its weighted km counts for your demand.
+   * Its fee per day: `feeBase` plus `feePerKm` per weighted km of its runs.
+   */
+  pact: {
+    drawShare: 0.4,
+    feeBase: 600,
+    feePerKm: 350,
+  },
+  /**
+   * Buying a neighbour out. Its estimated value: `assetShare` of what its
+   * lifts and runs cost new, plus `incomeDays` days of its in-season takings.
+   * What it really wants depends on how it is doing (the season's demand and
+   * its savings against `boomCoins`): from `moodFactor[0]` when struggling to
+   * `moodFactor[1]` when booming. Below it, it counters at `counterMarkup`
+   * of its price, valid `counterDays` days — unless the offer is under
+   * `insultShare` of the estimate, then it just says no. Prices go in steps
+   * of `priceStep`. The bought area keeps its car park (`door`) by the
+   * lowest valley station, so guests reach it as before.
+   */
+  buyout: {
+    assetShare: 0.85,
+    incomeDays: 6,
+    boomCoins: 60000,
+    moodFactor: [0.8, 1.25] as const,
+    counterMarkup: 1.05,
+    counterDays: 3,
+    insultShare: 0.5,
+    priceStep: 500,
+    door: "parking" as const,
+    /** Quick offers on the card, as shares of the estimate. */
+    quickOffers: [0.8, 1, 1.1] as const,
+  },
 } as const;

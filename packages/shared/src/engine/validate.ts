@@ -32,6 +32,7 @@ import { validateProposalIntent } from "./proposals.ts";
 import { validateReshape } from "./piste-reshape.ts";
 import { hexKey } from "../hex.ts";
 import { neighbourHexes } from "./neighbours.ts";
+import { isTradeIntent, validateTrade } from "./neighbour-trade.ts";
 
 export function validateHex(
   state: ResortState,
@@ -366,6 +367,9 @@ export function validateIntent(
     const check = checkRearrange(state, dem, intent.moves);
     return check.ok ? { ok: true } : { ok: false, code: "invalid", reason: check.reason };
   }
+
+  // «Tarifverbund» and buying a neighbour out.
+  if (isTradeIntent(intent)) return validateTrade(state, intent, money, purse);
 
   if (intent.type === "set_neighbours") {
     if (match?.mode === "match") {
