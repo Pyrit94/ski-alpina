@@ -225,3 +225,54 @@ export function atmosphereAt(tod: number, out: Atmosphere = createAtmosphere()):
   out.sunDir[2] = dz / l;
   return out;
 }
+
+/**
+ * What the weather does to the light, on top of the time of day.
+ *
+ * `overcast` pulls sky and horizon toward the cloud colour, `sun` and `fill`
+ * scale the direct and sky light, and `haze` brings the fog in (1 = the
+ * tier's fair-weather distance, smaller = closer). The sim decides the
+ * weather; this only makes it visible.
+ */
+export interface WeatherLook {
+  overcast: number;
+  sun: number;
+  fill: number;
+  haze: number;
+}
+
+export const WEATHER_LOOK: Record<"sun" | "cloud" | "snow" | "fog" | "storm", WeatherLook> = {
+  sun: { overcast: 0, sun: 1, fill: 1, haze: 1 },
+  cloud: { overcast: 0.55, sun: 0.62, fill: 1.05, haze: 0.85 },
+  snow: { overcast: 0.8, sun: 0.4, fill: 1.08, haze: 0.45 },
+  fog: { overcast: 0.7, sun: 0.48, fill: 1.1, haze: 0.22 },
+  storm: { overcast: 0.92, sun: 0.26, fill: 0.9, haze: 0.42 },
+};
+
+/** Ease `look` toward `target` by `k` (0..1), in place. */
+export function easeWeather(look: WeatherLook, target: WeatherLook, k: number): WeatherLook {
+  look.overcast = lerp(look.overcast, target.overcast, k);
+  look.sun = lerp(look.sun, target.sun, k);
+  look.fill = lerp(look.fill, target.fill, k);
+  look.haze = lerp(look.haze, target.haze, k);
+  return look;
+}
+
+/**
+ * Lay the weather over a time-of-day atmosphere, in place.
+ *
+ * Cloud is a grey whose brightness follows the daylight, so an overcast
+ * evening goes dark instead of staying a flat mid-grey.
+ */
+export function applyWeather(out: Atmosphere, look: WeatherLook): Atmosphere {
+  const bright = 0.42 + 0.4 * (1 - out.night);
+  const cloud: Rgb = [bright * 0.94, bright * 0.97, bright];
+  lerpRgb(out.zenith, out.zenith, cloud, look.overcast);
+  lerpRgb(out.horizon, out.horizon, [cloud[0] * 1.08, cloud[1] * 1.08, cloud[2] * 1.08], look.overcast * 0.9);
+  lerpRgb(out.fog, out.fog, [cloud[0] * 1.06, cloud[1] * 1.06, cloud[2] * 1.06], look.overcast * 0.85);
+  // Under cloud the sun loses its colour before it loses its strength.
+  lerpRgb(out.sunColor, out.sunColor, [0.92, 0.94, 0.98], look.overcast * 0.7);
+  out.sunIntensity *= look.sun;
+  out.hemiIntensity *= look.fill;
+  return out;
+}

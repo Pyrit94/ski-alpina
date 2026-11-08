@@ -1,4 +1,5 @@
 import type { ItemId } from "@/lib/game/types";
+import { STATION_CABLE_Y, cableGap } from "./station";
 
 /**
  * Wallis in six colours.
@@ -351,12 +352,17 @@ function Hotel({
 }
 
 /**
- * A cableway station: a shed on piers with the machinery on show.
+ * A lift station, turned so the line runs out along +z.
  *
- * The lift is the thing a ski resort is built around, so its stations should
- * be the most recognisable object on the mountain. What makes one readable is
- * the open side you can see through, the drive wheel above it, and the sheer
- * bulk relative to a chalet.
+ * What makes a real one readable is the horizontal bullwheel the rope turns
+ * round, the terminal or canopy over it, and the operator's cabin beside the
+ * boarding area. Three kinds:
+ *
+ * - T-bar: a small hut and a steel mast carrying the wheel.
+ * - Chairlift: an open canopy on posts over the wheel, a boarding platform and
+ *   an operator's cabin.
+ * - Cabin cableways: a closed hall with the line entering through its open
+ *   gable, the wheel just inside.
  */
 function Station({
   kind,
@@ -367,57 +373,155 @@ function Station({
   constructing?: boolean;
   lit?: boolean;
 }) {
-  // Cabin cableways get the taller hall; surface and chair lifts a low one.
-  const cabinway = kind === "gondola" || kind === "tram" || kind === "funitel" || kind === "glacier";
-  const big = kind === "funitel" || kind === "tram" || kind === "glacier";
-  const w = big ? 2.2 : cabinway ? 1.95 : 1.6;
-  const d = big ? 1.9 : 1.65;
-  const hallY = cabinway ? 1.15 : 0.9;
   const ghost = { transparent: constructing, opacity: constructing ? 0.7 : 1 };
-  return (
-    <group>
-      <mesh position={[0, 0.1, 0]} receiveShadow>
-        <boxGeometry args={[w + 0.5, 0.2, d + 0.4]} />
-        <meshStandardMaterial color={concrete} roughness={0.92} />
-      </mesh>
-      {/* Piers, so the hall stands over the platform instead of on it. */}
-      {[-1, 1].map((sx) =>
-        [-1, 1].map((sz) => (
-          <mesh key={`${sx}${sz}`} position={[(sx * w) / 2.4, 0.4, (sz * d) / 2.6]} castShadow>
-            <boxGeometry args={[0.16, 0.5, 0.16]} />
-            <meshStandardMaterial color={metal} roughness={0.6} metalness={0.35} />
-          </mesh>
-        )),
-      )}
-      <mesh position={[0, hallY, 0]} castShadow>
-        <boxGeometry args={[w, hallY - 0.2, d]} />
-        <meshStandardMaterial color="#e6edf4" metalness={0.15} roughness={0.42} {...ghost} />
-      </mesh>
-      {/* The open gable end a lift runs through. */}
-      <mesh position={[0, hallY, d / 2 + 0.02]}>
-        <boxGeometry args={[w * 0.62, (hallY - 0.2) * 0.66, 0.06]} />
-        <meshStandardMaterial
-          color={lit ? warm : "#2a3a48"}
-          emissive={lit ? warm : "#000000"}
-          emissiveIntensity={lit ? 0.9 : 0}
-          toneMapped={!lit}
-        />
-      </mesh>
-      <GableRoof width={w} depth={d} height={0.42} overhang={0.3} y={hallY + (hallY - 0.2) / 2} />
-      {/* Drive wheel: the one silhouette that says "cableway" on its own. */}
-      <mesh position={[0, hallY + 0.34, -d * 0.1]} rotation={[0, 0, Math.PI / 2]} castShadow>
-        <cylinderGeometry args={[0.34, 0.34, 0.1, 16]} />
+  const gap = cableGap(kind);
+  const wheelY = STATION_CABLE_Y;
+  // The bullwheel: a flat drum the rope wraps, the one shape that says
+  // "cableway" from any angle.
+  const wheel = (
+    <group position={[0, wheelY, 0]}>
+      <mesh castShadow>
+        <cylinderGeometry args={[gap + 0.04, gap + 0.04, 0.09, 20]} />
         <meshStandardMaterial color="#33414d" metalness={0.5} roughness={0.4} />
       </mesh>
-      {cabinway && (
-        <group position={[w * 0.34, 0.62, d * 0.5]}>
+      <mesh position={[0, 0.07, 0]}>
+        <cylinderGeometry args={[0.1, 0.1, 0.12, 8]} />
+        <meshStandardMaterial color={metal} metalness={0.4} roughness={0.5} />
+      </mesh>
+    </group>
+  );
+  const pane = (x: number, y: number, z: number, w: number, h: number, ry = 0) => (
+    <mesh position={[x, y, z]} rotation={[0, ry, 0]}>
+      <boxGeometry args={[w, h, 0.04]} />
+      <meshStandardMaterial
+        color={lit ? warm : glass}
+        emissive={lit ? warm : glass}
+        emissiveIntensity={lit ? 0.9 : 0.15}
+        toneMapped={!lit}
+      />
+    </mesh>
+  );
+
+  if (kind === "tbar") {
+    return (
+      <group>
+        <mesh position={[0, 0.06, 0]} receiveShadow>
+          <boxGeometry args={[1.5, 0.12, 1.4]} />
+          <meshStandardMaterial color={concrete} roughness={0.92} />
+        </mesh>
+        {/* Steel mast holding the wheel out over the track. */}
+        <mesh position={[0, wheelY / 2, -0.32]} castShadow>
+          <boxGeometry args={[0.14, wheelY, 0.14]} />
+          <meshStandardMaterial color={metal} metalness={0.35} roughness={0.6} />
+        </mesh>
+        <mesh position={[0, wheelY - 0.05, -0.16]}>
+          <boxGeometry args={[0.1, 0.1, 0.36]} />
+          <meshStandardMaterial color={metal} metalness={0.35} roughness={0.6} />
+        </mesh>
+        {wheel}
+        {/* Operator's hut beside the start. */}
+        <group position={[0.72, 0, -0.1]}>
+          <mesh position={[0, 0.42, 0]} castShadow>
+            <boxGeometry args={[0.6, 0.72, 0.62]} />
+            <meshStandardMaterial color="#8a5a3a" roughness={0.85} {...ghost} />
+          </mesh>
+          {pane(-0.31, 0.52, 0, 0.36, 0.22, Math.PI / 2)}
+          <mesh position={[0, 0.84, 0]} castShadow>
+            <boxGeometry args={[0.74, 0.1, 0.76]} />
+            <meshStandardMaterial color={snow} roughness={0.62} />
+          </mesh>
+        </group>
+      </group>
+    );
+  }
+
+  const cabinway = kind === "gondola" || kind === "tram" || kind === "funitel" || kind === "glacier";
+  if (!cabinway) {
+    // Chairlift: an open canopy on posts, the wheel under it.
+    const w = 1.5;
+    const d = 1.7;
+    const roofY = wheelY + 0.3;
+    return (
+      <group>
+        <mesh position={[0, 0.08, -0.1]} receiveShadow>
+          <boxGeometry args={[w + 0.9, 0.16, d + 0.6]} />
+          <meshStandardMaterial color={concrete} roughness={0.92} />
+        </mesh>
+        {/* Boarding platform the chairs swing round over. */}
+        <mesh position={[0, 0.2, 0.55]} receiveShadow>
+          <boxGeometry args={[w * 0.9, 0.08, 0.7]} />
+          <meshStandardMaterial color="#7a5638" roughness={0.9} />
+        </mesh>
+        {[-1, 1].map((sx) =>
+          [-1, 1].map((sz) => (
+            <mesh key={`${sx}${sz}`} position={[(sx * w) / 2, roofY / 2, -0.1 + (sz * d) / 2.4]} castShadow>
+              <boxGeometry args={[0.1, roofY, 0.1]} />
+              <meshStandardMaterial color={metal} metalness={0.35} roughness={0.6} />
+            </mesh>
+          )),
+        )}
+        {wheel}
+        <mesh position={[0, roofY, -0.1]} castShadow>
+          <boxGeometry args={[w + 0.3, 0.12, d + 0.2]} />
+          <meshStandardMaterial color={snow} roughness={0.6} {...ghost} />
+        </mesh>
+        <mesh position={[0, roofY - 0.1, -0.1]}>
+          <boxGeometry args={[w + 0.32, 0.08, d + 0.22]} />
+          <meshStandardMaterial color={red} roughness={0.5} />
+        </mesh>
+        {/* Operator's cabin, windows facing the boarding area. */}
+        <group position={[w / 2 + 0.55, 0, 0.2]}>
+          <mesh position={[0, 0.55, 0]} castShadow>
+            <boxGeometry args={[0.7, 0.9, 0.8]} />
+            <meshStandardMaterial color="#e6edf4" roughness={0.45} {...ghost} />
+          </mesh>
+          {pane(-0.36, 0.68, 0, 0.5, 0.32, Math.PI / 2)}
+          {pane(0, 0.68, 0.41, 0.4, 0.32)}
+          <mesh position={[0, 1.06, 0]} castShadow>
+            <boxGeometry args={[0.84, 0.1, 0.94]} />
+            <meshStandardMaterial color={snow} roughness={0.62} />
+          </mesh>
+        </group>
+      </group>
+    );
+  }
+
+  // Cabin cableways: a closed hall, the line entering through the open gable
+  // on +z, the wheel just inside it.
+  const big = kind === "funitel" || kind === "tram" || kind === "glacier";
+  const w = big ? 2.3 : 2;
+  const d = big ? 2.6 : 2.3;
+  const hallTop = wheelY + 0.35;
+  const hz = -d * 0.22;
+  return (
+    <group>
+      <mesh position={[0, 0.1, hz]} receiveShadow>
+        <boxGeometry args={[w + 0.6, 0.2, d + 0.5]} />
+        <meshStandardMaterial color={concrete} roughness={0.92} />
+      </mesh>
+      <mesh position={[0, hallTop / 2 + 0.1, hz - d * 0.18]} castShadow>
+        <boxGeometry args={[w, hallTop - 0.2, d * 0.64]} />
+        <meshStandardMaterial color="#e6edf4" metalness={0.15} roughness={0.42} {...ghost} />
+      </mesh>
+      {/* Glazed side wall of the boarding hall. */}
+      {pane(w / 2 + 0.01, hallTop * 0.55, hz - d * 0.18, d * 0.5, 0.4, Math.PI / 2)}
+      {pane(-w / 2 - 0.01, hallTop * 0.55, hz - d * 0.18, d * 0.5, 0.4, Math.PI / 2)}
+      {/* Open front: posts carrying the roof over the wheel. */}
+      {[-1, 1].map((sx) => (
+        <mesh key={sx} position={[(sx * w) / 2.1, hallTop / 2 + 0.1, hz + d * 0.42]} castShadow>
+          <boxGeometry args={[0.14, hallTop - 0.2, 0.14]} />
+          <meshStandardMaterial color={metal} metalness={0.35} roughness={0.6} />
+        </mesh>
+      ))}
+      {wheel}
+      <group position={[0, 0, hz]}>
+        <GableRoof width={w} depth={d} height={0.46} overhang={0.25} y={hallTop} />
+      </group>
+      {kind === "gondola" && (
+        <group position={[w * 0.28, 0.66, hz - d * 0.1]}>
           <mesh castShadow>
             <boxGeometry args={[0.4, 0.44, 0.34]} />
             <meshStandardMaterial color={red} metalness={0.25} roughness={0.42} />
-          </mesh>
-          <mesh position={[0, 0.06, 0.18]}>
-            <boxGeometry args={[0.28, 0.2, 0.03]} />
-            <meshStandardMaterial color={glass} emissive={glass} emissiveIntensity={0.25} />
           </mesh>
         </group>
       )}

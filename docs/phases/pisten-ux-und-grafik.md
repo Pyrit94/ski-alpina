@@ -1,6 +1,6 @@
 # Pisten-UX und realistischere Grafik
 
-**Status:** PR A (Pistenbau einfach machen) und PR B (Grafik, erster Teil) umgesetzt
+**Status:** umgesetzt (PR A Pistenbau, PR B Grafik, Nachtrag Stationen/Wetter)
 
 ## Ausgangslage: die Verbindungsregel bis jetzt
 
@@ -141,8 +141,26 @@ einem Sessellift und drei Pisten:
 | Desktop 1440×900 | 28 | 30 | 184 238 | 188 254 |
 | Handy 390 px | 20 | 21 | 92 078 | 92 912 |
 
-Noch offen aus dem Plan: glaubwürdigere Liftstationen, Himmelsverlauf je
-Wetter und eine Distanz-Stufe für Bäume. Das Budget lässt dafür Luft.
+### Nachtrag
+
+- **Liftstationen** (`canvas/models.tsx`, `canvas/station.ts`): stehen jetzt
+  entlang ihrer Linie, mit liegendem Umlenkrad genau auf Seilhöhe
+  (`STATION_CABLE_Y`, `cableGap`), sodass das Seil ums Rad läuft. Schlepplift:
+  Hütte und Stahlmast; Sesselbahn: offenes Dach auf Stützen, Einstiegsplattform,
+  Bedienerhaus; Kabinenbahnen: geschlossene Halle mit offener Einfahrt. Weiter
+  gebacken und instanziert, also ein Draw Call pro Art.
+- **Himmel und Licht je Wetter** (`canvas/atmosphere.ts`: `WEATHER_LOOK`,
+  `applyWeather`, `easeWeather`): Wolken, Schnee, Nebel und Sturm machen den
+  Himmel grauer, nehmen der Sonne Kraft und holen den Dunst näher. Der Wechsel
+  läuft über einige Sekunden. Kein zusätzlicher Draw Call.
+- **Distanz-Stufe für Bäume: bewusst nicht gebaut.** Die Bäume sind zwei
+  instanzierte Meshes mit rund 17 000 Dreiecken, etwa 9 % der Szene (Gelände
+  dominiert). Eine Fern-Stufe bräuchte zwei weitere Meshes (plus Schatten) und
+  ein Umsortieren der Instanzen bei Kamerabewegung – mehr Draw Calls und
+  CPU-Arbeit für eine kaum messbare Ersparnis.
+- **Handy-Fehler behoben**: Beim Wechsel in den Baumodus wurden auf dem Handy
+  alle Gipfel-Beschriftungen auf einmal abgebaut (`removeChild … not a child of
+  this node`). Sie bleiben jetzt montiert und werden nur ausgeblendet.
 
 ## Risiken
 

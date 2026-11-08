@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { atmosphereAt, createAtmosphere } from "./atmosphere.ts";
+import { applyWeather, atmosphereAt, createAtmosphere, easeWeather, WEATHER_LOOK } from "./atmosphere.ts";
 import { keepIfSame } from "./stable.ts";
 import { bakeOcclusion, groundAlbedo } from "./terrain-shading.ts";
 
@@ -82,4 +82,28 @@ test("a snapshot with the same content keeps the old reference", () => {
   assert.equal(same.value, first.value, "identical content, same reference");
   const moved = keepIfSame(same, [{ id: "a", q: 1, r: 3 }]);
   assert.notEqual(moved.value, first.value, "a visible change gets through");
+});
+
+test("weather dims the sun and greys the sky, fair weather changes nothing", () => {
+  const fair = applyWeather(atmosphereAt(0.5), { ...WEATHER_LOOK.sun });
+  const plain = atmosphereAt(0.5);
+  assert.deepEqual(fair.zenith, plain.zenith);
+  assert.equal(fair.sunIntensity, plain.sunIntensity);
+  const storm = applyWeather(atmosphereAt(0.5), { ...WEATHER_LOOK.storm });
+  assert.ok(storm.sunIntensity < plain.sunIntensity * 0.5, "storm dims the sun");
+  const sat = (c: number[]) => Math.max(...c) - Math.min(...c);
+  assert.ok(sat(storm.zenith) < sat(plain.zenith), "storm sky is greyer");
+  for (const kind of ["cloud", "snow", "fog", "storm"] as const) {
+    assert.ok(WEATHER_LOOK[kind].haze < 1, `${kind} brings the fog in`);
+  }
+});
+
+test("easing the weather moves part of the way and lands on the target", () => {
+  const look = { ...WEATHER_LOOK.sun };
+  easeWeather(look, WEATHER_LOOK.fog, 0.5);
+  assert.ok(look.haze < 1 && look.haze > WEATHER_LOOK.fog.haze);
+  easeWeather(look, WEATHER_LOOK.fog, 1);
+  for (const key of ["overcast", "sun", "fill", "haze"] as const) {
+    assert.ok(Math.abs(look[key] - WEATHER_LOOK.fog[key]) < 1e-9, key);
+  }
 });
