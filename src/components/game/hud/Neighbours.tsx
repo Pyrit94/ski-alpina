@@ -100,7 +100,8 @@ export function NeighboursPanel() {
 /** The setting: neighbours off, or «Gemütlich». */
 export function NeighbourSetting() {
   const mode = useGame((s) => s.neighbours?.mode ?? "off");
-  const matchRunning = useGame((s) => s.match.mode === "match" && s.match.phase === "plan");
+  // Locked for a whole match, the finished one too, until free play resumes.
+  const matchRunning = useGame((s) => s.match.mode === "match");
   const sendIntent = useGame((s) => s.sendIntent);
   const options = [
     { v: "off" as const, label: "Aus" },

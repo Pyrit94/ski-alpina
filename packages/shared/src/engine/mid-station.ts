@@ -5,7 +5,7 @@ import { hexDistance, hexLine, type Axial } from "../hex.ts";
 import type { Intent } from "../protocol/intents.ts";
 import type { Dem } from "../terrain/dem.ts";
 import type { IntentResult, ResortState } from "../types.ts";
-import { buildCost, discounted } from "./research.ts";
+import { buildCost } from "./research.ts";
 import { validateHex } from "./validate.ts";
 
 /**
@@ -16,7 +16,8 @@ import { validateHex } from "./validate.ts";
 type Adding = Extract<Intent, { type: "add_mid_station" }>;
 
 export function midStationCost(state: ResortState, itemId: string): number {
-  return discounted(state, Math.round(buildCost(state, itemId as never) * ECONOMY.midStationShare));
+  // buildCost already carries the research discount; once is enough.
+  return Math.round(buildCost(state, itemId as never) * ECONOMY.midStationShare);
 }
 
 /** Hexes on the line between a lift's stations where a middle station could stand. */

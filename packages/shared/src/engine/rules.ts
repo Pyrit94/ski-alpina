@@ -71,7 +71,7 @@ export function creditAll(state: ResortState, amount: number): ResortState {
 
 /** Purses a new duel player or a role starts with. */
 export function openWallet(state: ResortState, key: string, amount: number): ResortState {
-  if (key in state.match.wallets) return state;
+  if (Object.hasOwn(state.match.wallets, key)) return state;
   return withWallets(state, { ...state.match.wallets, [key]: amount });
 }
 
@@ -103,8 +103,8 @@ export function shareIncome(
   const options = state.match.options;
   if (options.economy === "roles") {
     const wallets = { ...state.match.wallets };
-    if (!("berg" in wallets)) wallets.berg = 0;
-    if (!("tal" in wallets)) wallets.tal = 0;
+    if (!Object.hasOwn(wallets, "berg")) wallets.berg = 0;
+    if (!Object.hasOwn(wallets, "tal")) wallets.tal = 0;
     wallets.berg! += (net * options.roleSplit) / 100;
     wallets.tal! += (net * (100 - options.roleSplit)) / 100;
     return { state: withWallets(state, wallets) };
@@ -410,6 +410,25 @@ export function roleAllows(state: ResortState, actorId: string | undefined, item
   const needed = roleForItem(itemId);
   if (needed !== role) {
     return { ok: false, reason: needed === "berg" ? "Das baut, wer den Berg führt" : "Das baut, wer das Tal führt" };
+  }
+  return { ok: true };
+}
+
+/**
+ * Whether an actor may change or tear down something already built: in
+ * «roles» only the role it belongs to, in a duel only whoever built it.
+ * Otherwise a duel opponent could demolish your lift and pocket the refund.
+ */
+export function mayChange(
+  state: ResortState,
+  actorId: string | undefined,
+  entity: { itemId: ItemId; builtBy?: string },
+): { ok: true } | { ok: false; reason: string } {
+  const role = roleAllows(state, actorId, entity.itemId);
+  if (!role.ok) return role;
+  const m = state.match;
+  if (m?.mode === "match" && m.options.economy === "duel" && entity.builtBy && entity.builtBy !== actorId) {
+    return { ok: false, reason: "Das gehört deinem Gegenüber" };
   }
   return { ok: true };
 }

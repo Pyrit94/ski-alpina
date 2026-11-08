@@ -5,6 +5,7 @@ import type { Dem } from "../terrain/dem.ts";
 import type { PisteDifficulty, PlacedPiste, ResortState, SimStats } from "../types.ts";
 import { goodDayJudge, overlap, rated, swingLines, type AutoMix } from "./auto-pistes.ts";
 import { descentGoals, liftEnds } from "./descent.ts";
+import { neighbourAvoid } from "./neighbours.ts";
 import { routeToAny } from "./piste-route.ts";
 import { scorePiste } from "./piste-score.ts";
 import { discounted } from "./research.ts";
@@ -78,6 +79,7 @@ export function planStationRuns(
   const { top, base } = liftEnds(dem, lift);
   const grades: PisteGrade[] = opts.mix === "mixed" ? GRADES : [opts.mix];
   const judge = goodDayJudge(state, dem);
+  const avoid = neighbourAvoid(state);
 
   let sim = withMidStation(state, liftId, mid);
   let spent = 0;
@@ -92,7 +94,7 @@ export function planStationRuns(
 
   for (const leg of STATION_LEGS.filter((l) => legs.includes(l))) {
     const { from, to } = ends[leg];
-    const around = hexesInRange(to, 1).filter((h) => hexDistance(h, from) > FLOW.linkRadius);
+    const around = hexesInRange(to, 1).filter((h) => hexDistance(h, from) > FLOW.linkRadius && !avoid.has(`${h.q},${h.r}`));
     // Down to the valley: the station itself first; if the ground will not
     // lead there, anywhere a run counts as joined (the village, another run).
     const goalSets = leg === "top-mid" ? [around] : [around, descentGoals(sim, dem, from)];
@@ -101,10 +103,10 @@ export function planStationRuns(
       if (goals.length === 0) continue;
       const lines: (Axial[] | null)[] = [];
       for (const g of grades) {
-        const plain = routeToAny(dem, from, goals, g);
-        lines.push(plain, ...swingLines(dem, from, goals, g, plain));
+        const plain = routeToAny(dem, from, goals, g, { avoid });
+        lines.push(plain, ...swingLines(dem, from, goals, g, plain, avoid));
       }
-      lines.push(routeToAny(dem, from, goals, "any"));
+      lines.push(routeToAny(dem, from, goals, "any", { avoid }));
       const seen = new Set<string>();
       for (const hexes of lines) {
         if (!hexes || hexes.length < 2) continue;

@@ -15,6 +15,7 @@ import type {
 } from "../types.ts";
 import { followTutorial } from "./tutorial.ts";
 import { tickFlow } from "./flow.ts";
+import { neighboursDayEnded, spawnNeighbours } from "./neighbours.ts";
 import { syncQuestProgress } from "./quests.ts";
 import { seasonPhase } from "./season.ts";
 import { DEFAULT_MATCH_OPTIONS, emptyResearch, emptyResort, NO_MODS, sandboxMatch } from "./state.ts";
@@ -144,8 +145,14 @@ export function startMatch(
     vipHistory: [],
     duelGuests: {},
   };
+  // Neighbours start from scratch too, as the valley does: the same for every match.
+  const neighbours =
+    state.neighbours?.mode === "gemuetlich"
+      ? { mode: "gemuetlich" as const, list: spawnNeighbours(base, dem, now) }
+      : state.neighbours;
   const next: ResortState = {
     ...base,
+    ...(neighbours ? { neighbours } : {}),
     resortName: state.resortName,
     hallOfFame: state.hallOfFame,
     chat: state.chat,
@@ -170,6 +177,8 @@ export function startSandbox(state: ResortState): ResortState {
     chat: state.chat,
     tutorialOpen: state.tutorialOpen,
     tutorialStep: state.tutorialStep,
+    // The valley is empty again, but the neighbours stay as they were.
+    ...(state.neighbours ? { neighbours: state.neighbours } : {}),
     match: sandboxMatch(),
   };
 }
@@ -435,7 +444,15 @@ export function resolveRound(input: ResortState, dem: Dem, now: number): ResortS
       day = 1;
       season += 1;
     }
-    state = syncQuestProgress({ ...state, day, season, weather: weatherForDay(season, day) });
+    // The neighbours close their day as in free play.
+    const neighbours = neighboursDayEnded(state, dem, now);
+    state = syncQuestProgress({
+      ...state,
+      ...(neighbours ? { neighbours } : {}),
+      day,
+      season,
+      weather: weatherForDay(season, day),
+    });
   }
 
   // VIP wish: settled against the resort as it stands after the round.

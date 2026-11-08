@@ -8,7 +8,7 @@ import type { IntentResult, PlayerRole, ResortState } from "../types.ts";
 import { expandable, expansionCost, findEntity, moveCost, occupiedSet, pisteExpandable, pisteExpansionCost, undoable } from "./state.ts";
 import { measurePiste } from "./level.ts";
 import { eventDef } from "./match.ts";
-import { roleAllows, spendable, walletKey, walletMode } from "./rules.ts";
+import { mayChange, roleAllows, spendable, walletKey, walletMode } from "./rules.ts";
 import { MAX_PISTE_HEXES } from "../protocol/intents.ts";
 import {
   buildCost,
@@ -197,7 +197,7 @@ export function validateIntent(
     if (!walletMode(state)) return { ok: false, code: "invalid", reason: "Ihr habt eine gemeinsame Kasse" };
     const from = walletKey(state, actorId);
     if (!from) return { ok: false, code: "invalid", reason: "Wähle zuerst deine Rolle" };
-    if (from === intent.to || !(intent.to in match.wallets)) return { ok: false, code: "invalid", reason: "Unbekannte Kasse" };
+    if (from === intent.to || !Object.hasOwn(match.wallets, intent.to)) return { ok: false, code: "invalid", reason: "Unbekannte Kasse" };
     if (intent.amount > money) return { ok: false, code: "budget", reason: "So viel ist nicht in deiner Kasse" };
     return { ok: true };
   }
@@ -292,7 +292,7 @@ export function validateIntent(
     const cur = target.upgrades[intent.key];
     if (cur >= def.max) return { ok: false, code: "locked", reason: "Maximalstufe" };
     const cost = def.cost[cur] ?? 999999;
-    const allowedU = roleAllows(state, actorId, target.itemId);
+    const allowedU = mayChange(state, actorId, target);
     if (!allowedU.ok) return { ok: false, code: "rights", reason: allowedU.reason };
     if (money < cost) return { ok: false, code: "budget", reason: purse };
     return { ok: true };
@@ -311,7 +311,7 @@ export function validateIntent(
     }
     if (now < target.readyAt) return { ok: false, code: "locked", reason: "Noch im Bau" };
     if (target.cost === null) return { ok: false, code: "locked", reason: "Maximalstufe" };
-    const allowedX = roleAllows(state, actorId, target.itemId);
+    const allowedX = mayChange(state, actorId, target);
     if (!allowedX.ok) return { ok: false, code: "rights", reason: allowedX.reason };
     if (money < discounted(state, target.cost)) return { ok: false, code: "budget", reason: purse };
     return { ok: true };
@@ -320,6 +320,9 @@ export function validateIntent(
   if (intent.type === "demolish") {
     const entity = findEntity(state, intent.entityId);
     if (!entity) return { ok: false, code: "invalid", reason: "Objekt fehlt" };
+    const owned = entity.kind === "lift" ? entity.lift : entity.kind === "piste" ? entity.piste : entity.building;
+    const allowedD = mayChange(state, actorId, owned);
+    if (!allowedD.ok) return { ok: false, code: "rights", reason: allowedD.reason };
     return { ok: true };
   }
 
@@ -338,7 +341,7 @@ export function validateIntent(
       return { ok: false, code: "invalid", reason: "Nur Gebäude lassen sich verschieben" };
     }
     const b = entity.building;
-    const allowed = roleAllows(state, actorId, b.itemId);
+    const allowed = mayChange(state, actorId, b);
     if (!allowed.ok) return { ok: false, code: "rights", reason: allowed.reason };
     if (money < discounted(state, moveCost(state, b.itemId))) return { ok: false, code: "budget", reason: purse };
     // The building's own hex does not count as taken while it moves.
@@ -355,7 +358,7 @@ export function validateIntent(
     for (const m of intent.moves) {
       const b = state.buildings.find((x) => x.id === m.entityId);
       if (!b) return { ok: false, code: "invalid", reason: "Gebäude nicht gefunden" };
-      const allowed = roleAllows(state, actorId, b.itemId);
+      const allowed = mayChange(state, actorId, b);
       if (!allowed.ok) return { ok: false, code: "rights", reason: allowed.reason };
       cost += discounted(state, moveCost(state, b.itemId));
     }
@@ -365,7 +368,7 @@ export function validateIntent(
   }
 
   if (intent.type === "set_neighbours") {
-    if (match?.mode === "match" && match.phase === "plan") {
+    if (match?.mode === "match") {
       return { ok: false, code: "invalid", reason: "Die Nachbarn gelten für die ganze Partie" };
     }
     if ((state.neighbours?.mode ?? "off") === intent.mode) return { ok: false, code: "invalid", reason: "Schon so eingestellt" };
@@ -392,7 +395,12 @@ export function validateIntent(
   }
 
   if (intent.type === "edit_piste") return validateEditPiste(state, dem, intent, actorId);
-  if (intent.type === "reshape_piste") return validateReshape(state, dem, intent, money);
+  if (intent.type === "reshape_piste") {
+    const piste = state.pistes.find((p) => p.id === intent.pisteId);
+    const allowedR = piste ? mayChange(state, actorId, piste) : { ok: true as const };
+    if (!allowedR.ok) return { ok: false, code: "rights", reason: allowedR.reason };
+    return validateReshape(state, dem, intent, money);
+  }
   if (intent.type === "level_ground") return validateLevel(state, dem, intent.q, intent.r, money);
   if (intent.type === "add_mid_station") return validateMidStation(state, dem, intent, money);
 
@@ -419,7 +427,7 @@ export function validateIntent(
  * ground, off the runs' stations, and no two buildings on one hex.
  */
 export function checkRearrange(
-  state: Pick<ResortState, "lifts" | "buildings" | "pistes" | "terrain">,
+  state: Pick<ResortState, "lifts" | "buildings" | "pistes" | "terrain" | "neighbours">,
   natural: Dem,
   moves: readonly { entityId: string; q: number; r: number }[],
 ): { ok: true } | { ok: false; reason: string } {
@@ -439,6 +447,12 @@ export function checkRearrange(
   for (const l of state.lifts) {
     taken.add(hexKey(l.a.q, l.a.r));
     taken.add(hexKey(l.b.q, l.b.r));
+    if (l.mid) taken.add(hexKey(l.mid.q, l.mid.r));
+  }
+  // A neighbour's stations and runs are theirs.
+  for (const m of moves) {
+    const n = neighbourHexes(state).get(hexKey(m.q, m.r));
+    if (n) return { ok: false, reason: `Gehört zum Skigebiet ${n.name}` };
   }
   const target = new Map(moves.map((m) => [m.entityId, m]));
   for (const b of state.buildings) {

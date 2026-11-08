@@ -1,3 +1,4 @@
+import { neighbourAvoid } from "./neighbours.ts";
 import { FLOW, PISTE_SCORE } from "../../../config/src/economy.ts";
 import type { PisteGrade } from "../../../config/src/terrain.ts";
 import { hexDistance, type Axial } from "../hex.ts";
@@ -42,10 +43,11 @@ export function bestReshape(state: ResortState, dem: Dem, pisteId: string): Resh
   const without = { ...state, pistes: state.pistes.filter((p) => p.id !== pisteId) };
   const grades: PisteGrade[] = piste.difficulty === "blue" || piste.difficulty === "red" || piste.difficulty === "black" ? [piste.difficulty] : ["blue"];
   const lines: Axial[][] = [];
+  const avoid = neighbourAvoid(state);
   for (const g of [...grades, "blue", "red", "black"] as PisteGrade[]) {
-    const plain = routePiste(dem, start, end, g);
+    const plain = routePiste(dem, start, end, g, { avoid });
     if (plain) lines.push(plain);
-    lines.push(...swingLines(dem, start, [end], g, plain ?? piste.hexes));
+    lines.push(...swingLines(dem, start, [end], g, plain ?? piste.hexes, avoid));
   }
   let best: Reshape | null = null;
   for (const hexes of lines) {
