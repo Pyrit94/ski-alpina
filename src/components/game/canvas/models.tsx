@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { ItemId } from "@/lib/game/types";
 import { isLift } from "@/lib/game/catalog";
-import { modelFor, useModelLibrary } from "@/lib/game/model-library";
+import { modelAt, useModelLibrary } from "@/lib/game/model-library";
 import { STATION_CABLE_Y, cableGap } from "./station";
 
 /**
@@ -120,13 +120,23 @@ export function BuildingModel({
 }) {
   // A model from public/models wins over the built-in one (see model-library.ts).
   useModelLibrary((st) => st.version);
-  const file = isLift(itemId) ? null : modelFor(itemId, level);
-  const fromFile = useMemo(() => (file ? file.clone(true) : null), [file]);
+  // Lift stations share one model, "station"; buildings have their own.
+  const file = isLift(itemId) ? modelAt("station") : modelAt(itemId, level);
+  const fileGroup = file?.group ?? null;
+  const fromFile = useMemo(() => (fileGroup ? fileGroup.clone(true) : null), [fileGroup]);
+  // A level without its own file grows the nearest one: wider and taller.
+  const extra = file && !isLift(itemId) ? Math.max(0, level - file.level) : 0;
   const opacity = constructing ? 0.72 : 1;
   // A hotel wing shows as more floors.
   const grow = Math.max(0, Math.min(3, level - 1));
   const mat = { opacity, transparent: constructing };
-  if (fromFile) return <primitive object={fromFile} />;
+  if (fromFile) {
+    return (
+      <group scale={[1 + extra * 0.08, 1 + extra * 0.22, 1 + extra * 0.08]}>
+        <primitive object={fromFile} />
+      </group>
+    );
+  }
   switch (itemId) {
     case "gondola":
     case "chair":

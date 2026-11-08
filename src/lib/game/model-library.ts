@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { create } from "zustand";
-import type { ItemId } from "./types";
 
 /**
  * Building models from files, to replace the hand-built ones one by one.
@@ -12,6 +11,10 @@ import type { ItemId } from "./types";
  *   { "hotel1": { "file": "hotel1.glb" },
  *     "parking": { "file": "parking.glb", "levels": { "3": "parking-3.glb" } } }
  *
+ * Besides item ids, the lifts' parts: "station" (every lift's two stations),
+ * "pylon" (the masts, fitted to their height), and "carrier-chair",
+ * "carrier-cabin", "carrier-tbar" (what rides the rope).
+ *
  * Every model is fitted to the hex on load: centred, standing on y = 0 and
  * scaled so its wider side spans `footprint` world units (default 2.1). An
  * item or level without a file keeps its built-in model, so the switch can
@@ -20,6 +23,8 @@ import type { ItemId } from "./types";
 
 export interface ModelEntry {
   file: string;
+  /** "width" (default) fits the wider side to `footprint`; "height" fits the height. */
+  fit?: "width" | "height";
   /** Width the model is fitted to, in world units. */
   footprint?: number;
   /** Turn on load, in degrees, when a model faces the wrong way. */
@@ -35,17 +40,31 @@ export const useModelLibrary = create<{ version: number }>(() => ({ version: 0 }
 
 const key = (itemId: string, level: number) => `${itemId}:${level}`;
 
-/** The file model for an item at a level: that level's own, else the nearest below. */
-export function modelFor(itemId: ItemId, level = 1): THREE.Group | null {
+/** How each lift part is fitted when the manifest says nothing. */
+export const PART_FIT: Record<string, { fit: "width" | "height"; size: number }> = {
+  station: { fit: "width", size: 2.4 },
+  pylon: { fit: "height", size: 3.4 },
+  "carrier-chair": { fit: "width", size: 0.65 },
+  "carrier-cabin": { fit: "width", size: 0.5 },
+  "carrier-tbar": { fit: "width", size: 0.45 },
+};
+
+/** The file model for a key at a level: that level's own, else the nearest below. */
+export function modelFor(itemId: string, level = 1): THREE.Group | null {
+  return modelAt(itemId, level)?.group ?? null;
+}
+
+/** Like modelFor, also saying which level's model was found. */
+export function modelAt(itemId: string, level = 1): { group: THREE.Group; level: number } | null {
   for (let l = level; l >= 1; l--) {
     const m = library.get(key(itemId, l));
-    if (m) return m;
+    if (m) return { group: m, level: l };
   }
   return null;
 }
 
 /** Centre a model on the hex, stand it on the ground, scale it to fit. */
-export function fitModel(root: THREE.Object3D, footprint = 2.1, yawDeg = 0): THREE.Group {
+export function fitModel(root: THREE.Object3D, footprint = 2.1, yawDeg = 0, fit: "width" | "height" = "width"): THREE.Group {
   const group = new THREE.Group();
   const inner = new THREE.Group();
   inner.add(root);
@@ -54,7 +73,7 @@ export function fitModel(root: THREE.Object3D, footprint = 2.1, yawDeg = 0): THR
   group.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(group);
   const size = box.getSize(new THREE.Vector3());
-  const wide = Math.max(size.x, size.z) || 1;
+  const wide = (fit === "height" ? size.y : Math.max(size.x, size.z)) || 1;
   const s = footprint / wide;
   const centre = box.getCenter(new THREE.Vector3());
   inner.position.set(-centre.x * s, -box.min.y * s, -centre.z * s);
@@ -67,7 +86,8 @@ export function fitModel(root: THREE.Object3D, footprint = 2.1, yawDeg = 0): THR
 export async function addModel(itemId: string, level: number, data: ArrayBuffer, entry: Partial<ModelEntry> = {}): Promise<void> {
   const loader = new GLTFLoader();
   const gltf = await loader.parseAsync(data, "/models/");
-  library.set(key(itemId, level), fitModel(gltf.scene, entry.footprint, entry.yaw));
+  const part = PART_FIT[itemId];
+  library.set(key(itemId, level), fitModel(gltf.scene, entry.footprint ?? part?.size, entry.yaw, entry.fit ?? part?.fit));
   useModelLibrary.setState((s) => ({ version: s.version + 1 }));
 }
 
