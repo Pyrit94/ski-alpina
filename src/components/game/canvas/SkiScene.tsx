@@ -10,7 +10,7 @@ import {
   surfaceY,
   type Heightmap,
 } from "@/lib/game/alpine";
-import { ECONOMY } from "@/lib/game/catalog";
+import { ECONOMY, isLift } from "@/lib/game/catalog";
 import { HEX_SIZE, hexLine, hexToWorld, worldToHex } from "@/lib/game/hex";
 import { peerColor } from "@/lib/game/players";
 import { mulberry32, seedFromString } from "@/lib/game/rng";
@@ -386,6 +386,83 @@ function contactTexture(): THREE.Texture | null {
  * fake it: one instanced quad per building carrying an alpha falloff. Whole
  * village, one draw call, no shader.
  */
+/** Rough footprint of each model, in world units across. */
+const FOOTPRINT: Partial<Record<ItemId, number>> = {
+  "hotel-resort": 3,
+  hotel5: 2.6,
+  hotel3: 2.3,
+  hotel1: 2,
+  parking: 2.5,
+  bus: 2.4,
+  "gastro-hall": 2.7,
+  spa: 2.1,
+};
+
+/**
+ * Where a building stands on a slope. Set on its centre's ground, its
+ * uphill side would be buried and its downhill side would hang in the air;
+ * set on the highest point under its footprint, with a stone plinth down to
+ * the lowest, it stands on a terrace cut into the hill, as buildings in the
+ * Alps do. Lift stations stay where their cables expect them.
+ */
+function seatOf(hm: Heightmap, itemId: ItemId, x: number, z: number): { y: number; lo: number; width: number } {
+  const centre = surfaceY(hm, x, z);
+  if (isLift(itemId)) return { y: centre, lo: centre, width: 0 };
+  const width = FOOTPRINT[itemId] ?? 2.1;
+  const r = width * 0.5;
+  let lo = centre;
+  let hi = centre;
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i;
+    const g = surfaceY(hm, x + Math.cos(a) * r, z + Math.sin(a) * r);
+    lo = Math.min(lo, g);
+    hi = Math.max(hi, g);
+  }
+  return { y: hi, lo, width };
+}
+
+/** Stone plinths under buildings on a slope, all in one instanced mesh. */
+function Foundations({ buildings, yaws }: { buildings: PlacedBuilding[]; yaws: Map<string, number> }) {
+  const hm = getHeightmap();
+  const mesh = useRef<THREE.InstancedMesh>(null);
+  const plinths = useMemo(() => {
+    const out: { x: number; z: number; lo: number; hi: number; width: number; yaw: number }[] = [];
+    for (const b of buildings) {
+      const { x, z } = hexToWorld(b.q, b.r);
+      const seat = seatOf(hm, b.itemId, x, z);
+      if (seat.width === 0 || seat.y - seat.lo < 0.06) continue;
+      out.push({ x, z, lo: seat.lo, hi: seat.y, width: seat.width, yaw: yaws.get(b.id) ?? 0 });
+    }
+    return out;
+  }, [buildings, hm, yaws]);
+  const capacity = Math.max(8, Math.ceil(plinths.length / 8) * 8);
+  useLayoutEffect(() => {
+    const inst = mesh.current;
+    if (!inst) return;
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    plinths.forEach((p, i) => {
+      // Down past the lowest ground, so no gap shows on the valley side.
+      const bottom = p.lo - 0.4;
+      q.setFromAxisAngle(up, p.yaw);
+      m.compose(new THREE.Vector3(p.x, (p.hi + bottom) / 2, p.z), q, new THREE.Vector3(p.width * 0.92, p.hi - bottom, p.width * 0.92));
+      inst.setMatrixAt(i, m);
+    });
+    inst.count = plinths.length;
+    inst.instanceMatrix.needsUpdate = true;
+    inst.boundingSphere = null;
+    inst.computeBoundingSphere();
+  }, [plinths, capacity]);
+  if (plinths.length === 0) return null;
+  return (
+    <instancedMesh key={capacity} ref={mesh} args={[undefined, undefined, capacity]} castShadow receiveShadow raycast={noRaycast}>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshStandardMaterial color="#9a958c" roughness={0.95} />
+    </instancedMesh>
+  );
+}
+
 function GroundContact({ buildings }: { buildings: PlacedBuilding[] }) {
   const hm = getHeightmap();
   const mesh = useRef<THREE.InstancedMesh>(null);
@@ -513,15 +590,18 @@ function Structures() {
   }, [lifts]);
   const { live, kinds } = useMemo(() => {
     const live: PlacedBuilding[] = [];
-    const kinds = new Map<ItemId, Placement[]>();
-    const add = (itemId: ItemId, pl: Placement) => {
-      const list = kinds.get(itemId);
-      if (list) list.push(pl);
-      else kinds.set(itemId, [pl]);
+    // One instanced batch per model: item and level, since a hotel wing or
+    // a car park deck is a different shape.
+    const kinds = new Map<string, { itemId: ItemId; level: number; placements: Placement[] }>();
+    const add = (itemId: ItemId, level: number, pl: Placement) => {
+      const k = `${itemId}:${level}`;
+      const batch = kinds.get(k);
+      if (batch) batch.placements.push(pl);
+      else kinds.set(k, { itemId, level, placements: [pl] });
     };
     seedHuts(hm).forEach(([q, r], i) => {
       const { x, z } = hexToWorld(q, r);
-      add("hut", { id: null, x, y: surfaceY(hm, x, z), z, yaw: i * 0.7 });
+      add("hut", 1, { id: null, x, y: seatOf(hm, "hut", x, z).y, z, yaw: i * 0.7 });
     });
     for (const b of buildings) {
       if (b.readyAt > now || b.builtAt + DROP_MS > now) {
@@ -529,7 +609,7 @@ function Structures() {
         continue;
       }
       const { x, z } = hexToWorld(b.q, b.r);
-      add(b.itemId, { id: b.id, x, y: surfaceY(hm, x, z), z, yaw: yaws.get(b.id) ?? 0 });
+      add(b.itemId, b.level ?? 1, { id: b.id, x, y: seatOf(hm, b.itemId, x, z).y, z, yaw: yaws.get(b.id) ?? 0 });
     }
     return { live, kinds: [...kinds.entries()] };
   }, [buildings, now, hm, yaws]);
@@ -537,10 +617,12 @@ function Structures() {
   return (
     <group>
       <GroundContact buildings={buildings} />
-      {kinds.map(([itemId, placements]) => (
+      <Foundations buildings={buildings} yaws={yaws} />
+      {kinds.map(([k, { itemId, level, placements }]) => (
         <BuildingInstances
-          key={`${itemId}|${lit}`}
+          key={`${k}|${lit}`}
           itemId={itemId}
+          level={level}
           lit={lit}
           placements={placements}
           shadows={QUALITY[quality].shadows}
@@ -586,7 +668,7 @@ function PlacedStructure({ building: b, yaw }: { building: PlacedBuilding; yaw: 
   const hm = getHeightmap();
   const group = useRef<THREE.Group>(null);
   const { x, z } = hexToWorld(b.q, b.r);
-  const baseY = surfaceY(hm, x, z);
+  const baseY = seatOf(hm, b.itemId, x, z).y;
 
   useFrame(() => {
     if (!group.current) return;
@@ -1132,13 +1214,15 @@ function Pistes() {
         p.hexes.map((h) => hexToWorld(h.q, h.r)),
         4,
       );
-      strips.push(drapedRibbon(path, { width, color, road, lift: road ? 0.08 : 0.12 }, ground));
+      // Roads ride above the snow, so a run meeting a road stops at its edge
+      // instead of painting over it.
+      strips.push(drapedRibbon(path, { width, color, road, lift: road ? 0.2 : 0.12 }, ground));
       if (!road) poles.push(...markerPoles(path, width, color, ground, tier.poleSpacing));
     }
     // The road into the valley rides in the same mesh: asphalt, no extra draw call.
     const road = cachedValleyRoad(hm);
     if (road.length > 1) {
-      strips.push(drapedRibbon(road, { width: ROAD_WIDTH * 1.15, color: new THREE.Color(PISTE_COLOR.road), road: true, lift: 0.1 }, ground));
+      strips.push(drapedRibbon(road, { width: ROAD_WIDTH * 1.15, color: new THREE.Color(PISTE_COLOR.road), road: true, lift: 0.22 }, ground));
     }
     return { geo: mergeRibbons(strips), poles: poles.slice(0, tier.poles) };
   }, [pistes, hm, tier.poleSpacing, tier.poles]);

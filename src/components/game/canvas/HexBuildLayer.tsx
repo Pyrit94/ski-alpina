@@ -1,6 +1,6 @@
 import { Line } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { getHeightmap, surfaceY } from "@/lib/game/alpine";
 import { HEX_SIZE, hexDistance, hexToWorld, hexesInRange, worldToHex } from "@/lib/game/hex";
@@ -9,7 +9,7 @@ import { isPiste } from "@ski/config";
 import { getDem, validateHex } from "@ski/shared";
 import { BuildingModel } from "./models";
 import { PisteDraftMarks } from "./PisteDraftLayer";
-import { makeHexGeometry } from "./geometry";
+import { drapedHexEdges, drapedHexes, makeHexGeometry, slopeQuaternion } from "./geometry";
 import { useStableGame } from "./use-stable-game";
 
 const GRID_RADIUS = 12;
@@ -22,7 +22,6 @@ const COLOR_BAD = new THREE.Color("#E24B4A");
 const COLOR_NEAR_OK = new THREE.Color("#8fd49a");
 const COLOR_NEAR_BAD = new THREE.Color("#cfd6de");
 const TMP_COLOR = new THREE.Color();
-const TMP_DUMMY = new THREE.Object3D();
 
 function sampleRayHex(origin: THREE.Vector3, dir: THREE.Vector3) {
   const hm = getHeightmap();
@@ -56,6 +55,12 @@ export function CenterStamp() {
   return null;
 }
 
+/**
+ * The build raster: the hexes around the cursor, lying on the ground. Every
+ * vertex follows the terrain, so tiles run with the slope instead of standing
+ * out of it as flat plates, and the raster fades out towards its rim instead
+ * of ending in a hard edge. Two draw calls.
+ */
 export function HexRaster() {
   const phase = useGame((s) => s.phase);
   const hover = useGame((s) => s.hover);
@@ -63,9 +68,7 @@ export function HexRaster() {
   const buildings = useStableGame((s) => s.buildings);
   const lifts = useStableGame((s) => s.lifts);
   const pistes = useStableGame((s) => s.pistes);
-  const mesh = useRef<THREE.InstancedMesh>(null);
   const origin = useRef({ q: 0, r: 9 });
-  const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.93), []);
   const hm = getHeightmap();
   const building = phase !== "idle";
   const center = hover ?? { q: 0, r: 9, valid: true, reason: "" };
@@ -92,58 +95,67 @@ export function HexRaster() {
     return s;
   }, [pistes]);
 
-  const lineGeo = useMemo(() => {
-    const positions: number[] = [];
-    for (const cell of cells) {
-      const { x, z } = hexToWorld(cell.q, cell.r);
-      const y = surfaceY(hm, x, z) + 0.08;
-      const s = HEX_SIZE * 0.97;
-      for (let i = 0; i < 6; i++) {
-        const a0 = (Math.PI / 180) * (60 * i - 30);
-        const a1 = (Math.PI / 180) * (60 * (i + 1) - 30);
-        positions.push(x + s * Math.cos(a0), y, z + s * Math.sin(a0), x + s * Math.cos(a1), y, z + s * Math.sin(a1));
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    return g;
-  }, [cells, hm]);
+  // Built only when the raster moves: the shape follows the ground.
+  const draped = useMemo(() => {
+    if (!building) return null;
+    const ground = (x: number, z: number) => surfaceY(hm, x, z);
+    const centers = cells.map((c) => hexToWorld(c.q, c.r));
+    const fill = drapedHexes(centers, HEX_SIZE * 0.93, ground, 0.07);
+    const edges = drapedHexEdges(centers, HEX_SIZE * 0.97, ground, 0.09);
+    fill.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(cells.length * fill.perHex * 4), 4));
+    edges.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(cells.length * edges.perHex * 4), 4));
+    return { fill, edges };
+  }, [building, cells, hm]);
+  useEffect(
+    () => () => {
+      draped?.fill.geometry.dispose();
+      draped?.edges.geometry.dispose();
+    },
+    [draped],
+  );
 
+  // Colours on every hover move: cheap, no geometry rebuilt.
   useLayoutEffect(() => {
-    const inst = mesh.current;
-    if (!inst) return;
+    if (!draped) return;
     const state = useGame.getState();
+    const fillColor = draped.fill.geometry.getAttribute("color") as THREE.BufferAttribute;
+    const edgeColor = draped.edges.geometry.getAttribute("color") as THREE.BufferAttribute;
+    const focus = hover ?? cells[0] ?? { q: 0, r: 0 };
     cells.forEach((cell, i) => {
-      const { x, z } = hexToWorld(cell.q, cell.r);
-      TMP_DUMMY.position.set(x, surfaceY(hm, x, z) + 0.055, z);
-      TMP_DUMMY.scale.set(1, 1, 1);
-      TMP_DUMMY.rotation.set(0, 0, 0);
-      TMP_DUMMY.updateMatrix();
-      inst.setMatrixAt(i, TMP_DUMMY.matrix);
       const key = `${cell.q},${cell.r}`;
       const isHover = hover && cell.q === hover.q && cell.r === hover.r;
-      if (isHover) TMP_COLOR.copy(hover.valid ? COLOR_OK : COLOR_BAD);
-      else if (occ.has(key)) TMP_COLOR.copy(COLOR_OCC);
+      let alpha = 0.3;
+      if (isHover) {
+        TMP_COLOR.copy(hover.valid ? COLOR_OK : COLOR_BAD);
+        alpha = 0.55;
+      } else if (occ.has(key)) TMP_COLOR.copy(COLOR_OCC);
       else if (pisteSet.has(key)) TMP_COLOR.copy(COLOR_PISTE);
       else if (hover && buildItem && hexDistance(cell, hover) <= 2) {
         const v = validateHex(state, getDem(), cell.q, cell.r, buildItem);
         TMP_COLOR.copy(v.ok ? COLOR_NEAR_OK : COLOR_NEAR_BAD);
+        alpha = 0.42;
       } else TMP_COLOR.copy(COLOR_EMPTY);
-      inst.setColorAt(i, TMP_COLOR);
+      // Soft rim: full near the cursor, gone at the edge of the raster.
+      const d = hexDistance(cell, focus) / GRID_RADIUS;
+      const fade = Math.max(0, Math.min(1, (1 - d) / 0.45));
+      const a = alpha * fade;
+      const ea = 0.62 * fade;
+      for (let k = 0; k < draped.fill.perHex; k++) fillColor.setXYZW(i * draped.fill.perHex + k, TMP_COLOR.r, TMP_COLOR.g, TMP_COLOR.b, a);
+      for (let k = 0; k < draped.edges.perHex; k++) edgeColor.setXYZW(i * draped.edges.perHex + k, 0.96, 0.98, 1, ea);
     });
-    inst.instanceMatrix.needsUpdate = true;
-    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-  }, [cells, hover, occ, pisteSet, hm, buildItem]);
+    fillColor.needsUpdate = true;
+    edgeColor.needsUpdate = true;
+  }, [draped, cells, hover, occ, pisteSet, buildItem]);
 
-  if (!building) return null;
+  if (!building || !draped) return null;
 
   return (
     <group>
-      <instancedMesh ref={mesh} args={[geo, undefined, cells.length]} frustumCulled={false}>
-        <meshBasicMaterial transparent opacity={0.34} vertexColors toneMapped={false} depthWrite={false} />
-      </instancedMesh>
-      <lineSegments geometry={lineGeo} frustumCulled={false}>
-        <lineBasicMaterial color="#f4fbff" transparent opacity={0.62} depthWrite={false} />
+      <mesh geometry={draped.fill.geometry} frustumCulled={false} renderOrder={2}>
+        <meshBasicMaterial vertexColors transparent toneMapped={false} depthWrite={false} polygonOffset polygonOffsetFactor={-2} />
+      </mesh>
+      <lineSegments geometry={draped.edges.geometry} frustumCulled={false} renderOrder={3}>
+        <lineBasicMaterial vertexColors transparent depthWrite={false} />
       </lineSegments>
     </group>
   );
@@ -157,7 +169,6 @@ export function HexCursor() {
   const liftStart = useGame((s) => s.liftStart);
   const buildings = useStableGame((s) => s.buildings);
   const lifts = useStableGame((s) => s.lifts);
-  const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.92), []);
   const hm = getHeightmap();
   const pulse = useRef(0);
   const snap = useRef(0);
@@ -214,26 +225,11 @@ export function HexCursor() {
 
   return (
     <group>
-      {rings.map((h, i) => {
-        const { x, z } = hexToWorld(h.q, h.r);
-        const y = surfaceY(hm, x, z) + 0.12;
-        return (
-          <mesh key={`${h.q}:${h.r}:${i}`} geometry={geo} position={[x, y, z]}>
-            <meshBasicMaterial color={h.color} transparent opacity={h.opacity} side={THREE.DoubleSide} depthWrite={false} />
-          </mesh>
-        );
-      })}
+      {rings.map((h, i) => (
+        <DrapedHex key={`${h.q}:${h.r}:${i}`} q={h.q} r={h.r} size={HEX_SIZE * 0.92} lift={0.1} color={h.color} opacity={h.opacity} />
+      ))}
       {hover && phase !== "idle" && (
-        <lineSegments
-          position={[
-            hexToWorld(hover.q, hover.r).x,
-            surfaceY(hm, hexToWorld(hover.q, hover.r).x, hexToWorld(hover.q, hover.r).z) + 0.18,
-            hexToWorld(hover.q, hover.r).z,
-          ]}
-        >
-          <edgesGeometry args={[geo]} />
-          <lineBasicMaterial color={hover.valid ? "#34A853" : "#E24B4A"} />
-        </lineSegments>
+        <DrapedHex q={hover.q} r={hover.r} size={HEX_SIZE * 0.92} lift={0.14} color={hover.valid ? "#34A853" : "#E24B4A"} opacity={1} outline />
       )}
       {showGhost && buildItem && (
         <group ref={ghost}>
@@ -256,24 +252,11 @@ export function HexCursor() {
 
 export function HexGhost() {
   const liftStart = useGame((s) => s.liftStart);
-  const hm = getHeightmap();
-  const geo = useMemo(() => makeHexGeometry(HEX_SIZE * 0.9), []);
   return (
     <group>
       {/* The piste draft: grade colours, blocked hex, snap and end markers, in two draw calls. */}
       <PisteDraftMarks />
-      {liftStart && (
-        <mesh
-          geometry={geo}
-          position={[
-            hexToWorld(liftStart.q, liftStart.r).x,
-            surfaceY(hm, hexToWorld(liftStart.q, liftStart.r).x, hexToWorld(liftStart.q, liftStart.r).z) + 0.12,
-            hexToWorld(liftStart.q, liftStart.r).z,
-          ]}
-        >
-          <meshBasicMaterial color="#2F6FED" transparent opacity={0.48} side={THREE.DoubleSide} depthWrite={false} />
-        </mesh>
-      )}
+      {liftStart && <DrapedHex q={liftStart.q} r={liftStart.r} size={HEX_SIZE * 0.9} lift={0.1} color="#2F6FED" opacity={0.48} />}
     </group>
   );
 }
@@ -299,6 +282,7 @@ export function StampFlash() {
     const { x, z } = hexToWorld(hex.q, hex.r);
     mesh.current.visible = true;
     mesh.current.position.set(x, surfaceY(hm, x, z) + 0.2, z);
+    slopeQuaternion((px, pz) => surfaceY(hm, px, pz), x, z, mesh.current.quaternion);
     const s = 0.7 + t * 1.35;
     mesh.current.scale.set(s, 1, s);
     mat.current.opacity = 0.5 * (1 - t) * (1 - t);
@@ -307,6 +291,45 @@ export function StampFlash() {
   return (
     <mesh ref={mesh} geometry={geo} visible={false}>
       <meshBasicMaterial ref={mat} color="#34A853" transparent opacity={0} depthWrite={false} />
+    </mesh>
+  );
+}
+
+/** One hexagon lying on the ground: a fill, or its outline. */
+function DrapedHex({
+  q,
+  r,
+  size,
+  lift,
+  color,
+  opacity,
+  outline = false,
+}: {
+  q: number;
+  r: number;
+  size: number;
+  lift: number;
+  color: string;
+  opacity: number;
+  outline?: boolean;
+}) {
+  const hm = getHeightmap();
+  const geo = useMemo(() => {
+    const ground = (x: number, z: number) => surfaceY(hm, x, z);
+    const c = [hexToWorld(q, r)];
+    return outline ? drapedHexEdges(c, size, ground, lift).geometry : drapedHexes(c, size, ground, lift).geometry;
+  }, [hm, q, r, size, lift, outline]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  if (outline) {
+    return (
+      <lineSegments geometry={geo} renderOrder={4}>
+        <lineBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
+      </lineSegments>
+    );
+  }
+  return (
+    <mesh geometry={geo} renderOrder={4}>
+      <meshBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} polygonOffset polygonOffsetFactor={-3} />
     </mesh>
   );
 }
