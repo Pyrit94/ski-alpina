@@ -10,6 +10,7 @@ import { useGame } from "@/lib/game/store";
 import type { HudSheet } from "@/lib/game/types";
 import { toggleSheet } from "./hud-shared";
 import { PlayersLine, RoundButton } from "./HudBits";
+import { InvitePanel } from "./Invite";
 import { ActivityPanel, InfoPanel, OperationsPanel, TicketPricePanel, RenamePanel, Quests } from "./InfoPanels";
 import { MobileMenuBody } from "./MenuBody";
 import { BigBuildButton } from "./BuildDrawer";
@@ -148,6 +149,7 @@ export function DesktopPanel() {
           {kind === "chat" && (
             <div className="flex flex-col gap-2">
               <PlayersLine />
+              <InvitePanel />
               <TeamMarks />
               <ChatPanel />
             </div>

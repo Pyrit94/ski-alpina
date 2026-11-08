@@ -2,13 +2,7 @@ import { GameRoom, PERSIST_MS, TICK_MS } from "../../../../packages/shared/src/r
 import { emptyResort } from "../../../../packages/shared/src/engine/state.ts";
 import { loadAllRegions } from "../../../../packages/shared/src/terrain/dem.ts";
 import { SqlSaveStore, type GameMeta } from "../../../../packages/shared/src/runtime/saves.ts";
-import {
-  broadcastTo,
-  connect,
-  snapshotOf,
-  type Binding,
-  type Hub,
-} from "../../../../packages/shared/src/runtime/connection.ts";
+import { connect, publish, type Binding, type Hub } from "../../../../packages/shared/src/runtime/connection.ts";
 import { getSql } from "@/lib/db";
 import type { SocketIdentity } from "./identity.server";
 
@@ -76,7 +70,8 @@ function ensureTimers() {
       room.tick();
       // Drop players who stopped answering, or the online count only climbs.
       room.prunePlayers();
-      broadcast(room.state.roomId, snapshotOf(room));
+      // Only the fields that changed; a full snapshot now and then (runtime/stream.ts).
+      publish(hub, room);
     }
   }, TICK_MS);
   setInterval(() => {
@@ -89,11 +84,12 @@ function ensureTimers() {
 async function persistAll() {
   const sql = await getSql();
   for (const room of rooms.values()) {
-    // Kind and owner are written once, when the game is first stored.
+    // The owner is written once, when the game is first stored; the kind
+    // follows «freigeben» (own → shared).
     await sql.query(
       `insert into resorts (id, name, snapshot, kind, owner, updated_at)
        values ($1, $2, $3::jsonb, $4, $5, now())
-       on conflict (id) do update set name = excluded.name, snapshot = excluded.snapshot, updated_at = now()`,
+       on conflict (id) do update set name = excluded.name, snapshot = excluded.snapshot, kind = excluded.kind, updated_at = now()`,
       [room.state.roomId, room.state.resortName, room.snapshot(), room.meta.kind, room.meta.owner],
     );
   }
@@ -107,10 +103,6 @@ const hub: Hub<Socket> = {
   store: saveStore,
   log: (label, err) => console.warn(`[ski] ${label}`, err),
 };
-
-function broadcast(roomId: string, msg: Parameters<typeof broadcastTo>[2]) {
-  broadcastTo(hub, roomId, msg);
-}
 
 export function handleSocket(socket: Socket, identity?: SocketIdentity | null): void {
   ensureTimers();

@@ -212,7 +212,7 @@ export class SqlSaveStore implements SaveStore {
 
 export type LobbyMessage = Extract<
   ClientMessage,
-  { type: "list_games" | "create_game" | "import_game" | "save_game" | "load_save" | "delete_save" }
+  { type: "list_games" | "create_game" | "import_game" | "save_game" | "load_save" | "delete_save" | "share_game" }
 >;
 
 export function isLobbyMessage(msg: ClientMessage): msg is LobbyMessage {
@@ -222,7 +222,8 @@ export function isLobbyMessage(msg: ClientMessage): msg is LobbyMessage {
     msg.type === "import_game" ||
     msg.type === "save_game" ||
     msg.type === "load_save" ||
-    msg.type === "delete_save"
+    msg.type === "delete_save" ||
+    msg.type === "share_game"
   );
 }
 
@@ -238,7 +239,8 @@ export interface LobbyContext {
   boundRoomId: string | null;
   send: (msg: ServerMessage) => void;
   broadcast: (roomId: string, msg: ServerMessage) => void;
-  snapshotOf: (room: GameRoom) => ServerMessage;
+  /** Send everyone in the room the new state (runtime/stream.ts). */
+  publish: (room: GameRoom, opts?: { full?: boolean }) => void;
   /** Rooms that must not be served (failed to load). */
   isBlocked?: (id: string) => boolean;
 }
@@ -384,7 +386,31 @@ export async function handleLobby(msg: LobbyMessage, ctx: LobbyContext): Promise
       body: `${ctx.userName} hat «${save.name}» geladen. Der vorherige Stand ist gesichert.`,
       kind: "info",
     });
-    ctx.broadcast(room.state.roomId, ctx.snapshotOf(room));
+    ctx.publish(room, { full: true });
+    await games();
+    return;
+  }
+
+  if (msg.type === "share_game") {
+    // Only the owner may open their own game to the others. Someone else's
+    // own game reads as missing, as it does everywhere else: no hint it exists.
+    // (An own game with no owner recorded — local play without sign-in — is
+    // visible to all anyway, so sharing it opens nothing new.)
+    const room = gameFor(msg.gameId);
+    if (!room) return fail("Dieses Spiel gibt es nicht oder es gehört jemand anderem", "rights");
+    if (room.meta.kind === "own") {
+      if (room.meta.owner !== null && room.meta.owner !== ctx.userId) {
+        return fail("Nur wer das Spiel angelegt hat, kann es freigeben", "rights");
+      }
+      room.meta = { kind: "shared", owner: room.meta.owner };
+      room.touchGame();
+      ctx.broadcast(room.state.roomId, {
+        type: "event",
+        title: "Spiel freigegeben",
+        body: `${ctx.userName} hat das Gebiet freigegeben. Wer eingeladen ist, kann jetzt mitbauen.`,
+        kind: "ok",
+      });
+    }
     await games();
     return;
   }

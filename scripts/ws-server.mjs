@@ -20,7 +20,7 @@ import { GameRoom, PERSIST_MS, TICK_MS } from "../packages/shared/src/runtime/ro
 import { emptyResort } from "../packages/shared/src/engine/state.ts";
 import { loadAllRegions } from "../packages/shared/src/terrain/dem.ts";
 import { MemorySaveStore, SqlSaveStore } from "../packages/shared/src/runtime/saves.ts";
-import { broadcastTo, connect, snapshotOf } from "../packages/shared/src/runtime/connection.ts";
+import { connect, publish } from "../packages/shared/src/runtime/connection.ts";
 import { NOT_ALLOWED_MESSAGE, rosterAdmits, rosterGate } from "../src/lib/auth/allowlist.ts";
 import { createNotifier } from "./notify.mjs";
 
@@ -43,6 +43,8 @@ function notifyRoundIfPlayed(room) {
 }
 /** `seq` of each room at its last save, so an idle resort is not rewritten every few seconds. */
 const savedSeq = new Map();
+/** Kind of each room at its last save: «freigeben» changes it without moving `seq`. */
+const savedKind = new Map();
 /** Last presence each room broadcast, to notice arrivals and departures. */
 const presenceSeen = new WeakMap();
 /** Saved resorts that failed to load. Never served and never overwritten. */
@@ -105,6 +107,7 @@ async function hydrate() {
       if (row.updated_at) room.updatedAt = new Date(row.updated_at).getTime() || room.updatedAt;
       rooms.set(row.id, room);
       savedSeq.set(row.id, room.seq);
+      savedKind.set(row.id, room.meta.kind);
     } catch (err) {
       quarantined.add(row.id);
       console.error(`[ws] resort ${row.id} could not be loaded and stays untouched`, err);
@@ -118,17 +121,20 @@ async function persist() {
   if (!pool) return;
   for (const room of rooms.values()) {
     const id = room.state.roomId;
-    if (quarantined.has(id) || savedSeq.get(id) === room.seq) continue;
+    if (quarantined.has(id) || (savedSeq.get(id) === room.seq && savedKind.get(id) === room.meta.kind)) continue;
     const seq = room.seq;
-    // Kind and owner are written once, when the game is first stored.
+    const kind = room.meta.kind;
+    // The owner is written once, when the game is first stored. The kind can
+    // change later, one way only: the owner sharing an own game («freigeben»).
     await pool.query(
       `insert into resorts (id, name, snapshot, kind, owner, updated_at)
        values ($1, $2, $3::jsonb, $4, $5, now())
        on conflict (id) do update
-         set name = excluded.name, snapshot = excluded.snapshot, updated_at = now()`,
-      [id, room.state.resortName, JSON.stringify(room.snapshot()), room.meta.kind, room.meta.owner],
+         set name = excluded.name, snapshot = excluded.snapshot, kind = excluded.kind, updated_at = now()`,
+      [id, room.state.resortName, JSON.stringify(room.snapshot()), kind, room.meta.owner],
     );
     savedSeq.set(id, seq);
+    savedKind.set(id, kind);
   }
 }
 
@@ -205,10 +211,6 @@ const hub = {
   },
   log: (label, err) => console.warn(`[ws] ${label}`, err),
 };
-
-function broadcast(roomId, msg) {
-  broadcastTo(hub, roomId, msg);
-}
 
 await hydrate();
 
@@ -323,7 +325,8 @@ setInterval(() => {
       const who = room.presence().map((p) => p.id).join(",");
       if (moved || presenceSeen.get(room) !== who) {
         presenceSeen.set(room, who);
-        broadcast(room.state.roomId, snapshotOf(room));
+        // Only the fields that changed; a full snapshot now and then (runtime/stream.ts).
+        publish(hub, room);
       }
     } catch (err) {
       console.error(`[ws] tick failed for ${room.state.roomId}`, err);

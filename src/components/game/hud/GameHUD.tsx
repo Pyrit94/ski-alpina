@@ -16,6 +16,7 @@ import { NextStepChip } from "./NextStepChip";
 import { NeedsStrip, VillagePanel } from "./Needs";
 import { NeighbourCard, NeighboursPanel } from "./Neighbours";
 import { AwayModal, ProposalCard } from "./Together";
+import { InviteModal, InvitePanel } from "./Invite";
 import { UndoChip } from "./UndoChip";
 import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
 import { PisteEditor } from "./PisteEditor";
@@ -90,6 +91,7 @@ export function GameHUD() {
       <MatchSetupModal />
       <RoundReportModal />
       <AwayModal />
+      <InviteModal />
       <SeasonReportModal />
       <FinalScreen />
       <Celebration />
@@ -798,6 +800,7 @@ function MobileSheets() {
           {sheet === "menu" && <MobileMenuBody />}
           {sheet === "chat" && (
             <div className="flex flex-col gap-3">
+              <InvitePanel />
               <TeamMarks />
               <ChatPanel compact />
             </div>

@@ -9,6 +9,7 @@ import { SavesPanel } from "./SavesPanel";
 import { useGame } from "@/lib/game/store";
 import { LayerTabs } from "./HudBits";
 import { NeighbourSetting } from "./Neighbours";
+import { InvitePanel } from "./Invite";
 
 /**
  * The phone menu: sections like a settings screen, one row per thing, every
@@ -24,6 +25,11 @@ export function MobileMenuBody() {
   return (
     <div className="flex flex-col gap-4 pb-2">
       <SavesPanel compact />
+      <MenuSection title="Mitspielen">
+        <div className="p-1.5">
+          <InvitePanel bare />
+        </div>
+      </MenuSection>
       <MenuSection title="Partie">
         <MobileMatchRows />
       </MenuSection>
