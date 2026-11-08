@@ -29,6 +29,7 @@ import {
   Trees,
   Utensils,
   X,
+  FlaskConical,
 } from "lucide-react";
 import { peerColor } from "@/lib/game/players";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
@@ -47,6 +48,7 @@ import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCar
 import { useMyMoney } from "@/lib/game/team";
 import { DescentButton, DescentOffer, LinkStatus } from "./LinkStatus";
 import { SavesPanel } from "./SavesPanel";
+import { useResearchReady } from "@/lib/game/research-ready";
 import { realMetres } from "@/lib/game/real-height";
 import { NextStepChip } from "./NextStepChip";
 import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
@@ -1487,6 +1489,7 @@ function MobileDock() {
   const terms = useBuildTerms();
   const sheet = useGame((s) => s.sheet);
   const unread = useUnreadChat();
+  const researchReady = useResearchReady();
   const tool = useGame((s) => s.tool);
   const setTool = useGame((s) => s.setTool);
   const phase = useGame((s) => s.phase);
@@ -1595,6 +1598,17 @@ function MobileDock() {
             >
               <MessageCircle className="size-5" />
               <UnreadBadge n={unread} />
+            </button>
+            <button
+              type="button"
+              aria-label="Forschung"
+              onClick={() => toggleSheet(sheet, "research")}
+              className={`relative grid size-11 shrink-0 place-items-center rounded-[14px] ${sheet === "research" ? "bg-accent text-panel" : "text-navy"}`}
+            >
+              <FlaskConical className="size-5" />
+              {researchReady && sheet !== "research" && (
+                <span className="absolute right-1.5 top-1.5 size-2.5 rounded-full bg-success ring-2 ring-panel" aria-label="Forschung bereit" />
+              )}
             </button>
             <button
               type="button"
