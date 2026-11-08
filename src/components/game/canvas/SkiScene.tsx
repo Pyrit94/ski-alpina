@@ -19,6 +19,7 @@ import type { ItemId, PlacedBuilding, PlacedLift, PlacedPiste } from "@/lib/game
 import { applyWeather, atmosphereAt, createAtmosphere, easeWeather, WEATHER_LOOK } from "./atmosphere";
 import { BuildingInstances, type Placement } from "./baked-buildings";
 import { BuildingModel } from "./models";
+import { AutoPreview } from "./AutoPreview";
 import { ribbonGeometry } from "./geometry";
 import { makeTreeMaterial } from "./snow-shaders";
 import { STATION_CABLE_Y, cableGap, stationYaw } from "./station";
@@ -1929,6 +1930,7 @@ export function SkiScene() {
       <HexGhost />
       <PisteNameLabel />
       <LinkHints />
+      <AutoPreview />
       <CenterStamp />
       <StampFlash />
       <PeerFocus />
