@@ -22,7 +22,9 @@ const elevAt = (dem: Dem, hex: Axial) => {
 
 /** Valley and top station of a lift, by elevation. */
 export function liftEnds(dem: Dem, lift: PlacedLift): { base: Axial; top: Axial } {
-  return elevAt(dem, lift.a) <= elevAt(dem, lift.b) ? { base: lift.a, top: lift.b } : { base: lift.b, top: lift.a };
+  return elevAt(dem, lift.a) <= elevAt(dem, lift.b)
+    ? { base: lift.a, top: lift.b }
+    : { base: lift.b, top: lift.a };
 }
 
 /** Car parks, bus stations and hotels: where guests arrive and leave. */
@@ -97,5 +99,8 @@ export function suggestDescent(
   const { top } = liftEnds(dem, lift);
   const goals = descentGoals(state, dem, top);
   // Graded first; if no line holds the grade, any legal line will do.
-  return routeToAny(dem, top, goals, target) ?? (target === "any" ? null : routeToAny(dem, top, goals, "any"));
+  return (
+    routeToAny(dem, top, goals, target) ??
+    (target === "any" ? null : routeToAny(dem, top, goals, "any"))
+  );
 }

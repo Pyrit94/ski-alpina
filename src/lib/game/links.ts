@@ -21,8 +21,14 @@ export function useResortLinks(): Map<string, EdgeLink> {
 }
 
 /** What a lift's link means, in one short sentence for the player. */
-export const LIFT_LINK_TEXT: Record<"ok" | "no-descent" | "no-access", { chip: string; why: string }> = {
-  ok: { chip: "Verbunden ✓", why: "Von der Bergstation führt eine Piste zu einer Talstation oder ins Dorf." },
+export const LIFT_LINK_TEXT: Record<
+  "ok" | "no-descent" | "no-access",
+  { chip: string; why: string }
+> = {
+  ok: {
+    chip: "Verbunden ✓",
+    why: "Von der Bergstation führt eine Piste zu einer Talstation oder ins Dorf.",
+  },
   "no-descent": {
     chip: "Noch keine Abfahrt",
     why: "Von der Bergstation führt noch keine Piste hinunter. Ohne Abfahrt fährt hier niemand.",
@@ -33,7 +39,10 @@ export const LIFT_LINK_TEXT: Record<"ok" | "no-descent" | "no-access", { chip: s
   },
 };
 
-export const PISTE_LINK_TEXT: Record<"ok" | "dead-end" | "unreached", { chip: string; why: string }> = {
+export const PISTE_LINK_TEXT: Record<
+  "ok" | "dead-end" | "unreached",
+  { chip: string; why: string }
+> = {
   ok: { chip: "Verbunden ✓", why: "Gäste kommen oben an und unten weiter." },
   "dead-end": {
     chip: "Endet im Nichts",
@@ -67,6 +76,11 @@ export function proposeDescent(liftId: string): boolean {
   g.setBuildItem("piste");
   if (useGame.getState().buildItem !== "piste") return false;
   usePisteEditor.setState({ mode: "draw", strokes: [1], blocked: null });
-  useGame.setState({ pisteDraft: hexes, selectedId: null, lastStampAt: Date.now(), lastStampHex: hexes[hexes.length - 1]! });
+  useGame.setState({
+    pisteDraft: hexes,
+    selectedId: null,
+    lastStampAt: Date.now(),
+    lastStampHex: hexes[hexes.length - 1]!,
+  });
   return true;
 }

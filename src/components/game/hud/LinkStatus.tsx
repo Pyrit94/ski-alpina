@@ -41,7 +41,9 @@ export function LinkStatus({ id, kind }: { id: string; kind: "lift" | "piste" })
         {text.chip}
       </div>
       {!ok && <p className="mt-1 text-[11px] leading-snug text-muted">{text.why}</p>}
-      {kind === "lift" && link === "no-descent" && <DescentButton liftId={id} className="mt-2 w-full" />}
+      {kind === "lift" && link === "no-descent" && (
+        <DescentButton liftId={id} className="mt-2 w-full" />
+      )}
     </div>
   );
 }
@@ -54,6 +56,7 @@ export function DescentOffer() {
   const lifts = useGame((s) => s.lifts);
   const me = useGame((s) => s.playerId);
   const phase = useGame((s) => s.phase);
+  const selectedId = useGame((s) => s.selectedId);
   const links = useResortLinks();
   const known = useRef<Set<string> | null>(null);
   const [offer, setOffer] = useState<string | null>(null);
@@ -71,14 +74,19 @@ export function DescentOffer() {
 
   const lift = lifts.find((l) => l.id === offer);
   if (!lift || phase === "piste" || links.get(lift.id) !== "no-descent") return null;
+  // Selected, its own panel already carries the button: one is enough.
+  if (selectedId && [lift.id, lift.stationA, lift.stationB].includes(selectedId)) return null;
   const name = BY_ID[lift.itemId].name;
   return (
     <div className="toast-in pointer-events-auto w-[min(94vw,340px)] rounded-[20px] bg-panel/95 p-3 shadow-[var(--shadow-panel)] backdrop-blur-md">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-navy">{name} steht – noch keine Abfahrt</div>
+          <div className="text-[13px] font-semibold text-navy">
+            {name} steht – noch keine Abfahrt
+          </div>
           <p className="mt-0.5 text-[11px] leading-snug text-muted">
-            Lift rauf, Piste runter: Wir schlagen dir die Abfahrt bis zur nächsten Talstation, ins Dorf oder auf eine Piste vor.
+            Lift rauf, Piste runter: Wir schlagen dir die Abfahrt bis zur nächsten Talstation, ins
+            Dorf oder auf eine Piste vor.
           </p>
         </div>
         <button

@@ -60,7 +60,14 @@ export function LinkHints() {
     return g;
   }, [missing, hm]);
   const lines = useMemo(() => {
-    const mat = new THREE.LineDashedMaterial({ color: LINE_COLOR, dashSize: 0.9, gapSize: 0.6, transparent: true, opacity: 0.95, depthTest: false });
+    const mat = new THREE.LineDashedMaterial({
+      color: LINE_COLOR,
+      dashSize: 0.9,
+      gapSize: 0.6,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+    });
     const seg = new THREE.LineSegments(geometry, mat);
     seg.computeLineDistances();
     seg.renderOrder = 4;
@@ -80,29 +87,38 @@ export function LinkHints() {
   return (
     <group>
       <primitive object={lines} visible={!busy} />
-      {!busy &&
-        missing.map((m) => {
-          const { x, z } = hexToWorld(m.top.q, m.top.r);
-          const text = LIFT_LINK_TEXT[m.link];
-          return (
-            <Html key={m.id} position={[x, surfaceY(hm, x, z) + 3.2, z]} center distanceFactor={80} zIndexRange={[7, 0]}>
-              {m.link === "no-descent" && m.route ? (
-                <button
-                  type="button"
-                  onClick={() => proposeDescent(m.id)}
-                  className="flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-full bg-panel/95 px-3 text-[12px] font-semibold text-navy shadow-[var(--shadow-chip)]"
-                >
-                  <span className="size-2.5 rounded-full" style={{ background: LINE_COLOR }} />
-                  {text.chip} · <span className="text-accent">Abfahrt anlegen</span>
-                </button>
-              ) : (
-                <div className="pointer-events-none flex items-center gap-1.5 whitespace-nowrap rounded-full bg-panel/95 px-2.5 py-1 text-[11px] font-semibold text-warn shadow-[var(--shadow-chip)]">
-                  {text.chip}
-                </div>
-              )}
-            </Html>
-          );
-        })}
+      {missing.map((m) => {
+        const { x, z } = hexToWorld(m.top.q, m.top.r);
+        const text = LIFT_LINK_TEXT[m.link];
+        return (
+          // Kept mounted while building and only hidden: unmounting an Html
+          // from inside its own click handler tears the DOM out from under
+          // React.
+          <Html
+            key={m.id}
+            position={[x, surfaceY(hm, x, z) + 3.2, z]}
+            center
+            distanceFactor={80}
+            zIndexRange={[7, 0]}
+            style={{ visibility: busy ? "hidden" : "visible" }}
+          >
+            {m.link === "no-descent" && m.route ? (
+              <button
+                type="button"
+                onClick={() => requestAnimationFrame(() => proposeDescent(m.id))}
+                className="flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-full bg-panel/95 px-3 text-[12px] font-semibold text-navy shadow-[var(--shadow-chip)]"
+              >
+                <span className="size-2.5 rounded-full" style={{ background: LINE_COLOR }} />
+                {text.chip} · <span className="text-accent">Abfahrt anlegen</span>
+              </button>
+            ) : (
+              <div className="pointer-events-none flex items-center gap-1.5 whitespace-nowrap rounded-full bg-panel/95 px-2.5 py-1 text-[11px] font-semibold text-warn shadow-[var(--shadow-chip)]">
+                {text.chip}
+              </div>
+            )}
+          </Html>
+        );
+      })}
     </group>
   );
 }

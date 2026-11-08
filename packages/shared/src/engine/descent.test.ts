@@ -57,7 +57,14 @@ test("acceptance: a second run into the first counts as joined", () => {
   // The second leaves the same top station eastwards and ends beside the
   // first run, half-way down — nowhere near a station or the village.
   const q = VILLAGE_HEX.q;
-  const second = [col(1), { q: q + 1, r: 1 }, { q: q + 1, r: 2 }, { q: q + 1, r: 3 }, { q: q + 1, r: 4 }, { q: q + 1, r: 5 }];
+  const second = [
+    col(1),
+    { q: q + 1, r: 1 },
+    { q: q + 1, r: 2 },
+    { q: q + 1, r: 3 },
+    { q: q + 1, r: 4 },
+    { q: q + 1, r: 5 },
+  ];
   state = act(state, { type: "place_piste", itemId: "piste", hexes: second });
   const links = resortLinks(state, dem);
   assert.equal(links.get(state.pistes[0]!.id), "ok");
@@ -88,10 +95,24 @@ test("no suggestion for a lift that does not exist", () => {
 test("a run that ends nowhere is not offered as a place to end", () => {
   const { state: withLift } = freshWithChair();
   // A short dead-end stub on an open slope west of the lift.
-  const stub = [{ q: -9, r: 5 }, { q: -8, r: 5 }, { q: -7, r: 5 }];
-  const v = validateIntent(withLift, dem, { type: "place_piste", itemId: "piste", hexes: stub }, "builder", BUILT);
+  const stub = [
+    { q: -9, r: 5 },
+    { q: -8, r: 5 },
+    { q: -7, r: 5 },
+  ];
+  const v = validateIntent(
+    withLift,
+    dem,
+    { type: "place_piste", itemId: "piste", hexes: stub },
+    "builder",
+    BUILT,
+  );
   if (!v.ok) return; // terrain changed: nothing to show here
-  const state = applyIntent(withLift, { type: "place_piste", itemId: "piste", hexes: stub }, BUILT).state;
+  const state = applyIntent(
+    withLift,
+    { type: "place_piste", itemId: "piste", hexes: stub },
+    BUILT,
+  ).state;
   const id = state.pistes[0]!.id;
   assert.equal(resortLinks(state, dem).get(id), "dead-end");
   const goals = descentGoals(state, dem, { q: 99, r: 99 });
