@@ -1,15 +1,18 @@
 import { useEffect, useMemo } from "react";
 import { Sparkles, X } from "lucide-react";
 import { BY_ID, FLOW } from "@ski/config";
-import { getDem, planAutoPistes, starsFor, type AutoPlan } from "@ski/shared";
+import { starsFor, type AutoPlan } from "@ski/shared";
 import { RatingChip } from "./PisteRating";
 import { ReshapeAll } from "./Reshape";
+import { BusyNote, Calculating } from "./Calculating";
 import { GRADE_COLOR } from "@/lib/game/piste-editor";
 import { fmt } from "@/lib/game/format";
 import { play } from "@/lib/game/sound";
 import { useGame } from "@/lib/game/store";
 import { MIXES, openAutoPistes } from "@/lib/game/auto-pistes";
 import { useMyMoney } from "@/lib/game/team";
+import { usePlanner } from "@/lib/game/planner";
+import { plannerState } from "@/lib/game/planner-jobs";
 import { useStableGame } from "../canvas/use-stable-game";
 
 
@@ -84,18 +87,26 @@ export function AutoPistesPanel() {
   const money = useMyMoney().mine;
   const budget = Math.floor(money / 1000) * 1000;
 
-  const result = useMemo(() => {
-    if (!open) return null;
-    const state = { ...useGame.getState(), lifts, pistes, buildings, research, ticketPrice };
-    return planAutoPistes(state, getDem(), { liftIds: open.liftIds ?? undefined, mix: open.mix, budget });
-  }, [open, lifts, pistes, buildings, research, ticketPrice, budget]);
+  // Worked out in the planner worker; the panel stays responsive meanwhile.
+  const { result: planned, busy } = usePlanner<"auto">(
+    () =>
+      open
+        ? {
+            kind: "auto",
+            state: plannerState(useGame.getState(), { lifts, pistes, buildings, research, ticketPrice }),
+            opts: { liftIds: open.liftIds ?? undefined, mix: open.mix, budget },
+          }
+        : null,
+    [open, lifts, pistes, buildings, research, ticketPrice, budget],
+  );
+  const result = open ? planned : null;
 
   useEffect(() => {
     useGame.setState({ autoPreview: result ? result.plans.map((p) => ({ hexes: p.hexes, grade: p.grade })) : [] });
   }, [result]);
   useEffect(() => () => useGame.setState({ autoPreview: [] }), []);
 
-  if (!open || !result) return null;
+  if (!open) return null;
   const set = (next: Partial<NonNullable<typeof open>>) =>
     useGame.setState({ autoPistes: { ...open, ...next }, ...(next.mix ? { pisteMix: next.mix } : {}) });
   const close = () => useGame.setState({ autoPistes: null });
@@ -105,11 +116,13 @@ export function AutoPistesPanel() {
     const ids = open.liftIds!.includes(id) ? open.liftIds!.filter((x) => x !== id) : [...open.liftIds!, id];
     set({ liftIds: ids.length === 0 || ids.length === lifts.length ? null : ids });
   };
-  const total = result.plans.reduce((n, p) => n + p.cost, 0);
-  const km = result.plans.reduce((n, p) => n + (p.hexes.length - 1) * FLOW.kmPerSegment, 0);
-  const terrain = result.missed.filter((m) => m.reason === "terrain").length;
-  const poor = result.missed.filter((m) => m.reason === "budget").length;
+  const plans = result?.plans ?? [];
+  const total = plans.reduce((n, p) => n + p.cost, 0);
+  const km = plans.reduce((n, p) => n + (p.hexes.length - 1) * FLOW.kmPerSegment, 0);
+  const terrain = result?.missed.filter((m) => m.reason === "terrain").length ?? 0;
+  const poor = result?.missed.filter((m) => m.reason === "budget").length ?? 0;
   const build = () => {
+    if (!result || busy) return;
     useGame.getState().sendPlan(result.plans.map((p) => ({ type: "place_piste" as const, itemId: "piste" as const, hexes: p.hexes })));
     play("build");
     close();
@@ -121,6 +134,7 @@ export function AutoPistesPanel() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[13px] font-semibold text-navy">
             <Sparkles className="size-4 text-accent" /> Pisten automatisch
+            {busy && result && <BusyNote />}
           </div>
           <p className="mt-0.5 text-[11px] leading-snug text-muted">
             Rechnet jede mögliche Piste durch, auch geschwungene Linien: zuerst fehlende Abfahrten, dann was am meisten Gäste pro Franken bringt. Schöne Pisten geben Punkte.
@@ -158,71 +172,77 @@ export function AutoPistesPanel() {
             ))}
           </div>
 
-          {result.plans.length === 0 ? (
-            <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">
-              {poor > 0
-                ? "Für die fehlenden Abfahrten reicht das Geld noch nicht."
-                : terrain > 0
-                  ? "Von diesen Bergstationen führt kein befahrbarer Hang hinunter. Verschiebe die Bahn oder zeichne selbst."
-                  : "Keine Piste würde sich hier gerade lohnen."}
-            </p>
+          {!result ? (
+            <Calculating />
           ) : (
-            <ul className="mt-2 flex max-h-44 flex-col gap-1 overflow-y-auto">
-              {result.plans.map((p, i) => (
-                <li key={i} className="flex items-center gap-2 rounded-[12px] bg-ice px-2.5 py-1.5 text-[12px] text-navy">
-                  <span className="size-2.5 shrink-0 rounded-full" style={{ background: GRADE_COLOR[p.grade as keyof typeof GRADE_COLOR] ?? "#888" }} />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="min-w-0 truncate font-semibold">{planTitle(p, names.get(p.liftId) ?? "")}</span>
-                      <RatingChip points={p.points} stars={starsFor(p.points)} />
-                    </span>
-                    <span className="block truncate text-[10px] text-muted">
-                      {((p.hexes.length - 1) * FLOW.kmPerSegment).toFixed(1)} km
-                      {p.gainGuests > 0 ? ` · +${fmt(p.gainGuests)} Gäste/h` : ""}
-                      {p.gainIncome !== 0 ? ` · ${p.gainIncome > 0 ? "+" : "−"}${fmt(Math.abs(p.gainIncome))}/Tag` : ""}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-[11px] font-semibold text-coin">{fmt(p.cost)}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              {plans.length === 0 ? (
+                <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-[12px] leading-snug text-navy">
+                  {poor > 0
+                    ? "Für die fehlenden Abfahrten reicht das Geld noch nicht."
+                    : terrain > 0
+                      ? "Von diesen Bergstationen führt kein befahrbarer Hang hinunter. Verschiebe die Bahn oder zeichne selbst."
+                      : "Keine Piste würde sich hier gerade lohnen."}
+                </p>
+              ) : (
+                <ul className="mt-2 flex max-h-44 flex-col gap-1 overflow-y-auto">
+                  {plans.map((p, i) => (
+                    <li key={i} className="flex items-center gap-2 rounded-[12px] bg-ice px-2.5 py-1.5 text-[12px] text-navy">
+                      <span className="size-2.5 shrink-0 rounded-full" style={{ background: GRADE_COLOR[p.grade as keyof typeof GRADE_COLOR] ?? "#888" }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="min-w-0 truncate font-semibold">{planTitle(p, names.get(p.liftId) ?? "")}</span>
+                          <RatingChip points={p.points} stars={starsFor(p.points)} />
+                        </span>
+                        <span className="block truncate text-[10px] text-muted">
+                          {((p.hexes.length - 1) * FLOW.kmPerSegment).toFixed(1)} km
+                          {p.gainGuests > 0 ? ` · +${fmt(p.gainGuests)} Gäste/h` : ""}
+                          {p.gainIncome !== 0 ? ` · ${p.gainIncome > 0 ? "+" : "−"}${fmt(Math.abs(p.gainIncome))}/Tag` : ""}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[11px] font-semibold text-coin">{fmt(p.cost)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {plans.length > 0 && (
+                <div className="mt-2 grid grid-cols-2 gap-1.5 text-center">
+                  <Outlook label="Gäste/h" from={result.before.guestsPerHour} to={result.after.guestsPerHour} />
+                  <Outlook label="Gewinn/Tag" from={result.before.incomePerHour} to={result.after.incomePerHour} signed />
+                </div>
+              )}
+              {(terrain > 0 || poor > 0) && plans.length > 0 && (
+                <p className="mt-1.5 text-[11px] leading-snug text-warn">
+                  {terrain > 0 && `${terrain} ${terrain === 1 ? "Bahn hat" : "Bahnen haben"} keinen befahrbaren Hang. `}
+                  {poor > 0 && `${poor} ${poor === 1 ? "Abfahrt" : "Abfahrten"} später, das Geld reicht noch nicht.`}
+                </p>
+              )}
+              {result.limit !== "none" && (
+                <p className="mt-1.5 rounded-[12px] bg-warn/10 px-2.5 py-1.5 text-[11px] leading-snug text-navy">
+                  {result.limit === "doors"
+                    ? "Engpass sind die Ankünfte: Mehr Pisten bringen erst etwas, wenn mehr Gäste ankommen. Parkhaus, Bus oder Hotel ausbauen."
+                    : `Engpass ist jetzt ${result.limitLabel || "eine Bahn"}: Kapazität ausbauen bringt mehr als eine weitere Piste.`}
+                </p>
+              )}
+              <div className="mt-2 flex gap-1.5">
+                <button type="button" onClick={close} className="btn-3d btn-3d-light h-11 shrink-0 rounded-full bg-ice px-4 text-[12px] font-bold text-navy">
+                  Abbrechen
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || plans.length === 0}
+                  onClick={build}
+                  className="btn-3d flex h-11 flex-1 items-center justify-center gap-1 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-50"
+                  style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
+                >
+                  {plans.length === 0
+                    ? "Nichts anzulegen"
+                    : `${plans.length} ${plans.length === 1 ? "Piste" : "Pisten"} anlegen · ${fmt(total)}`}
+                </button>
+              </div>
+              {plans.length > 0 && <p className="mt-1 text-center text-[10px] text-muted">{km.toFixed(1)} km neu, gestrichelt auf der Karte</p>}
+            </>
           )}
-          {result.plans.length > 0 && (
-            <div className="mt-2 grid grid-cols-2 gap-1.5 text-center">
-              <Outlook label="Gäste/h" from={result.before.guestsPerHour} to={result.after.guestsPerHour} />
-              <Outlook label="Gewinn/Tag" from={result.before.incomePerHour} to={result.after.incomePerHour} signed />
-            </div>
-          )}
-          {(terrain > 0 || poor > 0) && result.plans.length > 0 && (
-            <p className="mt-1.5 text-[11px] leading-snug text-warn">
-              {terrain > 0 && `${terrain} ${terrain === 1 ? "Bahn hat" : "Bahnen haben"} keinen befahrbaren Hang. `}
-              {poor > 0 && `${poor} ${poor === 1 ? "Abfahrt" : "Abfahrten"} später, das Geld reicht noch nicht.`}
-            </p>
-          )}
-          {result.limit !== "none" && (
-            <p className="mt-1.5 rounded-[12px] bg-warn/10 px-2.5 py-1.5 text-[11px] leading-snug text-navy">
-              {result.limit === "doors"
-                ? "Engpass sind die Ankünfte: Mehr Pisten bringen erst etwas, wenn mehr Gäste ankommen. Parkhaus, Bus oder Hotel ausbauen."
-                : `Engpass ist jetzt ${result.limitLabel || "eine Bahn"}: Kapazität ausbauen bringt mehr als eine weitere Piste.`}
-            </p>
-          )}
-          <div className="mt-2 flex gap-1.5">
-            <button type="button" onClick={close} className="btn-3d btn-3d-light h-11 shrink-0 rounded-full bg-ice px-4 text-[12px] font-bold text-navy">
-              Abbrechen
-            </button>
-            <button
-              type="button"
-              disabled={result.plans.length === 0}
-              onClick={build}
-              className="btn-3d flex h-11 flex-1 items-center justify-center gap-1 rounded-full bg-accent px-3 text-[12px] font-bold text-panel disabled:opacity-50"
-              style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
-            >
-              {result.plans.length === 0
-                ? "Nichts anzulegen"
-                : `${result.plans.length} ${result.plans.length === 1 ? "Piste" : "Pisten"} anlegen · ${fmt(total)}`}
-            </button>
-          </div>
-          {result.plans.length > 0 && <p className="mt-1 text-center text-[10px] text-muted">{km.toFixed(1)} km neu, gestrichelt auf der Karte</p>}
           <ReshapeAll />
         </>
       )}

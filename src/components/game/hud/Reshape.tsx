@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Wand2 } from "lucide-react";
-import { bestReshape, getDem, reshapeAll, type Reshape, type ResortState } from "@ski/shared";
+import type { Reshape } from "@ski/shared";
 import { fmt } from "@/lib/game/format";
+import { usePlanner } from "@/lib/game/planner";
+import { plannerState } from "@/lib/game/planner-jobs";
 import { play } from "@/lib/game/sound";
 import { useGame } from "@/lib/game/store";
 import { useStableGame } from "../canvas/use-stable-game";
-
-const stateNow = () => useGame.getState() as unknown as ResortState;
+import { Calculating } from "./Calculating";
 
 /** Show proposed lines on the map, dashed, the way the auto planner does. */
 function preview(list: readonly Reshape[]) {
@@ -18,14 +19,19 @@ function preview(list: readonly Reshape[]) {
  * variety between the same two ends, shows it dashed, and lays it on a tap.
  */
 export function ReshapeOne({ pisteId }: { pisteId: string }) {
-  const [found, setFound] = useState<Reshape | null | "none">(null);
+  // Looked for once per tap, in the planner worker.
+  const [asked, setAsked] = useState(false);
+  const { result } = usePlanner<"reshapeOne">(
+    () => (asked ? { kind: "reshapeOne", state: plannerState(useGame.getState()), pisteId } : null),
+    [asked, pisteId],
+  );
+  const answer = asked ? result : null;
+  useEffect(() => {
+    if (answer) preview(answer.found ? [answer.found] : []);
+  }, [answer]);
   useEffect(() => () => useGame.setState({ autoPreview: [] }), []);
-  const look = () => {
-    const r = bestReshape(stateNow(), getDem(), pisteId);
-    setFound(r ?? "none");
-    preview(r ? [r] : []);
-  };
-  if (found === null) {
+  const look = () => setAsked(true);
+  if (!asked) {
     return (
       <button
         type="button"
@@ -36,7 +42,9 @@ export function ReshapeOne({ pisteId }: { pisteId: string }) {
       </button>
     );
   }
-  if (found === "none") {
+  if (!answer) return <Calculating />;
+  const found = answer.found;
+  if (!found) {
     return <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-[12px] text-navy">Zwischen diesen Endpunkten gibt es keine deutlich bessere Linie.</p>;
   }
   return (
@@ -50,7 +58,7 @@ export function ReshapeOne({ pisteId }: { pisteId: string }) {
         onClick={() => {
           useGame.getState().sendPlan([{ type: "reshape_piste", pisteId, hexes: found.hexes }]);
           play("build");
-          setFound(null);
+          setAsked(false);
           useGame.setState({ autoPreview: [] });
         }}
         className="btn-3d mt-2 flex h-11 w-full items-center justify-center rounded-full bg-accent text-[12px] font-bold text-panel"
@@ -67,19 +75,23 @@ export function ReshapeAll() {
   // Stable across snapshots that change nothing, so a result is not thrown away every tick.
   const pistes = useStableGame((s) => s.pistes);
   // A result belongs to the runs it was worked out for; any change asks again.
-  const [found, setFound] = useState<{ for: typeof pistes; list: Reshape[] } | null>(null);
-  const list = found && found.for === pistes ? found.list : null;
-  const setList = (l: Reshape[] | null) => setFound(l ? { for: pistes, list: l } : null);
+  const [askedFor, setAskedFor] = useState<typeof pistes | null>(null);
+  const asked = askedFor !== null && askedFor === pistes;
+  const { result } = usePlanner<"reshapeAll">(
+    () => (asked ? { kind: "reshapeAll", state: plannerState(useGame.getState(), { pistes }) } : null),
+    [asked, pistes],
+  );
+  const list = asked ? result : null;
+  useEffect(() => {
+    if (list) preview(list);
+  }, [list]);
   if (pistes.filter((p) => p.itemId === "piste").length === 0) return null;
+  if (asked && !list) return <Calculating />;
   if (!list) {
     return (
       <button
         type="button"
-        onClick={() => {
-          const r = reshapeAll(stateNow(), getDem());
-          setList(r);
-          preview(r);
-        }}
+        onClick={() => setAskedFor(pistes)}
         className="mt-2 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-full bg-ice text-[12px] font-semibold text-navy"
       >
         <Wand2 className="size-4 text-accent" /> Bestehende Pisten verbessern
@@ -104,7 +116,7 @@ export function ReshapeAll() {
             `${list.length} Pisten verbessern`,
           );
           play("build");
-          setList(null);
+          setAskedFor(null);
           useGame.setState({ autoPreview: [] });
         }}
         className="btn-3d mt-2 flex h-11 w-full items-center justify-center rounded-full bg-accent text-[12px] font-bold text-panel"
