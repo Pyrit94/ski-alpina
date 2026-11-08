@@ -7,6 +7,7 @@ import type { Dem } from "../terrain/dem.ts";
 import type { QuestState, ResortState } from "../types.ts";
 import { GRADE_LABEL, pisteDifficulty } from "./level.ts";
 import { entityCost, findEntity, TUTORIAL_STEPS } from "./state.ts";
+import { followTutorial } from "./tutorial.ts";
 import { surveyPiste } from "./validate.ts";
 import { applyEditPiste } from "./piste-edit.ts";
 import { inMatch, PENDING_READY, startMatch, startSandbox } from "./match.ts";
@@ -111,7 +112,9 @@ export function applyIntent(
   /** Online builders, for alliance research; see ResearchContext. */
   team?: readonly string[],
 ): Applied {
-  return record(state, applyOne(state, intent, now, actor, dem, team), intent, now, actor);
+  const applied = record(state, applyOne(state, intent, now, actor, dem, team), intent, now, actor);
+  // Building is what moves the tutorial on; a dismissed one stays closed.
+  return intent.type === "dismiss_tutorial" ? applied : { ...applied, state: followTutorial(applied.state) };
 }
 
 function applyOne(

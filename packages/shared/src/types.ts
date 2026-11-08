@@ -128,11 +128,19 @@ export interface SimStats {
   marketPerHour: number;
   /** Guests (not rides) per hour at the current rate. */
   guestsPerHour: number;
+  /** Demand multiplier of the opening season; 1 once it is over. */
+  openingBoost?: number;
 }
 
 export interface FlowEdgeViz {
   id: string;
-  kind: "lift" | "piste";
+  /**
+   * "building": a car park, bus station or hotel (arrivals), a restaurant or
+   * shop (guests served) or a ticket office (extra takings, `unit` "chf").
+   */
+  kind: "lift" | "piste" | "building";
+  /** What `flow` and `capacity` count. Absent: rides per hour. */
+  unit?: "arrivals" | "served" | "chf";
   from: Axial;
   to: Axial;
   flow: number;

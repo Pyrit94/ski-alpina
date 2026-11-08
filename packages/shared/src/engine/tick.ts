@@ -5,6 +5,7 @@ import { tickFlow } from "./flow.ts";
 import { syncQuestProgress } from "./quests.ts";
 import { weatherForDay } from "./weather.ts";
 import { accrueResearch } from "./research.ts";
+import { followTutorial } from "./tutorial.ts";
 
 export function tickResort(state: ResortState, dem: Dem, dtSeconds: number, now: number): ResortState {
   const timeOfDay = (state.timeOfDay + dtSeconds / ECONOMY.daySecondsReal) % 1;
@@ -43,5 +44,5 @@ export function tickResort(state: ResortState, dem: Dem, dtSeconds: number, now:
     stats: flowed.stats,
     flow: flowed.flow,
   };
-  return syncQuestProgress(accrueResearch(next, flowed.stats, dtHours, now));
+  return followTutorial(syncQuestProgress(accrueResearch(next, flowed.stats, dtHours, now)));
 }

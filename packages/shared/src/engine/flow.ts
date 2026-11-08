@@ -101,6 +101,8 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
   const floor = Math.min(RESEARCH.maxReputationFloor, ECONOMY.reputationFloor + fx.reputationFloor);
   appetite *= floor + (1 - floor) * reputation;
   appetite *= mods.demand;
+  const opening = openingBoost(state);
+  appetite *= opening;
   appetite = Math.max(0, appetite);
 
   // Skiers come for the snow; once it is gone, only cableways that run both
@@ -114,7 +116,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     (ECONOMY.demandPerKm * weightedKm * varietyDraw * comfortDraw * prestige + sightseers) * appetite;
 
   // The doors guests come in through. Demand beyond them is turned away.
-  const arrivals: { hex: Axial; perHour: number }[] = [
+  const arrivals: { hex: Axial; perHour: number; id?: string }[] = [
     { hex: VILLAGE_HEX, perHour: ECONOMY.villageArrivalsPerHour },
   ];
   const exits: Axial[] = [];
@@ -126,7 +128,7 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     else if (b.itemId === "bus") perHour = ECONOMY.busArrivalsPerHour;
     else if (item.beds) perHour = item.beds * ECONOMY.bedArrivalsPerHour;
     if (perHour <= 0) continue;
-    arrivals.push({ hex, perHour });
+    arrivals.push({ hex, perHour, id: b.id });
     exits.push(hex);
   }
   const doorCapacity = arrivals.reduce((n, a) => n + a.perHour, 0);
@@ -326,9 +328,63 @@ export function tickFlow(state: ResortState, dem: Dem, dtHours: number, now: num
     turnedAway: Math.round(turnedAway),
     marketPerHour: Math.round(market),
     guestsPerHour: Math.round(guests),
+    openingBoost: Math.round(opening * 100) / 100,
   };
 
+  // What each building does for the resort, for its info panel: arrivals
+  // through a door, guests a restaurant or shop serves, a ticket office's
+  // extra takings. Without this they all read "—".
+  const doorUse = doorCapacity > 0 ? admitted / doorCapacity : 0;
+  const servedBy = (field: "seatsPerHour" | "retailPerHour", total: number) =>
+    buildings
+      .filter((b) => (BY_ID[b.itemId][field] ?? 0) > 0)
+      .map((b) => {
+        const cap = BY_ID[b.itemId][field] ?? 0;
+        return {
+          id: b.id,
+          kind: "building" as const,
+          unit: "served" as const,
+          from: { q: b.q, r: b.r },
+          to: { q: b.q, r: b.r },
+          flow: total > 0 ? Math.round((Math.min(guests, total) * cap) / total) : 0,
+          capacity: cap,
+        };
+      });
+  flow.push(
+    ...arrivals
+      .filter((a) => a.id)
+      .map((a) => ({
+        id: a.id!,
+        kind: "building" as const,
+        unit: "arrivals" as const,
+        from: a.hex,
+        to: a.hex,
+        flow: Math.round(a.perHour * doorUse),
+        capacity: Math.round(a.perHour),
+      })),
+    ...servedBy("seatsPerHour", seats),
+    ...servedBy("retailPerHour", retailCapacity),
+    ...buildings
+      .filter((b) => b.itemId === "ticket")
+      .map((b) => ({
+        id: b.id,
+        kind: "building" as const,
+        unit: "chf" as const,
+        from: { q: b.q, r: b.r },
+        to: { q: b.q, r: b.r },
+        flow: Math.round(guests * state.ticketPrice * ECONOMY.ticketOfficeIncomeBonus * mods.ticket),
+        capacity: 0,
+      })),
+  );
+
   return { stats, coinsDelta: incomePerHour * dtHours, flow };
+}
+
+/** The opening-season demand multiplier (see ECONOMY.openingDays). */
+export function openingBoost(state: Pick<ResortState, "season" | "day">): number {
+  if (state.season !== 1 || state.day > ECONOMY.openingDays) return 1;
+  const left = 1 - (state.day - 1) / ECONOMY.openingDays;
+  return 1 + (ECONOMY.openingDemand - 1) * Math.max(0, left);
 }
 
 export const NEUTRAL_MODS: RoundModifiers = {

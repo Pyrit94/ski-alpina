@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ECONOMY } from "../../../config/src/economy.ts";
 import { emptyResort } from "./state.ts";
 import { applyIntent } from "./apply.ts";
 import { validateIntent } from "./validate.ts";
@@ -16,6 +17,8 @@ const NOW = 1_000_000;
 const BUILT = NOW - 60_000;
 /** Midday, when the hour factor is at its peak. */
 const MIDDAY = 0.5;
+/** A day after the opening season, when demand is the resort's own. */
+const AFTER_OPENING = ECONOMY.openingDays + 5;
 
 /** The valley column through the village: r descends as the ground rises. */
 const col = (r: number): Axial => ({ q: VILLAGE_HEX.q, r });
@@ -251,8 +254,10 @@ test("income is revenue net of upkeep", () => {
 test("the most profitable ticket price is not the highest one", () => {
   // The old rule only bit above 90 CHF, so 90 strictly dominated every lower
   // price and the slider was free money.
+  // Past the opening season: then a crowd bigger than the village lets in
+  // makes any price sell out, which is a different question.
   const net = (chf: number) =>
-    tickFlow({ ...circuit(VILLAGE_HEX, 1, 9), ticketPrice: chf }, dem, 0.2, NOW).stats
+    tickFlow({ ...circuit(VILLAGE_HEX, 1, 9), day: AFTER_OPENING, ticketPrice: chf }, dem, 0.2, NOW).stats
       .incomePerHour;
   const prices = [39, 49, 59, 69, 79, 89, 99, 119, 149];
   const best = prices.reduce((a, b) => (net(b) > net(a) ? b : a));
@@ -262,8 +267,8 @@ test("the most profitable ticket price is not the highest one", () => {
 });
 
 test("a high price costs both guests and goodwill", () => {
-  const cheap = tickFlow({ ...circuit(VILLAGE_HEX, 1, 9), ticketPrice: 39 }, dem, 0.2, NOW);
-  const dear = tickFlow({ ...circuit(VILLAGE_HEX, 1, 9), ticketPrice: 149 }, dem, 0.2, NOW);
+  const cheap = tickFlow({ ...circuit(VILLAGE_HEX, 1, 9), day: AFTER_OPENING, ticketPrice: 39 }, dem, 0.2, NOW);
+  const dear = tickFlow({ ...circuit(VILLAGE_HEX, 1, 9), day: AFTER_OPENING, ticketPrice: 149 }, dem, 0.2, NOW);
   assert.ok(dear.stats.demandPerHour < cheap.stats.demandPerHour);
   assert.ok(dear.stats.satisfaction < cheap.stats.satisfaction);
 });

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { CircleCheck, CircleAlert, Route, X } from "lucide-react";
 import { BY_ID } from "@ski/config";
+import { hexToWorld } from "@ski/shared";
 import { LIFT_LINK_TEXT, PISTE_LINK_TEXT, proposeDescent, useResortLinks } from "@/lib/game/links";
 import { useGame } from "@/lib/game/store";
 
@@ -59,7 +60,8 @@ export function DescentOffer() {
   const selectedId = useGame((s) => s.selectedId);
   const links = useResortLinks();
   const known = useRef<Set<string> | null>(null);
-  const [offer, setOffer] = useState<string | null>(null);
+  const offer = useGame((s) => s.descentOffer);
+  const setOffer = (id: string | null) => useGame.setState({ descentOffer: id });
 
   useEffect(() => {
     const ids = new Set(lifts.map((l) => l.id));
@@ -67,7 +69,13 @@ export function DescentOffer() {
       const added = lifts.filter((l) => !known.current!.has(l.id));
       // One new lift is one you just built; a batch is a snapshot loading.
       const fresh = added.length === 1 ? added[0]! : null;
-      if (fresh && (!fresh.builtBy || fresh.builtBy === me)) setOffer(fresh.id);
+      if (fresh && (!fresh.builtBy || fresh.builtBy === me)) {
+        setOffer(fresh.id);
+        // Show what was just built: the camera glides to the new line.
+        const a = hexToWorld(fresh.a.q, fresh.a.r);
+        const b = hexToWorld(fresh.b.q, fresh.b.r);
+        useGame.getState().focusOn((a.x + b.x) / 2, (a.z + b.z) / 2);
+      }
     }
     known.current = ids;
   }, [lifts, me]);
