@@ -270,11 +270,14 @@ export function buildResortGraph(input: GraphInput): ResortGraph {
   const pistePorts = oriented.map(({ piste, hexes }) => {
     const anchors = fixed.filter((h) => h !== hexes[0] && h !== hexes[hexes.length - 1]);
     const cuts = [0, ...junctionsOn(hexes, anchors), hexes.length - 1];
+    const bottom = hexes[hexes.length - 1]!;
+    // A run that ends anywhere in the village ends in the village.
+    const home = hexDistance(bottom, dem.region.villageHex) <= FLOW.villageRunRadius;
     return {
       piste,
       top: hexes[0]!,
-      bottom: hexes[hexes.length - 1]!,
-      nodes: cuts.map((k) => addPort(hexes[k]!)),
+      bottom,
+      nodes: cuts.map((k, i) => (home && i === cuts.length - 1 ? villagePort : addPort(hexes[k]!))),
     };
   });
 

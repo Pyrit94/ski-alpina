@@ -16,6 +16,7 @@ const COSTLY = new Set<Intent["type"]>([
   "expand",
   "move_building",
   "rearrange",
+  "reshape_piste",
 ]);
 
 type View = Pick<ResortState, "contributors" | "match" | "proposalLimit"> & ResortState;

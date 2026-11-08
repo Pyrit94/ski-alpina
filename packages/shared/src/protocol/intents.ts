@@ -53,6 +53,12 @@ export const IntentSchema = z.discriminatedUnion("type", [
     name: z.string().trim().max(32).optional(),
     width: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   }),
+  // A better line for a run already built: same start, same end, new course.
+  z.object({
+    type: z.literal("reshape_piste"),
+    pisteId: z.string().min(2).max(48),
+    hexes: z.array(AxialSchema).min(2).max(MAX_PISTE_HEXES),
+  }),
   z.object({
     type: z.literal("upgrade"),
     entityId: z.string().min(2).max(48),

@@ -16,6 +16,9 @@ const COLOR_SNAP = new THREE.Color("#34A853");
 const COLOR_LINKED = new THREE.Color("#34A853");
 /** Open end: grey, not alarming — the run is simply not joined there yet. */
 const COLOR_LOOSE = new THREE.Color("#9AA5B1");
+/** A point the player set along the way («Punkt für Punkt»). */
+const COLOR_WAYPOINT = new THREE.Color("#2F6FED");
+const MAX_PINS = 3 + 30;
 const TMP = new THREE.Object3D();
 const TMP_COLOR = new THREE.Color();
 /** Draft hexes, the blocked hex and the snap preview share one instanced mesh. */
@@ -38,6 +41,7 @@ export function PisteDraftMarks() {
   const pistes = useStableGame((s) => s.pistes);
   const buildings = useStableGame((s) => s.buildings);
   const blocked = usePisteEditor((s) => s.blocked);
+  const strokes = usePisteEditor((s) => s.strokes);
   const hm = getHeightmap();
   const cells = useRef<THREE.InstancedMesh>(null);
   const pins = useRef<THREE.InstancedMesh>(null);
@@ -110,10 +114,23 @@ export function PisteDraftMarks() {
     if (draft.length > 0) pin(draft[0]!, !links || links.start !== null);
     if (draft.length > 1) pin(draft[draft.length - 1]!, !links || links.end !== null);
     if (snap) pin(snap, true);
+    // The points set on the way, small and blue: where each straight piece ended.
+    for (const len of strokes) {
+      if (n >= MAX_PINS || len <= 1 || len >= draft.length) continue;
+      const h = draft[len - 1]!;
+      const { x, z } = hexToWorld(h.q, h.r);
+      TMP.position.set(x, surfaceY(hm, x, z), z);
+      TMP.scale.setScalar(0.6);
+      TMP.rotation.set(0, 0, 0);
+      TMP.updateMatrix();
+      inst.setMatrixAt(n, TMP.matrix);
+      inst.setColorAt(n, COLOR_WAYPOINT);
+      n++;
+    }
     inst.count = n;
     inst.instanceMatrix.needsUpdate = true;
     if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-  }, [draft, links, snap, hm]);
+  }, [draft, links, snap, hm, strokes]);
 
   useEffect(
     () => () => {
@@ -128,7 +145,7 @@ export function PisteDraftMarks() {
       <instancedMesh ref={cells} args={[hexGeo, undefined, MAX_CELLS]} frustumCulled={false}>
         <meshBasicMaterial transparent opacity={0.55} toneMapped={false} depthWrite={false} side={THREE.DoubleSide} />
       </instancedMesh>
-      <instancedMesh ref={pins} args={[pinGeo, undefined, 3]} frustumCulled={false}>
+      <instancedMesh ref={pins} args={[pinGeo, undefined, MAX_PINS]} frustumCulled={false}>
         <meshStandardMaterial roughness={0.5} />
       </instancedMesh>
     </group>

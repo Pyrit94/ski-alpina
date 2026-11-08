@@ -1321,6 +1321,20 @@ function Pistes() {
       lines.set(p.id, { hexes: p.hexes, points: p.difficulty === "road" ? centres : relaxLine(centres, 2) });
     }
     const runLines = pistes.filter((p) => p.difficulty !== "road" && lines.has(p.id)).map((p) => lines.get(p.id)!);
+    // Lift stations a run may start or end beside, in world units.
+    const stations = lifts.flatMap((l) => [l.a, l.b]);
+    const stationNear = (hex: { q: number; r: number }) => {
+      let best: { q: number; r: number } | null = null;
+      let bestD = Infinity;
+      for (const st of stations) {
+        const d = hexDistance(st, hex);
+        if (d > 0 && d <= FLOW.linkRadius && d < bestD) {
+          bestD = d;
+          best = st;
+        }
+      }
+      return best ? hexToWorld(best.q, best.r) : null;
+    };
     const near = (a: { q: number; r: number }, b: { q: number; r: number }) => hexDistance(a, b) <= 1;
     for (const p of pistes) {
       const line = lines.get(p.id);
@@ -1332,6 +1346,16 @@ function Pistes() {
       // Where it branches off or flows into another run, it meets it
       // tangentially and melts into it.
       const joined = road ? { points: line.points, fadeIn: 0, fadeOut: 0 } : joinRun(line, runLines, near);
+      // A run that starts or ends beside a station goes all the way to it,
+      // instead of stopping a hex or two short on the snow.
+      if (!road) {
+        const first = p.hexes[0]!;
+        const last = p.hexes[p.hexes.length - 1]!;
+        const startAt = joined.fadeIn === 0 ? stationNear(first) : null;
+        const endAt = joined.fadeOut === 0 ? stationNear(last) : null;
+        if (startAt) joined.points = [startAt, ...joined.points];
+        if (endAt) joined.points = [...joined.points, endAt];
+      }
       const path = smoothPath(joined.points, 4);
       // Roads ride above the snow, so a run meeting a road stops at its edge
       // instead of painting over it.

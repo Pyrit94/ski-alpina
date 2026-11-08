@@ -3,6 +3,7 @@ import { Sparkles, X } from "lucide-react";
 import { BY_ID, FLOW } from "@ski/config";
 import { getDem, planAutoPistes, starsFor, type AutoMix, type AutoPlan } from "@ski/shared";
 import { RatingChip } from "./PisteRating";
+import { ReshapeAll } from "./Reshape";
 import { GRADE_COLOR } from "@/lib/game/piste-editor";
 import { fmt } from "@/lib/game/format";
 import { play } from "@/lib/game/sound";
@@ -227,6 +228,7 @@ export function AutoPistesPanel() {
             </button>
           </div>
           {result.plans.length > 0 && <p className="mt-1 text-center text-[10px] text-muted">{km.toFixed(1)} km neu, gestrichelt auf der Karte</p>}
+          <ReshapeAll />
         </>
       )}
     </div>
