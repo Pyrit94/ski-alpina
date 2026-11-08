@@ -24,7 +24,8 @@ export function NextStepChip({ className = "" }: { className?: string }) {
   const coins = useGame((s) => s.coins);
   const phase = useGame((s) => s.phase);
   const selectedId = useGame((s) => s.selectedId);
-  const autoOpen = useGame((s) => s.autoPistes !== null || s.villageOpen);
+  // An open proposal from the other player is the next step; the tip waits.
+  const autoOpen = useGame((s) => s.autoPistes !== null || s.villageOpen || (s.proposals ?? []).some((p) => p.by !== s.playerId));
   const links = useResortLinks();
   const [, setTick] = useState(0);
 

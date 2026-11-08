@@ -120,7 +120,6 @@ export function VillagePanel() {
   const lifts = useStableGame((s) => s.lifts);
   const pistes = useStableGame((s) => s.pistes);
   const buildings = useStableGame((s) => s.buildings);
-  const sendIntent = useGame((s) => s.sendIntent);
   const money = useMyMoney().mine;
 
   const result = useMemo(() => {
@@ -159,7 +158,7 @@ export function VillagePanel() {
   const { plan } = result;
   const close = () => useGame.setState({ villageOpen: false });
   const apply = () => {
-    sendIntent({ type: "rearrange", moves: plan.moves.map((m) => ({ entityId: m.id, q: m.to.q, r: m.to.r })) });
+    useGame.getState().sendPlan([{ type: "rearrange", moves: plan.moves.map((m) => ({ entityId: m.id, q: m.to.q, r: m.to.r })) }]);
     play("build");
     close();
   };

@@ -394,3 +394,22 @@ export const SITE = {
   /** At most this many moves per proposal. */
   maxMoves: 12,
 } as const;
+
+/**
+ * Playing together: which actions wait for the partner's yes, and when
+ * coming back shows what happened in the meantime.
+ */
+export const TEAMPLAY = {
+  /**
+   * Default: an action that costs more than this becomes a proposal the other
+   * player confirms. 0 switches proposals off. The village optimiser always
+   * asks, because it moves the other player's buildings too.
+   */
+  proposalLimit: 50_000,
+  /** The choices offered in the menu. */
+  proposalLimits: [0, 20_000, 50_000, 100_000],
+  maxOpenProposals: 5,
+  maxProposalIntents: 16,
+  /** Away at least this long, coming back shows a summary. */
+  awayMinutes: 10,
+} as const;

@@ -64,7 +64,7 @@ export function MedalBadge({ medal, size = "md" }: { medal: Medal; size?: "sm" |
   );
 }
 
-function Modal({ children, onClose, wide = false }: { children: ReactNode; onClose?: () => void; wide?: boolean }) {
+export function Modal({ children, onClose, wide = false }: { children: ReactNode; onClose?: () => void; wide?: boolean }) {
   return (
     <div className="pointer-events-auto fixed inset-0 z-50 grid place-items-center p-3">
       <button
@@ -103,7 +103,7 @@ function BigStat({ label, value, tone = "neutral" }: { label: string; value: str
   );
 }
 
-function PrimaryButton({ children, onClick, tone = "accent", disabled }: { children: ReactNode; onClick: () => void; tone?: "accent" | "success" | "light"; disabled?: boolean }) {
+export function PrimaryButton({ children, onClick, tone = "accent", disabled }: { children: ReactNode; onClick: () => void; tone?: "accent" | "success" | "light"; disabled?: boolean }) {
   const cls =
     tone === "success"
       ? "bg-success text-panel"

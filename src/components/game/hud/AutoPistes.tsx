@@ -84,7 +84,6 @@ export function AutoPistesPanel() {
   const buildings = useStableGame((s) => s.buildings);
   const research = useStableGame((s) => s.research);
   const ticketPrice = useGame((s) => s.ticketPrice);
-  const sendIntent = useGame((s) => s.sendIntent);
   const names = useLiftNames();
   const money = useMyMoney().mine;
   const budget = Math.floor(money / 1000) * 1000;
@@ -114,7 +113,7 @@ export function AutoPistesPanel() {
   const terrain = result.missed.filter((m) => m.reason === "terrain").length;
   const poor = result.missed.filter((m) => m.reason === "budget").length;
   const build = () => {
-    for (const p of result.plans) sendIntent({ type: "place_piste", itemId: "piste", hexes: p.hexes });
+    useGame.getState().sendPlan(result.plans.map((p) => ({ type: "place_piste" as const, itemId: "piste" as const, hexes: p.hexes })));
     play("build");
     close();
   };

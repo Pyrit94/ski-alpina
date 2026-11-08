@@ -1,3 +1,4 @@
+import type { Intent } from "./protocol/intents.ts";
 import type { ItemId } from "../../config/src/ids.ts";
 import type { Axial } from "./hex.ts";
 
@@ -217,6 +218,22 @@ export interface ActivityEntry {
   kind: "ok" | "info" | "warn";
 }
 
+/**
+ * An action waiting for the other player's yes: a big spend, or the village
+ * optimiser moving everyone's buildings. Applied as the proposer's own when
+ * accepted.
+ */
+export interface Proposal {
+  id: string;
+  by: string;
+  byName: string;
+  at: number;
+  title: string;
+  intents: Intent[];
+  /** What it costs, worked out when it was proposed. */
+  cost: number;
+}
+
 export interface ResortState {
   version: number;
   roomId: string;
@@ -251,6 +268,10 @@ export interface ResortState {
   contributors: Record<string, Contributor>;
   /** Newest first, bounded. */
   activity: ActivityEntry[];
+  /** Open proposals, oldest first. Absent in older saves. */
+  proposals?: Proposal[];
+  /** Above this cost an action becomes a proposal; 0 = off. Absent: TEAMPLAY.proposalLimit. */
+  proposalLimit?: number;
   /** Free play, or a match of a fixed number of rounds. */
   match: MatchState;
   /** Finished matches in this room, best first. Survives starting a new one. */

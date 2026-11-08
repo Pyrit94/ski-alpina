@@ -2,6 +2,7 @@ export { HEX_SIZE, HEX_DIRS, hexKey, hexToWorld, worldToHex, hexDistance, hexLin
 export type { Axial } from "./hex.ts";
 export { createId } from "./ids.ts";
 export type {
+  Proposal,
   MapLayer,
   Tool,
   WeatherKind,
@@ -108,6 +109,7 @@ export { planAutoPistes } from "./engine/auto-pistes.ts";
 export { siteAt, siteContext, siteFactors, siteImpact, siteKind, villageMovable } from "./engine/site.ts";
 export type { SiteContext, SiteEffect, SiteImpact, SiteKind, SiteReport } from "./engine/site.ts";
 export { planVillage } from "./engine/village.ts";
+export { costOf, parseCarried, proposalLimit } from "./engine/proposals.ts";
 export type { VillageMove, VillagePlan } from "./engine/village.ts";
 export type { AutoMix, AutoOutlook, AutoPlan, AutoResult } from "./engine/auto-pistes.ts";
 export type { EdgeLink } from "./engine/descent.ts";

@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { Flag, ChevronRight, RotateCw, Trash2 } from "lucide-react";
-import { TERRAIN } from "@ski/config";
+import { TEAMPLAY, TERRAIN } from "@ski/config";
+import { fmtCompact } from "@/lib/game/format";
 import { exportSave } from "@/lib/game/save";
 import { play, setSoundEnabled, soundEnabled } from "@/lib/game/sound";
 import { SavesPanel } from "./SavesPanel";
@@ -26,6 +27,7 @@ export function MobileMenuBody() {
         <MobileMatchRows />
       </MenuSection>
       <SpeedSection />
+      <ProposalSection />
       <MenuSection title="Karte">
         <div className="p-1.5">
           <LayerTabs />
@@ -77,6 +79,32 @@ function SpeedSection() {
           </button>
         ))}
       </div>
+    </MenuSection>
+  );
+}
+
+/** Above which cost a step waits for the other player's yes. */
+function ProposalSection() {
+  const limit = useGame((s) => s.proposalLimit ?? TEAMPLAY.proposalLimit);
+  const sendIntent = useGame((s) => s.sendIntent);
+  const label = (v: number) => (v === 0 ? "Nie" : `ab ${fmtCompact(v)}`);
+  return (
+    <MenuSection title="Gemeinsam bauen: nachfragen">
+      <div className="grid grid-cols-4 gap-1 p-1.5">
+        {TEAMPLAY.proposalLimits.map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => sendIntent({ type: "set_proposal_limit", limit: v })}
+            className={`min-h-11 rounded-full text-[12px] font-semibold ${limit === v ? "bg-accent text-panel" : "text-navy"}`}
+          >
+            {label(v)}
+          </button>
+        ))}
+      </div>
+      <p className="px-3 pb-2 text-[11px] leading-snug text-muted">
+        Grössere Ausgaben und «Dorf ordnen» gehen erst als Vorschlag an die andere Person. Alleine wird immer direkt gebaut.
+      </p>
     </MenuSection>
   );
 }
