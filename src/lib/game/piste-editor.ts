@@ -132,7 +132,7 @@ function routeTo(end: Axial) {
   const from = draft[draft.length - 1]!;
   const room = MAX_PISTE_HEXES - draft.length + 1;
   if (room < 2) {
-    g.pushNote("Zu lang", `Höchstens ${MAX_PISTE_HEXES - 1} Segmente am Stück. Tippe «Fertig».`, "warn");
+    g.pushNote("Zu lang", `Höchstens ${MAX_PISTE_HEXES - 1} Segmente am Stück. Tippe «Bauen».`, "warn");
     return;
   }
   const path = routePiste(getDem(), from, end, isSkiRun(g.buildItem) ? ed.target : "any", {
@@ -278,7 +278,7 @@ export function undoPisteStep() {
   useGame.setState({ pisteDraft: draft.slice(0, to) });
 }
 
-/** Why "Fertig" cannot be pressed yet, or null when it can. */
+/** Why "Bauen" cannot be pressed yet, or null when it can. */
 export function finishBlocker(draft: readonly Axial[], coins: number, width: PisteWidth): string | null {
   const g = useGame.getState();
   const itemId = g.buildItem;
@@ -290,7 +290,7 @@ export function finishBlocker(draft: readonly Axial[], coins: number, width: Pis
   return null;
 }
 
-/** "Fertig": send the run. The editor stays open for the next one. */
+/** "Bauen": send the run. The editor stays open for the next one. */
 export function finishPisteDraft() {
   const g = useGame.getState();
   const ed = usePisteEditor.getState();

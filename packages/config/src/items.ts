@@ -53,7 +53,7 @@ export interface CatalogItem {
 
 export const CATALOG: CatalogItem[] = [
   { id: "tbar", category: "lifts", name: "Schlepplift", blurb: "Günstig, für Anfängerhänge. Bis 800 Pers./h.", cost: 4500, xp: 18, unlockLevel: 1, buildSeconds: 6, footprint: 1, maxSlope: 0.55, minElev: 1560, maxElev: 2800, capacity: 800, speed: 3.2, minSpan: 4, maxSpan: 14, upkeep: 110, color: "#3d6ea8" },
-  { id: "chair", category: "lifts", name: "Sessellift", blurb: "Komfortabler 4er-Sessel. Bis 1'800 Pers./h.", cost: 18500, xp: 36, unlockLevel: 2, buildSeconds: 10, footprint: 1, maxSlope: 0.7, minElev: 1560, maxElev: 3400, capacity: 1800, speed: 4.2, minSpan: 6, maxSpan: 20, upkeep: 460, color: "#2F6FED" },
+  { id: "chair", category: "lifts", name: "Sessellift", blurb: "Komfortabler 4er-Sessel. Bis 1'800 Pers./h.", cost: 18500, xp: 36, unlockLevel: 1, buildSeconds: 10, footprint: 1, maxSlope: 0.7, minElev: 1560, maxElev: 3400, capacity: 1800, speed: 4.2, minSpan: 6, maxSpan: 20, upkeep: 460, color: "#2F6FED" },
   { id: "gondola", category: "lifts", name: "Gondelbahn", blurb: "2'400 Pers./h. Fährt auch talwärts - Anschluss ins Dorf.", cost: 45000, xp: 70, unlockLevel: 3, buildSeconds: 14, footprint: 1, maxSlope: 1.1, minElev: 1560, maxElev: 3900, capacity: 2400, downhillShare: 0.12, speed: 6, minSpan: 8, maxSpan: 28, upkeep: 1100, color: "#1557b0" },
   { id: "tram", category: "lifts", name: "Pendelbahn", blurb: "Steile Wände, grosse Kabinen. 900 Pers./h, auch talwärts.", cost: 82000, gemCost: 40, xp: 110, unlockLevel: 6, buildSeconds: 18, footprint: 1, maxSlope: 1.6, minElev: 1560, maxElev: 4500, capacity: 900, downhillShare: 0.15, speed: 8, minSpan: 10, maxSpan: 32, upkeep: 2000, color: "#16305C" },
   { id: "restaurant", category: "buildings", name: "Restaurant", blurb: "Sonnenterrasse. Skifahrer geben hier Geld aus.", cost: 12000, xp: 24, unlockLevel: 1, buildSeconds: 8, footprint: 1, maxSlope: 0.32, minElev: 1560, maxElev: 3200, upkeep: 260, seatsPerHour: 420, satisfactionBonus: 1.4, color: "#8b4a2b" },
@@ -70,7 +70,7 @@ export const CATALOG: CatalogItem[] = [
   // `upkeep` are the gentle-ground baseline that each segment scales from.
   { id: "piste", category: "pistes", name: "Piste", blurb: "Abfahrt präparieren. Schwierigkeit und Preis richten sich nach dem Hang.", cost: 700, xp: 6, unlockLevel: 1, buildSeconds: 3, footprint: 1, maxSlope: MAX_PISTE_SLOPE, minElev: 1560, maxElev: 4000, capacity: 1500, upkeep: 18, color: "#2b7de9" },
   { id: "snowpark", category: "pistes", name: "Snowpark", blurb: "Kicker & Rails. Zieht junge Gäste an.", cost: 22000, xp: 34, unlockLevel: 5, buildSeconds: 10, footprint: 1, maxSlope: 0.38, minElev: 1800, maxElev: 3000, capacity: 900, upkeep: 480, color: "#F4B942" },
-  { id: "road", category: "pistes", name: "Zufahrt", blurb: "Verbindet Dorf, Parken und Talstationen. Kein Skiweg.", cost: 400, xp: 3, unlockLevel: 1, buildSeconds: 2, footprint: 1, maxSlope: 0.28, minElev: 1560, maxElev: 2000, capacity: 2600, upkeep: 8, color: "#5a6570" },
+  { id: "road", category: "services", name: "Strasse", blurb: "Nur für Talstationen weit weg vom Dorf. Talstationen im Tal erreichen die Gäste ohne Strasse. Kein Skiweg.", cost: 400, xp: 3, unlockLevel: 1, buildSeconds: 2, footprint: 1, maxSlope: 0.28, minElev: 1560, maxElev: 2000, capacity: 2600, upkeep: 8, color: "#5a6570" },
   { id: "tree", category: "deco", name: "Arve", blurb: "Schöner Wald. Kleiner Zufriedenheitsbonus.", cost: 180, xp: 1, unlockLevel: 1, buildSeconds: 1, footprint: 1, maxSlope: 0.5, minElev: 1600, maxElev: 2500, upkeep: 0, satisfactionBonus: 0.15, color: "#1f3d2a" },
   { id: "rock", category: "deco", name: "Fels", blurb: "Natürliche Kulisse.", cost: 120, xp: 1, unlockLevel: 1, buildSeconds: 1, footprint: 1, maxSlope: 1.4, minElev: 1700, maxElev: 4300, upkeep: 0, color: "#6a6764" },
   { id: "viewpoint", category: "deco", name: "Aussichtspunkt", blurb: "Fotospot. Gäste lieben Gipfelblicke.", cost: 3500, xp: 10, unlockLevel: 3, buildSeconds: 5, footprint: 1, maxSlope: 0.35, minElev: 2200, maxElev: 3900, upkeep: 40, satisfactionBonus: 1.5, summerDraw: 0.06, color: "#4aa3c7" },
@@ -102,9 +102,9 @@ export const BY_ID: Record<ItemId, CatalogItem> = Object.fromEntries(
 export const CATEGORIES: { id: Category; label: string; hint: string }[] = [
   { id: "lifts", label: "Bergbahnen", hint: "Seilbahnen & Lifte" },
   { id: "buildings", label: "Gebäude", hint: "Hotels, Shops & mehr" },
-  { id: "pistes", label: "Pisten & Wege", hint: "Pisten, Routen & Strassen" },
+  { id: "pistes", label: "Pisten", hint: "Abfahrten & Snowpark" },
   { id: "deco", label: "Dekoration", hint: "Bäume, Felsen & Objekte" },
-  { id: "services", label: "Dienste", hint: "Werkstätten, Parken & Co." },
+  { id: "services", label: "Dienste", hint: "Werkstätten, Parken, Strassen" },
 ];
 
 // The piste earns a slot: it is the action a player reaches for most, and

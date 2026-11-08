@@ -4,7 +4,7 @@ import type { ItemId } from "../../../config/src/ids.ts";
 import type { Axial } from "../hex.ts";
 import { generateDem } from "../terrain/dem.ts";
 import type { PisteDifficulty, PlacedLift, PlacedPiste } from "../types.ts";
-import { buildResortGraph, clusterPorts, VILLAGE_HEX } from "./graph.ts";
+import { buildResortGraph, clusterPorts, junctionsOn, pisteUse, VILLAGE_HEX } from "./graph.ts";
 import { pisteDifficulty } from "./level.ts";
 
 const dem = generateDem();
@@ -65,7 +65,7 @@ test("a lift out of the village with a piste back down carries guests", () => {
   });
   assert.equal(served, 500);
   assert.ok(graph.net.flowOn(graph.lifts[0]!.uphill) > 0);
-  assert.ok(graph.net.flowOn(graph.pistes[0]!.edge) > 0);
+  assert.ok(pisteUse(graph.net, graph.pistes[0]!) > 0);
 });
 
 test("a T-bar with no way back down carries nobody", () => {
@@ -105,7 +105,7 @@ test("guests ski when they can and ride down only for the overflow", () => {
     exits: [],
     dem,
   });
-  const onPiste = graph.net.flowOn(graph.pistes[0]!.edge);
+  const onPiste = pisteUse(graph.net, graph.pistes[0]!);
   const inCabins = graph.net.flowOn(graph.lifts[0]!.downhill!);
   // The 700-wide run fills first; only the rest takes the cabins back down.
   assert.equal(onPiste, graph.pistes[0]!.capacity);
@@ -121,7 +121,7 @@ test("a run wide enough for everyone leaves the cabins empty", () => {
     ...base,
   });
   assert.equal(graph.net.flowOn(graph.lifts[0]!.downhill!), 0);
-  assert.equal(graph.net.flowOn(graph.pistes[0]!.edge), 500);
+  assert.equal(pisteUse(graph.net, graph.pistes[0]!), 500);
 });
 
 test("a lift nowhere near an arrival point carries nobody", () => {
@@ -261,4 +261,111 @@ test("ports within the link radius become one node, beyond it stay separate", ()
 test("clustering renumbers to dense ids usable as node offsets", () => {
   const clusters = clusterPorts([{ q: 0, r: 0 }, { q: 20, r: 0 }, { q: 0, r: 1 }], 2);
   assert.deepEqual([...new Set(clusters)].sort(), [0, 1]);
+});
+
+// --- Joining rules: lift up, run down, done. ---------------------------------
+
+const hex = (q: number, r: number): Axial => ({ q, r });
+
+test("a run ending at any valley station counts, not only the village", () => {
+  // A: village up to col(-7). Its run lands at B's valley station, and B's run
+  // comes back to B's own valley station — nothing of B reaches the village.
+  const layout = {
+    lifts: [mkLift("A", "chair", col(9), col(-7)), mkLift("B", "tbar", col(1), col(-3))],
+    pistes: [mkPiste("pA", "piste", run(-7, 1)), mkPiste("pB", "piste", run(-3, 1))],
+    ...base,
+  };
+  const { graph, served } = solve(layout);
+  assert.ok(served > 0, "guests should ride A and ski down to B");
+  // Max-flow ends each guest's day at B's valley station; the laps put them
+  // on B, without changing how many were served.
+  graph.addLaps(served);
+  assert.ok(graph.net.flowOn(graph.lifts[1]!.uphill) > 0, "B carries guests");
+  assert.equal(graph.net.flowOn(graph.lifts[0]!.uphill), served);
+  assert.deepEqual(
+    graph.lifts.map((l) => l.link),
+    ["ok", "ok"],
+  );
+  assert.deepEqual(
+    graph.pistes.map((p) => p.link),
+    ["ok", "ok"],
+  );
+});
+
+test("a lift no guest can reach is reported as such, and carries nobody", () => {
+  // B alone: its valley station sits 300 m above the village, too far up to
+  // walk to, and no run leads there.
+  const { graph, served } = solve({
+    lifts: [mkLift("B", "tbar", col(1), col(-3))],
+    pistes: [mkPiste("pB", "piste", run(-3, 1))],
+    ...base,
+  });
+  assert.equal(served, 0);
+  assert.equal(graph.lifts[0]!.link, "no-access");
+  assert.equal(graph.pistes[0]!.link, "unreached");
+});
+
+test("a valley station near the village needs no road", () => {
+  // Three hexes out on the valley floor: beyond the link radius, within reach
+  // on foot.
+  const { graph, served } = solve({
+    lifts: [mkLift("L", "tbar", hex(-2, 6), hex(-8, 6))],
+    pistes: [mkPiste("p", "piste", [hex(-8, 6), hex(-7, 6), hex(-6, 6), hex(-5, 6), hex(-4, 6), hex(-3, 6), hex(-2, 6)])],
+    ...base,
+  });
+  assert.equal(graph.lifts[0]!.link, "ok");
+  assert.ok(served > 0);
+});
+
+test("a lift with nothing down from its top says so", () => {
+  const { graph } = solve({ lifts: [mkLift("L", "chair", col(9), col(1))], pistes: [], ...base });
+  assert.equal(graph.lifts[0]!.link, "no-descent");
+});
+
+test("a run that joins another mid-way is joined, one that ends nowhere is not", () => {
+  const top = col(-7);
+  const layout = {
+    lifts: [mkLift("A", "chair", col(9), top)],
+    pistes: [
+      mkPiste("main", "piste", run(-7, 9)),
+      // Leaves A's top westwards and comes back into the main run at col(1).
+      mkPiste("merge", "piste", [top, hex(-7, -5), hex(-7, -3), hex(-6, -1), col(1)]),
+      // Leaves A's top and stops on an open slope.
+      mkPiste("lost", "piste", [top, hex(-7, -5), hex(-8, -3), hex(-9, 1)]),
+    ],
+    ...base,
+  };
+  const { graph } = solve(layout);
+  const link = Object.fromEntries(graph.pistes.map((p) => [p.piste.id, p.link]));
+  assert.equal(link.main, "ok");
+  assert.equal(link.merge, "ok");
+  assert.equal(link.lost, "dead-end");
+  // The main run is split where the other one joins it.
+  assert.equal(graph.pistes[0]!.segments.length, 2);
+});
+
+test("guests use a run that only joins another mid-way", () => {
+  // B's top has a single way down: into the main run of A, half-way.
+  const layout = {
+    lifts: [mkLift("A", "chair", col(9), col(-7)), mkLift("B", "tbar", hex(-2, 6), hex(-8, -3))],
+    pistes: [
+      mkPiste("main", "piste", run(-7, 9)),
+      mkPiste("feeder", "piste", [hex(-8, -3), hex(-7, -2), hex(-6, -1), hex(-5, 0), col(1)]),
+    ],
+    ...base,
+  };
+  const { graph } = solve(layout);
+  graph.addLaps(500);
+  assert.equal(graph.lifts[1]!.link, "ok");
+  assert.equal(graph.pistes[1]!.link, "ok");
+  assert.ok(pisteUse(graph.net, graph.pistes[1]!) > 0, "guests ski the feeder");
+});
+
+test("junctions are found mid-run only, never right beside the run's own ends", () => {
+  const hexes = run(-7, 9);
+  assert.deepEqual(junctionsOn(hexes, [col(1)]), [8]);
+  // Beside the top: the top already joins it.
+  assert.deepEqual(junctionsOn(hexes, [col(-6)]), []);
+  // Too far off to the side.
+  assert.deepEqual(junctionsOn(hexes, [hex(VILLAGE_HEX.q + 5, 1)]), []);
 });

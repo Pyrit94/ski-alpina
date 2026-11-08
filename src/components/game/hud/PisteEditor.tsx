@@ -31,6 +31,7 @@ import {
   undoPisteStep,
   usePisteEditor,
 } from "@/lib/game/piste-editor";
+import { useResortLinks } from "@/lib/game/links";
 import { useGame } from "@/lib/game/store";
 import { useIsDesktop } from "@/lib/game/use-breakpoint";
 
@@ -47,7 +48,7 @@ const slopeAt = (h: Axial) => {
 const ANCHOR_LABEL: Record<Anchor["kind"], string> = {
   "lift-top": "Bergstation",
   "lift-base": "Talstation",
-  piste: "andere Piste",
+  piste: "Piste",
   village: "Dorf",
   exit: "Parkhaus/Hotel",
 };
@@ -221,10 +222,12 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
   const canRoute = buildItem !== "road";
   const routing = canRoute && mode === "route";
 
-  const links = useMemo(
-    () => (ski && draft.length > 0 ? pisteLinks({ ...useGame.getState(), lifts, pistes, buildings }, getDem(), draft) : null),
-    [ski, draft, lifts, pistes, buildings],
-  );
+  const joined = useResortLinks();
+  const links = useMemo(() => {
+    if (!ski || draft.length === 0) return null;
+    const deadEnds = new Set([...joined].filter(([, v]) => v === "dead-end").map(([k]) => k));
+    return pisteLinks({ ...useGame.getState(), lifts, pistes, buildings }, getDem(), draft, deadEnds);
+  }, [ski, draft, lifts, pistes, buildings, joined]);
   const blocker = active ? finishBlocker(draft, coins, width) : null;
 
   // The editor forgets its strokes when it closes or the item changes;
@@ -272,7 +275,7 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
         : "Bergstation antippen und talwärts ziehen"
       : stampMode
         ? "Raster talwärts schieben, Feld für Feld setzen"
-        : "Weiter talwärts ziehen oder tippen, dann «Fertig»";
+        : "Weiter talwärts ziehen oder tippen, dann «Bauen»";
 
   const fertig = (
     <button
@@ -282,7 +285,7 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
       title={blocker ?? "Piste bauen (Enter)"}
       className="flex h-11 min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-full bg-success px-2.5 text-[13px] font-semibold text-panel disabled:bg-muted/40 disabled:text-panel/90"
     >
-      <Check className="size-4 shrink-0" /> Fertig
+      <Check className="size-4 shrink-0" /> Bauen
     </button>
   );
   const zurueck = (
@@ -394,7 +397,7 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
           <LinkLine ok={links.start !== null} okText="Start verbunden" badText="Start ohne Bergstation" />
           {draft.length >= 2 && (
-            <LinkLine ok={links.end !== null} okText="Ende verbunden" badText="Ende ohne Talstation" />
+            <LinkLine ok={links.end !== null} okText="Ende verbunden" badText="Ende führt nirgends hin" />
           )}
         </div>
       )}
@@ -403,13 +406,13 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
           <LinkLine
             ok={links.start !== null}
             okText={`Start verbunden: ${links.start ? ANCHOR_LABEL[links.start.kind] : ""}`}
-            badText="Start liegt bei keiner Bergstation – hier kommen keine Gäste an"
+            badText="Start bei keiner Bergstation und keiner Piste – hier kommt niemand an"
           />
           {draft.length >= 2 && (
             <LinkLine
               ok={links.end !== null}
               okText={`Ende verbunden: ${links.end ? ANCHOR_LABEL[links.end.kind] : ""}`}
-              badText="Ende liegt nicht bei einer Talstation – Gäste kommen hier nicht weg"
+              badText="Ende bei keiner Talstation, keinem Dorf und keiner Piste – zieh weiter"
             />
           )}
         </div>
@@ -448,7 +451,7 @@ export function PisteEditor({ compact = false }: { compact?: boolean }) {
             {fertig}
           </div>
           {blocker && draft.length > 0 && (
-            <div className="mt-1 text-center text-[10px] text-muted">Fertig nicht möglich: {blocker}</div>
+            <div className="mt-1 text-center text-[10px] text-muted">Bauen nicht möglich: {blocker}</div>
           )}
         </>
       )}

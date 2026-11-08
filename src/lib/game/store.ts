@@ -20,7 +20,7 @@ import type { Category, ItemId } from "../../../packages/config/src/ids.ts";
 import { connectGame, loadName, saveName } from "./net";
 import { play } from "./sound";
 import { finishPisteDraft, pisteClick } from "./piste-editor";
-import { emptyResort } from "@ski/shared";
+import { emptyResort, TUTORIAL_STEPS } from "@ski/shared";
 import type { NotificationItem } from "./types";
 
 type Net = ReturnType<typeof connectGame>;
@@ -510,8 +510,8 @@ export const useGame = create<GameStore>((set, get) => ({
   },
   nextTutorial: () => {
     set((s) => ({
-      tutorialStep: Math.min(3, s.tutorialStep + 1),
-      tutorialOpen: s.tutorialStep + 1 < 4,
+      tutorialStep: Math.min(TUTORIAL_STEPS - 1, s.tutorialStep + 1),
+      tutorialOpen: s.tutorialStep + 1 < TUTORIAL_STEPS,
     }));
     net?.sendIntent({ type: "next_tutorial" });
   },

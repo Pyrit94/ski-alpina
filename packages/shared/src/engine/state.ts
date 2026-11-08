@@ -101,6 +101,9 @@ export const DEFAULT_WEATHER: WeatherState = {
   label: "Klar, Pulver",
 };
 
+/** Steps of the first-game tutorial: lift up, run down, guests ride. */
+export const TUTORIAL_STEPS = 3;
+
 export function emptyResort(roomId = "zermatt"): ResortState {
   return {
     version: SAVE_VERSION,

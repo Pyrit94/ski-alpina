@@ -61,6 +61,7 @@ export {
   DEFAULT_MATCH_OPTIONS,
   emptyResearch,
   emptyResort,
+  TUTORIAL_STEPS,
   entityCost,
   findEntity,
   migrateResort,
@@ -85,7 +86,10 @@ export type { PisteWidthDef } from "./engine/piste-width.ts";
 export { applyIntent } from "./engine/apply.ts";
 export type { Applied } from "./engine/apply.ts";
 export { tickFlow, nearestStation, worldElev } from "./engine/flow.ts";
-export { buildResortGraph, clusterPorts, VILLAGE_HEX } from "./engine/graph.ts";
+export { buildResortGraph, clusterPorts, junctionsOn, pisteUse, villageReaches, VILLAGE_HEX } from "./engine/graph.ts";
+export type { LiftLink, PisteLink } from "./engine/graph.ts";
+export { descentGoals, liftEnds, resortLinks, suggestDescent } from "./engine/descent.ts";
+export type { EdgeLink } from "./engine/descent.ts";
 export type { DemandSource, GraphInput, LiftEdge, PisteEdge, ResortGraph } from "./engine/graph.ts";
 export { FlowNetwork, UNCAPPED } from "./engine/maxflow.ts";
 export { tickResort } from "./engine/tick.ts";

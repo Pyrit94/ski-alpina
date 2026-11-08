@@ -45,6 +45,8 @@ import { ChatPanel, MarkButtons, MarkHint, UnreadBadge } from "./TeamHUD";
 import { ResearchPanel } from "./ResearchHUD";
 import { DuelStandings, MatchRulesPanel, MyPurseChip, RoleChooser, SecretGoalCard, VipCard, WalletPanel } from "./RulesHUD";
 import { useMyMoney } from "@/lib/game/team";
+import { DescentButton, DescentOffer, LinkStatus } from "./LinkStatus";
+import { LIFT_LINK_TEXT, useResortLinks } from "@/lib/game/links";
 import { PisteEditPanel, PisteEditor } from "./PisteEditor";
 import { useUnreadChat } from "@/lib/game/team";
 import { useBuildTerms } from "@/lib/game/research";
@@ -215,6 +217,7 @@ export function GameHUD() {
                 <EventCard />
                 <BuildHint />
                 <PisteEditor />
+                <DescentOffer />
               </div>
             )}
             {!desktop && <BuildHint />}
@@ -558,12 +561,13 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
   const [folded, setFolded] = useState(false);
   if (!open) return null;
   const copy = [
-    { t: "Der erste Lift", b: "Wähle den Schlepplift, setz die Talstation beim Dorf und die Bergstation weiter oben am Hang." },
-    { t: "Pisten zeichnen", b: "Wähle «Piste» und tippe von der Bergstation den Hang hinunter bis zurück ins Dorf. Das Gelände bestimmt Farbe und Preis." },
-    { t: "Gäste kommen wegen der Pisten", b: "Mehr Kilometer und mehr Abwechslung (blau, rot, schwarz) bringen mehr Gäste. Parkhäuser und Hotels lassen sie ins Tal." },
-    { t: "Zu zweit in Runden", b: "Startet eine Partie: Ihr baut gleichzeitig, dann drückt jede:r «Runde beenden» – das Spiel rechnet zehn Tage durch." },
+    { t: "Lift rauf", b: "Wähle «Sessellift». Tippe die Talstation beim Dorf, dann die Bergstation oben am Hang." },
+    { t: "Piste runter", b: "Tippe «Abfahrt anlegen». Die Piste folgt dem Hang zur nächsten Talstation, ins Dorf oder auf eine Piste. «Bauen» – fertig." },
+    { t: "Gäste fahren", b: "Zeigt der Lift «Verbunden ✓», kommen Gäste. Mehr Pisten in allen Farben bringen mehr Gäste." },
   ];
-  const c = copy[step] ?? copy[0]!;
+  const last = copy.length - 1;
+  const shown = Math.min(step, last);
+  const c = copy[shown]!;
 
   if (folded) {
     return (
@@ -575,7 +579,7 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
         >
           <span className="text-[10px] font-bold uppercase tracking-wide text-accent">Tutorial</span>
           <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-navy">{c.t}</span>
-          <span className="value shrink-0 text-[10px] font-bold text-muted">{step + 1}/4</span>
+          <span className="value shrink-0 text-[10px] font-bold text-muted">{shown + 1}/{copy.length}</span>
           <ChevronRight className="size-4 shrink-0 -rotate-90 text-muted" />
         </button>
       </Panel>
@@ -588,7 +592,7 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold uppercase tracking-wide text-accent">
-              Tutorial {step + 1}/4
+              Tutorial {shown + 1}/{copy.length}
             </div>
             <div className={`mt-0.5 font-semibold text-navy ${compact ? "text-[13px]" : "text-[14px]"}`}>{c.t}</div>
           </div>
@@ -612,11 +616,11 @@ function TutorialCard({ compact = false }: { compact?: boolean }) {
           </button>
           <button
             type="button"
-            onClick={step >= 3 ? dismiss : next}
+            onClick={step >= last ? dismiss : next}
             className="btn-3d flex h-10 flex-1 items-center justify-center gap-1 rounded-full bg-accent text-[13px] font-bold text-panel"
             style={{ ["--lip" as string]: "var(--color-accent-dark)" }}
           >
-            {step >= 3 ? "Loslegen" : "Weiter"} <ChevronRight className="size-4" />
+            {step >= last ? "Loslegen" : "Weiter"} <ChevronRight className="size-4" />
           </button>
         </div>
       </div>
@@ -801,12 +805,7 @@ function InfoPanel() {
         <Stat label="Ausgelastet" value={edge ? `${Math.round(load * 100)}%` : "—"} />
         <Stat label="Fahrten" value={edge ? `${fmt(Math.round(edge.flow))}/h` : "—"} />
       </div>
-      {edge && edge.flow <= 0 && (
-        <p className="mt-2 rounded-[12px] bg-danger/10 px-2 py-1.5 text-[11px] leading-snug text-danger">
-          Diese Anlage befördert niemanden. Sie hängt an keiner Abfahrt, die zurück ins Dorf
-          führt.
-        </p>
-      )}
+      {lift && <LinkStatus id={lift.id} kind="lift" />}
       {isLift(item.id) && (
         <div className="mt-3">
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Upgrades</div>
@@ -901,12 +900,7 @@ function PisteInfo({ piste, item }: { piste: PlacedPiste; item: CatalogItem }) {
           Zu: die Talseite dieser Abfahrt liegt unter der Schneegrenze von {fmt(stats.snowLineM)} m.
         </p>
       )}
-      {!closed && edge && edge.flow <= 0 && (
-        <p className="mt-2 rounded-[12px] bg-warn/12 px-2 py-1.5 text-[11px] leading-snug text-warn">
-          Auf dieser Abfahrt fährt niemand. Sie muss oben an eine Bahn und unten ans Dorf oder an
-          eine Talstation anschliessen.
-        </p>
-      )}
+      {!closed && piste.difficulty !== "road" && <LinkStatus id={piste.id} kind="piste" />}
       <BuiltByLine builtBy={piste.builtBy} />
       <PisteEditPanel key={piste.id} piste={piste} />
       <DemolishButton id={piste.id} refund={refundFor(item.cost * segments)} label={piste.name || item.name} />
@@ -1006,8 +1000,9 @@ function OperationsPanel() {
         )}
         {idle > 0 && (
           <Warning tone="bad">
-            {idle === 1 ? "Eine Anlage ist" : `${idle} Anlagen sind`} nicht angeschlossen und
-            befördert niemanden. Eine Bahn braucht eine Abfahrt zurück ins Dorf.
+            {idle === 1 ? "Eine Anlage hat" : `${idle} Anlagen haben`} keine Gäste. Tippe den Lift an
+            und wähle «Abfahrt anlegen» – eine Piste bis zu einer Talstation, ins Dorf oder auf eine
+            andere Piste genügt.
           </Warning>
         )}
         {stats.queued > 0 && idle === 0 && (
@@ -1342,7 +1337,7 @@ function CenterTools() {
   const phase = useGame((s) => s.phase);
   const cancel = useGame((s) => s.cancelBuild);
   const building = phase !== "idle";
-  // While building the editor card carries Fertig/Zurück/Abbrechen; the map
+  // While building the editor card carries Bauen/Zurück/Abbrechen; the map
   // layers and markers make room so the bar never runs over itself.
   return (
     <div className="pointer-events-auto absolute bottom-3 left-1/2 z-10 hidden max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1.5 lg:flex">
@@ -1509,7 +1504,7 @@ function MobileDock() {
                 disabled={draftLen < 2}
                 className="flex h-11 items-center gap-1 rounded-full bg-accent px-3.5 text-[12px] font-semibold text-panel disabled:opacity-45"
               >
-                <Check className="size-4" /> Fertig
+                <Check className="size-4" /> Bauen
               </button>
             )}
             <button
@@ -1642,6 +1637,8 @@ function MobileFloats() {
   // A selected run gets the same chip, so it can be renamed and widened on a phone.
   const run = pistes.find((p) => p.id === selectedId);
   const selectedItem = lift ? BY_ID[lift.itemId] : b ? BY_ID[b.itemId] : run ? BY_ID[run.itemId] : null;
+  const links = useResortLinks();
+  const liftLink = lift ? (links.get(lift.id) as keyof typeof LIFT_LINK_TEXT | undefined) : undefined;
 
   if (sheet !== "none") return null;
 
@@ -1651,6 +1648,11 @@ function MobileFloats() {
         <div className="flex justify-center">
           <RoleChooser />
           <EventCard />
+        </div>
+      )}
+      {phase !== "piste" && (
+        <div className="flex justify-center">
+          <DescentOffer />
         </div>
       )}
       {showTutorial && (
@@ -1667,7 +1669,17 @@ function MobileFloats() {
           <ItemThumb id={selectedItem.id} className="size-11 shrink-0 rounded-[12px]" iconClass="size-5" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-semibold text-navy">{run?.name || selectedItem.name}</span>
-            <span className="block text-[11px] text-muted">{run ? "Name, Breite und Details" : "Details und Upgrades"}</span>
+            <span className="block text-[11px] text-muted">
+              {liftLink ? (
+                <span className={liftLink === "ok" ? "font-semibold text-success" : "font-semibold text-warn"}>
+                  {LIFT_LINK_TEXT[liftLink].chip}
+                </span>
+              ) : run ? (
+                "Name, Breite und Details"
+              ) : (
+                "Details und Upgrades"
+              )}
+            </span>
           </span>
           <span
             role="button"
@@ -1681,6 +1693,11 @@ function MobileFloats() {
             <X className="size-4" />
           </span>
         </button>
+      )}
+      {showSelected && lift && liftLink === "no-descent" && (
+        <div className="toast-in pointer-events-auto">
+          <DescentButton liftId={lift.id} className="w-full shadow-[var(--shadow-panel)]" />
+        </div>
       )}
     </div>
   );

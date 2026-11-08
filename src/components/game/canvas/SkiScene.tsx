@@ -39,6 +39,7 @@ import { QUALITY, type QualityTier } from "./quality";
 import { useStableGame } from "./use-stable-game";
 import { CenterStamp, HexCursor, HexGhost, HexRaster, StampFlash } from "./HexBuildLayer";
 import { PisteNameLabel } from "./PisteDraftLayer";
+import { LinkHints } from "./LinkHints";
 import { RIBBON_SCALE, draftColors, usePisteStroke } from "./piste-draft";
 import { usePisteEditor } from "@/lib/game/piste-editor";
 
@@ -1798,6 +1799,7 @@ export function SkiScene() {
       <HexCursor />
       <HexGhost />
       <PisteNameLabel />
+      <LinkHints />
       <CenterStamp />
       <StampFlash />
       <PeerFocus />

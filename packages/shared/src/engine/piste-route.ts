@@ -118,10 +118,44 @@ export function routePiste(
   target: RouteTarget,
   options: RouteOptions = {},
 ): Axial[] | null {
-  const itemId = options.itemId ?? "piste";
   const maxSteps = Math.min(MAX_PISTE_HEXES, options.maxHexes ?? MAX_PISTE_HEXES) - 1;
   const span = hexDistance(start, end);
   if (span === 0 || span > maxSteps) return null;
+  return search(dem, start, [end], target, options);
+}
+
+/**
+ * Suggest a run from `start` down to whichever of `goals` is cheapest to
+ * reach — the same legal-line rules as `routePiste`, but the search stops at
+ * the first goal it settles, so "the nearest sensible place to end" is one
+ * search rather than one per candidate. Goals not below the start are
+ * ignored. Null when none can be reached.
+ */
+export function routeToAny(
+  dem: Dem,
+  start: Axial,
+  goals: readonly Axial[],
+  target: RouteTarget,
+  options: RouteOptions = {},
+): Axial[] | null {
+  const maxSteps = Math.min(MAX_PISTE_HEXES, options.maxHexes ?? MAX_PISTE_HEXES) - 1;
+  const near = goals.filter((g) => {
+    const d = hexDistance(start, g);
+    return d > 0 && d <= maxSteps;
+  });
+  if (near.length === 0) return null;
+  return search(dem, start, near, target, options);
+}
+
+function search(
+  dem: Dem,
+  start: Axial,
+  ends: readonly Axial[],
+  target: RouteTarget,
+  options: RouteOptions,
+): Axial[] | null {
+  const itemId = options.itemId ?? "piste";
+  const maxSteps = Math.min(MAX_PISTE_HEXES, options.maxHexes ?? MAX_PISTE_HEXES) - 1;
 
   const elevCache = new Map<number, number>();
   const slopeCache = new Map<number, number>();
@@ -145,18 +179,34 @@ export function routePiste(
     return s;
   };
   const startKey = keyOf(start.q, start.r);
-  const endKey = keyOf(end.q, end.r);
+  const endKeys = new Set(ends.map((e) => keyOf(e.q, e.r)));
   const ok = (q: number, r: number, k: number) => {
     let v = okCache.get(k);
     if (v === undefined) {
       v = validateGround(dem, q, r, itemId).ok;
-      if (v && options.avoid && k !== startKey && k !== endKey && options.avoid.has(`${q},${r}`)) v = false;
+      if (v && options.avoid && k !== startKey && !endKeys.has(k) && options.avoid.has(`${q},${r}`)) v = false;
       okCache.set(k, v);
     }
     return v;
   };
-  if (!ok(start.q, start.r, startKey) || !ok(end.q, end.r, endKey)) return null;
-  if (elev(end.q, end.r, endKey) >= elev(start.q, start.r, startKey)) return null;
+  if (!ok(start.q, start.r, startKey)) return null;
+  const startElev = elev(start.q, start.r, startKey);
+  // Only goals the ground allows and that lie below the start can end a run.
+  const goals = ends.filter((e) => {
+    const k = keyOf(e.q, e.r);
+    return k !== startKey && ok(e.q, e.r, k) && elev(e.q, e.r, k) < startElev;
+  });
+  if (goals.length === 0) return null;
+  const goalKeys = new Set(goals.map((e) => keyOf(e.q, e.r)));
+  // Distance to the nearest goal: admissible, and exact for a single end.
+  const toGoal = (hex: Axial) => {
+    let best = Infinity;
+    for (const g of goals) {
+      const d = hexDistance(hex, g);
+      if (d < best) best = d;
+    }
+    return best;
+  };
 
   const graded = itemId === "piste" && target !== "any";
   const want = graded ? gradeIndex(target) : 0;
@@ -171,14 +221,14 @@ export function routePiste(
     g.set(startKey, 0);
     steps.set(startKey, 0);
     coords.set(startKey, start);
-    heap.push(startKey, span * stepWeight);
-    let found = false;
+    heap.push(startKey, toGoal(start) * stepWeight);
+    let found = -1;
     while (heap.size > 0) {
       const k = heap.pop();
       if (closed.has(k)) continue;
       closed.add(k);
-      if (k === endKey) {
-        found = true;
+      if (goalKeys.has(k)) {
+        found = k;
         break;
       }
       const cur = coords.get(k)!;
@@ -194,7 +244,8 @@ export function routePiste(
         if (closed.has(nk)) continue;
         const next = { q: nq, r: nr };
         // Any line through here would be too long to submit.
-        if (sk + 1 + hexDistance(next, end) > maxSteps) continue;
+        const left = toGoal(next);
+        if (sk + 1 + left > maxSteps) continue;
         if (!ok(nq, nr, nk)) continue;
         const rise = elev(nq, nr, nk) - ek;
         if (rise > FLOW.pisteRiseTolerance) continue;
@@ -214,12 +265,12 @@ export function routePiste(
         steps.set(nk, sk + 1);
         parent.set(nk, k);
         coords.set(nk, next);
-        heap.push(nk, ng + hexDistance(next, end) * stepWeight);
+        heap.push(nk, ng + left * stepWeight);
       }
     }
-    if (!found) continue;
+    if (found < 0) continue;
     const path: Axial[] = [];
-    for (let k: number | undefined = endKey; k !== undefined; k = parent.get(k)) {
+    for (let k: number | undefined = found; k !== undefined; k = parent.get(k)) {
       path.push(coords.get(k)!);
       if (k === startKey) break;
     }
