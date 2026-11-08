@@ -61,8 +61,28 @@ export function snapshotOf(room: GameRoom): ServerMessage {
 }
 
 export function broadcastTo<S extends Socketish>(hub: Hub<S>, roomId: string, msg: ServerMessage): void {
-  for (const b of hub.bindings) if (b.roomId === roomId) sendTo(b.socket, msg);
+  // Serialised once for the whole room, not once per player.
+  let data: string | null = null;
+  for (const b of hub.bindings) {
+    if (b.roomId !== roomId) continue;
+    data ??= JSON.stringify(msg);
+    try {
+      b.socket.send(data);
+    } catch {
+      // A socket closing mid-send is not the room's problem.
+    }
+  }
 }
+
+/** The shared room anyone may open without an invitation (the classic valley). */
+export const OPEN_ROOM = "zermatt";
+
+/**
+ * How many messages one socket may send: a burst of `burst`, then `perSecond`.
+ * Far above what playing produces (a ping every few seconds, a build now and
+ * then), far below what would let one socket keep the server busy.
+ */
+export const RATE = { burst: 60, perSecond: 20 } as const;
 
 /** One socket's message handler and its clean-up. */
 export function connect<S extends Socketish>(
@@ -74,7 +94,37 @@ export function connect<S extends Socketish>(
   const send = (msg: ServerMessage) => sendTo(socket, msg);
   const broadcast = (roomId: string, msg: ServerMessage) => broadcastTo(hub, roomId, msg);
 
+  let tokens: number = RATE.burst;
+  let refilled = Date.now();
+  let warned = 0;
+  const allowed = () => {
+    const now = Date.now();
+    tokens = Math.min(RATE.burst, tokens + ((now - refilled) / 1000) * RATE.perSecond);
+    refilled = now;
+    if (tokens < 1) {
+      if (now - warned > 1000) {
+        warned = now;
+        send({ type: "error", reason: "Zu viele Nachrichten – kurz warten", code: "invalid" });
+      }
+      return false;
+    }
+    tokens -= 1;
+    return true;
+  };
+
+  // Nothing one message does may take the server down: whatever throws is
+  // logged and answered, and every other game carries on.
   const onMessage = (raw: string) => {
+    if (!allowed()) return;
+    try {
+      handle(raw);
+    } catch (err) {
+      hub.log("message", err);
+      send({ type: "error", reason: "Das ging nicht", code: "invalid" });
+    }
+  };
+
+  const handle = (raw: string) => {
     let parsed: ReturnType<typeof ClientMessageSchema.safeParse>;
     try {
       parsed = ClientMessageSchema.safeParse(JSON.parse(raw));
@@ -124,6 +174,12 @@ export function connect<S extends Socketish>(
         return;
       }
       const existing = hub.rooms.get(msg.roomId);
+      // New games come from the lobby («Neues Spiel»), not from joining a
+      // made-up id, which would otherwise create and save one each time.
+      if (!existing && msg.roomId !== OPEN_ROOM) {
+        send({ type: "error", reason: "Dieses Spiel gibt es nicht", code: "invalid" });
+        return;
+      }
       if (existing && !canSee(existing.meta, identity?.userId ?? null)) {
         send({ type: "error", reason: "Dieses Spiel gehört jemand anderem", code: "rights" });
         return;

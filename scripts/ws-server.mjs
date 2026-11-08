@@ -140,17 +140,26 @@ async function persist() {
  * means there is exactly one implementation of "who is signed in".
  */
 async function sessionFor(cookie) {
+  const found = await lookupSession(cookie);
+  return found === UNKNOWN ? null : found;
+}
+
+/** The app could not be asked (restarting, overloaded): neither yes nor no. */
+const UNKNOWN = Symbol("unknown");
+
+async function lookupSession(cookie) {
   if (!cookie) return null;
   try {
     const res = await fetch(`http://127.0.0.1:${APP_PORT}/api/auth/get-session`, {
       headers: { cookie, accept: "application/json" },
       signal: AbortSignal.timeout(4000),
     });
+    if (res.status >= 500) return UNKNOWN;
     if (!res.ok) return null;
     const body = await res.json();
     return body?.user ?? null;
   } catch {
-    return null;
+    return UNKNOWN;
   }
 }
 
@@ -209,11 +218,48 @@ const http = createServer((req, res) => {
   res.end(req.url === "/health" ? "ok" : "not found");
 });
 
-const wss = new WebSocketServer({ noServer: true });
+// A snapshot is ~20 KB of JSON and compresses about six times; nothing a
+// player sends comes near 2 MB (an imported resort file is the biggest).
+const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: { threshold: 1024 } });
+
+/**
+ * Hostnames a browser may open the socket from: the public URL, its
+ * `ALLOWED_HOSTS` aliases and this machine. A page on another site — even a
+ * sibling subdomain, which the Lax session cookie still covers — must not be
+ * able to play, load or delete in someone's name.
+ */
+function allowedOrigins(env) {
+  const hosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+  try {
+    if (env.BETTER_AUTH_URL?.trim()) hosts.add(new URL(env.BETTER_AUTH_URL.trim()).hostname);
+  } catch {
+    // Not a URL: the app warns about that itself.
+  }
+  for (const part of (env.ALLOWED_HOSTS ?? "").split(/[,;\s]+/)) if (part) hosts.add(part.toLowerCase());
+  return hosts;
+}
+const ORIGINS = allowedOrigins(process.env);
+const originOk = (origin) => {
+  // Browsers always send one on a WebSocket; tools without one hold no victim's cookie.
+  if (!origin) return true;
+  try {
+    return ORIGINS.has(new URL(origin).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+};
+
+/** Each open socket's cookie, so a sign-out or a removal from the roster can close it. */
+const cookies = new Map();
 
 http.on("upgrade", (req, socket, head) => {
   if (!(req.url ?? "").startsWith("/ws")) {
     socket.destroy();
+    return;
+  }
+  if (!originOk(req.headers.origin)) {
+    console.warn(`[ws] refused upgrade from origin ${req.headers.origin}`);
+    refuse(socket, 403, "Fremde Herkunft");
     return;
   }
   const gate = rosterGate(process.env);
@@ -238,9 +284,30 @@ wss.on("connection", (ws, _req, identity) => {
   // Only open sockets are written to; the shared handler sends through this.
   const socket = { send: (data) => ws.readyState === WebSocket.OPEN && ws.send(data) };
   const conn = connect(hub, socket, identity);
+  cookies.set(ws, _req.headers.cookie);
   ws.on("message", (raw) => conn.onMessage(raw.toString()));
-  ws.on("close", () => conn.close());
+  ws.on("close", () => {
+    cookies.delete(ws);
+    conn.close();
+  });
 });
+
+/**
+ * Signed out, or taken off ALLOWED_EMAILS: the socket goes too. Checked every
+ * few minutes rather than per message, which would ask the app on every tap.
+ */
+const RECHECK_MS = 5 * 60 * 1000;
+setInterval(() => {
+  const gate = rosterGate(process.env);
+  if (!gate.enforced) return;
+  for (const [ws, cookie] of cookies) {
+    void lookupSession(cookie).then((user) => {
+      // A hiccup of the app is not a sign-out: only a clear no closes the socket.
+      if (user === UNKNOWN) return;
+      if (!user || !rosterAdmits(gate, user.email)) ws.close(4401, "Abgemeldet");
+    });
+  }
+}, RECHECK_MS).unref?.();
 
 setInterval(() => {
   for (const room of rooms.values()) {

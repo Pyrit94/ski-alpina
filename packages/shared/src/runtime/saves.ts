@@ -1,4 +1,5 @@
 import { setNeighbourMode } from "../engine/neighbours.ts";
+import { cleanImport } from "./snapshot.ts";
 import { createId } from "../ids.ts";
 import type { ResortState } from "../types.ts";
 import type { ClientMessage, ServerMessage } from "../protocol/intents.ts";
@@ -242,6 +243,14 @@ export interface LobbyContext {
   isBlocked?: (id: string) => boolean;
 }
 
+/**
+ * Games a server holds at most. Every room is ticked and saved every few
+ * seconds, so «Neues Spiel» in a loop must not be able to grow that forever.
+ */
+export const MAX_GAMES = 200;
+const TOO_MANY_GAMES = "Auf diesem Server sind schon zu viele Spiele";
+const tooManyGames = (ctx: LobbyContext) => ctx.rooms.size >= MAX_GAMES;
+
 /** Every game this account may see, with its saves, newest activity first. */
 export async function listGames(ctx: LobbyContext): Promise<GameInfo[]> {
   const visible = [...ctx.rooms.values()].filter(
@@ -251,7 +260,8 @@ export async function listGames(ctx: LobbyContext): Promise<GameInfo[]> {
   return visible
     .map((r) => ({
       id: r.state.roomId,
-      name: r.state.resortName,
+      // A name is text, whatever a file once put there.
+      name: typeof r.state.resortName === "string" ? r.state.resortName : "Skigebiet",
       kind: r.meta.kind,
       region: r.state.region ?? CLASSIC_REGION,
       mine: r.meta.kind === "own" && r.meta.owner !== null && r.meta.owner === ctx.userId,
@@ -284,6 +294,7 @@ export async function handleLobby(msg: LobbyMessage, ctx: LobbyContext): Promise
   }
 
   if (msg.type === "create_game") {
+    if (tooManyGames(ctx)) return fail(TOO_MANY_GAMES);
     const kind = msg.kind;
     const id = createId(kind === "shared" ? "g" : "own");
     const region = msg.region && knownRegion(msg.region) ? msg.region : CLASSIC_REGION;
@@ -299,16 +310,19 @@ export async function handleLobby(msg: LobbyMessage, ctx: LobbyContext): Promise
 
   if (msg.type === "import_game") {
     // A file someone exported: a new game on its map, nothing else replaced.
-    const snap = msg.snapshot as Partial<ResortState>;
-    if (!Array.isArray(snap.lifts) || !Array.isArray(snap.buildings) || !Array.isArray(snap.pistes)) {
-      return fail("Diese Datei ist kein Spielstand von Ski Alpina");
-    }
+    // Checked hard first: the server trusts the state it holds (see cleanImport).
+    if (tooManyGames(ctx)) return fail(TOO_MANY_GAMES);
+    const checked = cleanImport(msg.snapshot);
+    if (!checked.ok) return fail(checked.reason);
+    const snap = checked.state;
     const kind = msg.kind;
     const id = createId(kind === "shared" ? "g" : "own");
     const region = typeof snap.region === "string" && knownRegion(snap.region) ? snap.region : CLASSIC_REGION;
     const room = ctx.createRoom(id, { kind, owner: kind === "own" ? ctx.userId : null }, region);
     try {
       room.restore({ ...(snap as ResortState), roomId: id, region });
+      // Neighbours are laid out afresh on the map, as for a new game.
+      if (snap.neighbours) room.state = setNeighbourMode({ ...room.state, neighbours: undefined }, room.dem, snap.neighbours.mode, Date.now());
     } catch {
       ctx.rooms.delete(id);
       return fail("Dieser Spielstand liess sich nicht lesen");

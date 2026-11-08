@@ -11,6 +11,7 @@ import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { appEnvPlugin } from "./scripts/app-env-plugin.mjs";
 import { isMigrationFile } from "./scripts/migration-plan.mjs";
+import { serveHeadersPlugin } from "./scripts/serve-headers.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -241,6 +242,8 @@ export default defineConfig(({ command, isPreview }) => ({
     appEnvPlugin(),
     // PWA head + ?install=1 tutorial page; runs before Start/Nitro.
     grokPwaPlugin(),
+    // Caching and hardening headers for the production server.
+    serveHeadersPlugin(),
     tailwindcss(),
     tanstackStart(),
     ...(command === "build" || isPreview
