@@ -4,6 +4,7 @@ import { TERRAIN } from "@ski/config";
 import { authEnabled, signIn, signOut } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { loadName, saveName } from "@/lib/game/net";
+import { pageInvite } from "@/lib/game/invite";
 import { GamePicker, type StartStep } from "./GamePicker";
 
 const noSubscribe = () => () => {};
@@ -35,6 +36,8 @@ export function StartScreen() {
   const [editing, setEditName] = useState(false);
   const editName = editing || typed !== null || stored === "Gast";
   const home = step === "home";
+  // An invitation link (?spiel=…): read once in the browser, the address cleaned at once.
+  const invite = useSyncExternalStore(noSubscribe, pageInvite, () => null);
   return (
     <main className="relative isolate min-h-dvh w-full overflow-hidden bg-navy" style={{ color: "#F5FAFE" }}>
       {/* WebP at the width the screen needs: 70 KB on a phone instead of 860. */}
@@ -83,6 +86,11 @@ export function StartScreen() {
           )}
           {needsSignIn ? (
             <div className="mt-6 flex w-full flex-col gap-3 sm:max-w-md">
+              {invite && (
+                <p className="text-[14px] font-semibold text-snow">
+                  Du bist in ein Skigebiet eingeladen. Melde dich an, dann geht es direkt los.
+                </p>
+              )}
               <button
                 type="button"
                 disabled={isPending || busy}
@@ -138,7 +146,7 @@ export function StartScreen() {
                   </button>
                 </p>
               )}
-              <GamePicker playerName={playerName.trim() || "Gast"} step={step} onStep={setStep} />
+              <GamePicker playerName={playerName.trim() || "Gast"} step={step} onStep={setStep} invite={invite} />
             </>
           )}
           {home && <p className="mt-4 text-[11px] leading-snug text-ice/80">{TERRAIN.attribution}</p>}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { VILLAGE_HEX } from "../engine/graph.ts";
-import type { ServerMessage } from "../protocol/intents.ts";
+import { ClientMessageSchema, type ServerMessage } from "../protocol/intents.ts";
 import { GameRoom } from "./room.ts";
 import { emptyResort } from "../engine/state.ts";
 import { getDem, loadRegion } from "../terrain/dem.ts";
@@ -37,7 +37,7 @@ function server() {
       boundRoomId,
       send: (m) => sent.push(m),
       broadcast: (roomId, msg) => broadcasts.push({ roomId, msg }),
-      snapshotOf: (r) => ({ type: "snapshot", seq: r.seq, state: r.snapshot(), players: r.presence() }),
+      publish: (r) => broadcasts.push({ roomId: r.state.roomId, msg: { type: "snapshot", seq: r.seq, state: r.snapshot(), players: r.presence() } }),
     };
     return { c, sent };
   };
@@ -181,4 +181,34 @@ test("a new game has neighbour ski areas unless they are switched off", async ()
   assert.ok((withN.state.neighbours?.list.length ?? 0) > 0);
   assert.equal(without.state.neighbours?.mode, "off");
   assert.equal(without.state.neighbours?.list.length ?? 0, 0);
+});
+
+test("only the owner can share an own game, and then everyone sees it", async () => {
+  const s = server();
+  await s.ask("michael", { type: "create_game", kind: "own", name: "Privat" });
+  const id = [...s.rooms.keys()][0]!;
+  // Someone else: refused, and nothing changes.
+  const other = await s.ask("johanna", { type: "share_game", gameId: id });
+  const refusal = other.sent.find((m) => m.type === "error");
+  assert.ok(refusal && refusal.type === "error" && refusal.code === "rights");
+  assert.equal(s.rooms.get(id)!.meta.kind, "own");
+  assert.equal((await s.ask("johanna", { type: "list_games" })).games.length, 0);
+  // Without an account at all: refused too.
+  assert.ok((await s.ask(null, { type: "share_game", gameId: id })).sent.some((m) => m.type === "error"));
+  // The owner: shared, the owner kept, and now on the other's list.
+  const mine = await s.ask("michael", { type: "share_game", gameId: id });
+  assert.ok(!mine.sent.some((m) => m.type === "error"));
+  assert.deepEqual(s.rooms.get(id)!.meta, { kind: "shared", owner: "michael" });
+  assert.deepEqual((await s.ask("johanna", { type: "list_games" })).games.map((g) => g.id), [id]);
+  assert.ok(s.broadcasts.some((b) => b.roomId === id && b.msg.type === "event" && b.msg.title === "Spiel freigegeben"));
+  // Sharing a shared game again is harmless; a missing one is an error.
+  assert.ok(!(await s.ask("johanna", { type: "share_game", gameId: id })).sent.some((m) => m.type === "error"));
+  assert.ok((await s.ask("michael", { type: "share_game", gameId: "g_nope" })).sent.some((m) => m.type === "error"));
+});
+
+test("share_game is validated: the game id must look like one", () => {
+  assert.ok(ClientMessageSchema.safeParse({ type: "share_game", gameId: "own_abc123" }).success);
+  assert.ok(!ClientMessageSchema.safeParse({ type: "share_game", gameId: "../etc" }).success);
+  assert.ok(!ClientMessageSchema.safeParse({ type: "share_game" }).success);
+  assert.ok(!ClientMessageSchema.safeParse({ type: "share_game", gameId: "x".repeat(41) }).success);
 });

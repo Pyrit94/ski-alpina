@@ -233,6 +233,9 @@ export const IntentSchema = z.discriminatedUnion("type", [
 
 export type Intent = z.infer<typeof IntentSchema>;
 
+/** A game's id as the server makes them («g_…», «own_…», or the open «zermatt»). */
+export const GameIdSchema = z.string().regex(/^[A-Za-z0-9_-]{2,40}$/);
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("join"),
@@ -296,9 +299,28 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     snapshot: z.record(z.string(), z.unknown()),
   }),
   z.object({ type: z.literal("delete_save"), reqId: z.string().max(40).optional(), saveId: z.string().min(2).max(40) }),
+  // Turn an own («Allein») game into a shared one, so an invitation can be
+  // followed. Only the account that owns it may (runtime/saves.ts).
+  z.object({ type: z.literal("share_game"), reqId: z.string().max(40).optional(), gameId: GameIdSchema }),
+  // Lost the thread of patches (runtime/stream.ts): send the whole state again.
+  z.object({ type: z.literal("resync") }),
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
+
+const PresenceListSchema = z.array(
+  z.object({
+    id: z.string(),
+    name: z.string(),
+    role: z.enum(["builder", "visitor"]),
+    lastSeen: z.number(),
+    focus: AxialSchema.nullable().optional(),
+    mark: z
+      .object({ hex: AxialSchema, kind: z.enum(["look", "build", "warn"]), at: z.number() })
+      .nullable()
+      .optional(),
+  }),
+);
 
 export const ServerMessageSchema = z.discriminatedUnion("type", [
   z.object({
@@ -311,19 +333,18 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("snapshot"),
     seq: z.number(),
     state: z.unknown(),
-    players: z.array(
-      z.object({
-        id: z.string(),
-        name: z.string(),
-        role: z.enum(["builder", "visitor"]),
-        lastSeen: z.number(),
-        focus: AxialSchema.nullable().optional(),
-        mark: z
-          .object({ hex: AxialSchema, kind: z.enum(["look", "build", "warn"]), at: z.number() })
-          .nullable()
-          .optional(),
-      }),
-    ),
+    players: PresenceListSchema,
+  }),
+  // Only the top-level fields of the resort that changed since update
+  // `seq - 1` (see runtime/stream.ts). A client holding another update asks
+  // for a `resync` instead of applying it.
+  z.object({
+    type: z.literal("patch"),
+    seq: z.number().int(),
+    fields: z.record(z.string(), z.unknown()),
+    /** Top-level fields that are gone (optional ones set back to nothing). */
+    removed: z.array(z.string()).optional(),
+    players: PresenceListSchema,
   }),
   z.object({
     type: z.literal("event"),
